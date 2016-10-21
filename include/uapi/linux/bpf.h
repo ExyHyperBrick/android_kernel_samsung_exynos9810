@@ -492,8 +492,8 @@ enum bpf_func_id {
 	BPF_FUNC_set_hash_invalid,
 
 	/**
-	 * int bpf_get_numa_node_id()
-	 *     Return: Id of current NUMA node.
+	 * bpf_get_numa_node_id()
+	 * Returns the id of the current NUMA node.
 	 */
 	BPF_FUNC_get_numa_node_id,
 
