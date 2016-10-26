@@ -5606,12 +5606,12 @@ struct net_device *netdev_all_lower_get_next(struct net_device *dev, struct list
 {
 	struct netdev_adjacent *lower;
 
-	lower = list_entry(*iter, struct netdev_adjacent, list);
+	lower = list_entry((*iter)->next, struct netdev_adjacent, list);
 
 	if (&lower->list == &dev->all_adj_list.lower)
 		return NULL;
 
-	*iter = lower->list.next;
+	*iter = &lower->list;
 
 	return lower->dev;
 }
