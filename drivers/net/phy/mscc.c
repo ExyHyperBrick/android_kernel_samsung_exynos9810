@@ -66,7 +66,9 @@ enum rgmii_rx_clock_delay {
 #define SECURE_ON_PASSWD_LEN_4		  0x4000
 
 /* Microsemi PHY ID's */
+#define PHY_ID_VSC8530			  0x00070560
 #define PHY_ID_VSC8531			  0x00070570
+#define PHY_ID_VSC8540			  0x00070760
 #define PHY_ID_VSC8541			  0x00070770
 
 struct edge_rate_table {
@@ -410,6 +412,25 @@ static int vsc85xx_probe(struct phy_device *phydev)
 /* Microsemi VSC85xx PHYs */
 static struct phy_driver vsc85xx_driver[] = {
 {
+	.phy_id		= PHY_ID_VSC8530,
+	.name		= "Microsemi FE VSC8530",
+	.phy_id_mask	= 0xfffffff0,
+	.features	= PHY_BASIC_FEATURES,
+	.flags		= PHY_HAS_INTERRUPT,
+	.soft_reset	= &genphy_soft_reset,
+	.config_init	= &vsc85xx_config_init,
+	.config_aneg	= &genphy_config_aneg,
+	.aneg_done	= &genphy_aneg_done,
+	.read_status	= &genphy_read_status,
+	.ack_interrupt	= &vsc85xx_ack_interrupt,
+	.config_intr	= &vsc85xx_config_intr,
+	.suspend	= &genphy_suspend,
+	.resume		= &genphy_resume,
+	.probe		= &vsc85xx_probe,
+	.set_wol	= &vsc85xx_wol_set,
+	.get_wol	= &vsc85xx_wol_get,
+},
+{
 	.phy_id		= PHY_ID_VSC8531,
 	.name		= "Microsemi VSC8531",
 	.phy_id_mask    = 0xfffffff0,
@@ -427,6 +448,25 @@ static struct phy_driver vsc85xx_driver[] = {
 	.probe          = &vsc85xx_probe,
 	.set_wol        = &vsc85xx_wol_set,
 	.get_wol        = &vsc85xx_wol_get,
+},
+{
+	.phy_id		= PHY_ID_VSC8540,
+	.name		= "Microsemi FE VSC8540 SyncE",
+	.phy_id_mask	= 0xfffffff0,
+	.features	= PHY_BASIC_FEATURES,
+	.flags		= PHY_HAS_INTERRUPT,
+	.soft_reset	= &genphy_soft_reset,
+	.config_init	= &vsc85xx_config_init,
+	.config_aneg	= &genphy_config_aneg,
+	.aneg_done	= &genphy_aneg_done,
+	.read_status	= &genphy_read_status,
+	.ack_interrupt	= &vsc85xx_ack_interrupt,
+	.config_intr	= &vsc85xx_config_intr,
+	.suspend	= &genphy_suspend,
+	.resume		= &genphy_resume,
+	.probe		= &vsc85xx_probe,
+	.set_wol	= &vsc85xx_wol_set,
+	.get_wol	= &vsc85xx_wol_get,
 },
 {
 	.phy_id		= PHY_ID_VSC8541,
@@ -453,7 +493,9 @@ static struct phy_driver vsc85xx_driver[] = {
 module_phy_driver(vsc85xx_driver);
 
 static struct mdio_device_id __maybe_unused vsc85xx_tbl[] = {
+	{ PHY_ID_VSC8530, 0xfffffff0, },
 	{ PHY_ID_VSC8531, 0xfffffff0, },
+	{ PHY_ID_VSC8540, 0xfffffff0, },
 	{ PHY_ID_VSC8541, 0xfffffff0, },
 	{ }
 };
