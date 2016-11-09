@@ -3410,8 +3410,11 @@ int mlx4_en_reset_config(struct net_device *dev,
 	memcpy(&new_prof.hwtstamp_config, &ts_config, sizeof(ts_config));
 
 	err = mlx4_en_try_alloc_resources(priv, tmp, &new_prof);
-	if (err)
+	if (err) {
+		if (prog)
+			bpf_prog_sub(prog, priv->rx_ring_num - 1);
 		goto out;
+	}
 
 	if (priv->port_up) {
 		port_up = 1;
