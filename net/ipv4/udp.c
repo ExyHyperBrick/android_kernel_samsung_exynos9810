@@ -1259,13 +1259,14 @@ drop:
 }
 EXPORT_SYMBOL_GPL(__udp_enqueue_schedule_skb);
 
-static void udp_destruct_sock(struct sock *sk)
+void udp_destruct_sock(struct sock *sk)
 {
 	/* reclaim completely the forward allocated memory */
 	__skb_queue_purge(&sk->sk_receive_queue);
 	udp_rmem_release(sk, 0, 0);
 	inet_sock_destruct(sk);
 }
+EXPORT_SYMBOL_GPL(udp_destruct_sock);
 
 int udp_init_sock(struct sock *sk)
 {
