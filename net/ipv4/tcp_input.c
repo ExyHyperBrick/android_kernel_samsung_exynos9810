@@ -5791,11 +5791,14 @@ void tcp_check_space(struct sock *sk)
 		(mptcp(tcp_sk(sk)) ||
 #endif
 		  (sk->sk_socket &&
-		test_bit(SOCK_NOSPACE, &sk->sk_socket->flags))
+		test_bit(SOCK_NOSPACE, &sk->sk_socket->flags)) {
 #ifdef CONFIG_MPTCP
 		)
 #endif
 			tcp_new_space(sk);
+			if (!test_bit(SOCK_NOSPACE, &sk->sk_socket->flags))
+				tcp_chrono_stop(sk, TCP_CHRONO_SNDBUF_LIMITED);
+		}
 	}
 }
 
