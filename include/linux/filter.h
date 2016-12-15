@@ -776,6 +776,7 @@ int xdp_do_redirect(struct net_device *dev,
 void xdp_do_flush_map(void);
 
 void bpf_warn_invalid_xdp_action(u32 act);
+void bpf_warn_invalid_xdp_buffer(void);
 void bpf_warn_invalid_xdp_redirect(u32 ifindex);
 
 struct sock *do_sk_redirect_map(struct sk_buff *skb);
