@@ -3557,12 +3557,6 @@ void bpf_warn_invalid_xdp_action(u32 act)
 }
 EXPORT_SYMBOL_GPL(bpf_warn_invalid_xdp_action);
 
-void bpf_warn_invalid_xdp_buffer(void)
-{
-	WARN_ONCE(1, "Illegal XDP buffer encountered, expect throughput degradation\n");
-}
-EXPORT_SYMBOL_GPL(bpf_warn_invalid_xdp_buffer);
-
 void bpf_warn_invalid_xdp_redirect(u32 ifindex)
 {
 	WARN_ONCE(1, "Illegal XDP redirect to unsupported device ifindex(%i)\n", ifindex);
