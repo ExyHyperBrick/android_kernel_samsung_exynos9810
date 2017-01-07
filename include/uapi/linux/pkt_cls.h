@@ -29,8 +29,6 @@ bit 6,7: Where this packet was last seen
 1: on the Ingress
 2: on the Egress
 
-bit 8: when set --> Request not to classify on ingress. 
-
 bits 9,10,11: redirect counter -  redirect TTL. Loop avoidance
 
  *
@@ -44,10 +42,6 @@ bits 9,10,11: redirect counter -  redirect TTL. Loop avoidance
 #define AT_STACK	0x0
 #define AT_INGRESS	0x1
 #define AT_EGRESS	0x2
-
-#define TC_NCLS          _TC_MAKEMASK1(8)
-#define SET_TC_NCLS(v)   ( TC_NCLS | (v & ~TC_NCLS))
-#define CLR_TC_NCLS(v)   ( v & ~TC_NCLS)
 
 #define S_TC_AT          _TC_MAKE32(12)
 #define M_TC_AT          _TC_MAKEMASK(2,S_TC_AT)
