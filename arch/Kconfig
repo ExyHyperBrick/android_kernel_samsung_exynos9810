@@ -925,4 +925,7 @@ config REFCOUNT_FULL
 	  against various use-after-free conditions that can be used in
 	  security flaw exploits.
 
+config ARCH_WANT_RELAX_ORDER
+	bool
+
 source "kernel/gcov/Kconfig"
