@@ -6518,6 +6518,21 @@ static void bnxt_sp_task(struct work_struct *work)
 	/* These functions below will clear BNXT_STATE_IN_SP_TASK.  They
 	 * must be the last functions to be called before exiting.
 	 */
+	if (test_and_clear_bit(BNXT_LINK_CHNG_SP_EVENT, &bp->sp_event)) {
+		int rc = 0;
+
+		if (test_and_clear_bit(BNXT_LINK_SPEED_CHNG_SP_EVENT,
+				       &bp->sp_event))
+			bnxt_hwrm_phy_qcaps(bp);
+
+		bnxt_rtnl_lock_sp(bp);
+		if (test_bit(BNXT_STATE_OPEN, &bp->state))
+			rc = bnxt_update_link(bp, true);
+		bnxt_rtnl_unlock_sp(bp);
+		if (rc)
+			netdev_err(bp->dev, "SP task can't update link (rc: %x)\n",
+				   rc);
+	}
 	if (test_and_clear_bit(BNXT_RESET_TASK_SP_EVENT, &bp->sp_event))
 		bnxt_reset(bp, false);
 
