@@ -33,6 +33,7 @@
 
 #include <net/busy_poll.h>
 #include <linux/bpf.h>
+#include <linux/bpf_trace.h>
 #include <linux/mlx4/cq.h>
 #include <linux/slab.h>
 #include <linux/mlx4/qp.h>
@@ -946,10 +947,12 @@ int mlx4_en_process_rx_cq(struct net_device *dev, struct mlx4_en_cq *cq, int bud
 							length, tx_index,
 							&doorbell_pending)))
 					goto consumed;
+				trace_xdp_exception(dev, xdp_prog, act);
 				goto xdp_drop; /* Drop on xmit failure */
 			default:
 				bpf_warn_invalid_xdp_action(act);
 			case XDP_ABORTED:
+				trace_xdp_exception(dev, xdp_prog, act);
 			case XDP_DROP:
 xdp_drop:
 				if (likely(mlx4_en_rx_recycle(ring, frags)))

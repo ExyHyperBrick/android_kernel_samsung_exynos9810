@@ -33,6 +33,7 @@
 #include <linux/ip.h>
 #include <linux/ipv6.h>
 #include <linux/tcp.h>
+#include <linux/bpf_trace.h>
 #include <net/busy_poll.h>
 #include "en.h"
 #include "en_tc.h"
@@ -664,7 +665,7 @@ static inline void mlx5e_xmit_xdp_doorbell(struct mlx5e_sq *sq)
 	mlx5e_tx_notify_hw(sq, &wqe->ctrl, 0);
 }
 
-static inline void mlx5e_xmit_xdp_frame(struct mlx5e_rq *rq,
+static inline bool mlx5e_xmit_xdp_frame(struct mlx5e_rq *rq,
 					struct mlx5e_dma_info *di,
 					unsigned int data_offset,
 					int len)
@@ -691,7 +692,7 @@ static inline void mlx5e_xmit_xdp_frame(struct mlx5e_rq *rq,
 		}
 		rq->stats.xdp_tx_full++;
 		mlx5e_page_release(rq, di, true);
-		return;
+		return false;
 	}
 
 	dma_sync_single_for_device(sq->pdev, dma_addr, dma_len,
@@ -720,6 +721,7 @@ static inline void mlx5e_xmit_xdp_frame(struct mlx5e_rq *rq,
 
 	sq->db.xdp.doorbell = true;
 	rq->stats.xdp_tx++;
+	return true;
 }
 
 /* returns true if packet was consumed by xdp */
@@ -741,11 +743,13 @@ static inline bool mlx5e_xdp_handle(struct mlx5e_rq *rq,
 	case XDP_PASS:
 		return false;
 	case XDP_TX:
-		mlx5e_xmit_xdp_frame(rq, di, MLX5_RX_HEADROOM, len);
+		if (unlikely(!mlx5e_xmit_xdp_frame(rq, di, &xdp)))
+			trace_xdp_exception(rq->netdev, prog, act);
 		return true;
 	default:
 		bpf_warn_invalid_xdp_action(act);
 	case XDP_ABORTED:
+		trace_xdp_exception(rq->netdev, prog, act);
 	case XDP_DROP:
 		rq->stats.xdp_drop++;
 		mlx5e_page_release(rq, di, true);
