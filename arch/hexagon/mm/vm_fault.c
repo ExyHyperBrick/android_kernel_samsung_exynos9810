@@ -28,6 +28,7 @@
 #include <asm/traps.h>
 #include <asm/uaccess.h>
 #include <linux/mm.h>
+#include <linux/sched/signal.h>
 #include <linux/signal.h>
 #include <linux/module.h>
 #include <linux/hardirq.h>

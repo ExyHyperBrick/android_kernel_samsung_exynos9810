@@ -37,6 +37,8 @@
 #include <linux/module.h>
 #include <linux/seq_file.h>
 #include <linux/ratelimit.h>
+#include <linux/sched/signal.h>
+
 #include "md.h"
 #include "raid1.h"
 #include "bitmap.h"

@@ -18,7 +18,7 @@
 #include <linux/mm.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
-#include <linux/sched.h>
+#include <linux/sched/signal.h>
 
 #include <asm/uaccess.h>
 #include <asm/siginfo.h>

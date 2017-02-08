@@ -23,6 +23,7 @@
 #include <linux/module.h>
 #include <linux/vmalloc.h>
 #include <linux/idr.h>
+#include <linux/sched/signal.h>
 #include <asm/unaligned.h>
 #include <scsi/scsi_proto.h>
 #include <scsi/iscsi_proto.h>

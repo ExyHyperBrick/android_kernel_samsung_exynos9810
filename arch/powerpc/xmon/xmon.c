@@ -11,7 +11,7 @@
  *      2 of the License, or (at your option) any later version.
  */
 #include <linux/errno.h>
-#include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/smp.h>
 #include <linux/mm.h>
 #include <linux/reboot.h>
