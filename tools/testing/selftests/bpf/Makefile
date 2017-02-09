@@ -1,4 +1,4 @@
-CFLAGS += -Wall -O2 -lcap -I../../../include/uapi
+CFLAGS += -Wall -O2 -lcap -I../../../include/uapi -I../../../lib
 
 test_objs = test_verifier test_maps test_lru_map
 
@@ -8,6 +8,8 @@ TEST_PROGS := $(test_objs) test_kmod.sh
 TEST_FILES := $(test_objs)
 
 all: $(test_objs)
+
+$(test_objs): ../../../lib/bpf/bpf.o
 
 include ../lib.mk
 
