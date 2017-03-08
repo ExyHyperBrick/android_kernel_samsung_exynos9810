@@ -563,9 +563,9 @@ static bool htab_lru_map_delete_node(void *arg, struct bpf_lru_node *node)
 
 	raw_spin_lock_irqsave(&b->lock, flags);
 
-	hlist_for_each_entry_rcu(l, head, hash_node)
+	hlist_nulls_for_each_entry_rcu(l, n, head, hash_node)
 		if (l == tgt_l) {
-			hlist_del_rcu(&l->hash_node);
+			hlist_nulls_del_rcu(&l->hash_node);
 			break;
 		}
 
@@ -898,10 +898,10 @@ static int htab_lru_map_update_elem(struct bpf_map *map, void *key, void *value,
 	/* add new element to the head of the list, so that
 	 * concurrent search will find it before old elem
 	 */
-	hlist_add_head_rcu(&l_new->hash_node, head);
+	hlist_nulls_add_head_rcu(&l_new->hash_node, head);
 	if (l_old) {
 		bpf_lru_node_set_ref(&l_new->lru_node);
-		hlist_del_rcu(&l_old->hash_node);
+		hlist_nulls_del_rcu(&l_old->hash_node);
 	}
 	ret = 0;
 
@@ -975,7 +975,7 @@ static int __htab_lru_percpu_map_update_elem(struct bpf_map *map, void *key,
 {
 	struct bpf_htab *htab = container_of(map, struct bpf_htab, map);
 	struct htab_elem *l_new = NULL, *l_old;
-	struct hlist_head *head;
+	struct hlist_nulls_head *head;
 	unsigned long flags;
 	struct bucket *b;
 	u32 key_size, hash;
@@ -1023,7 +1023,7 @@ static int __htab_lru_percpu_map_update_elem(struct bpf_map *map, void *key,
 	} else {
 		pcpu_copy_value(htab, htab_elem_get_ptr(l_new, key_size),
 				value, onallcpus);
-		hlist_add_head_rcu(&l_new->hash_node, head);
+		hlist_nulls_add_head_rcu(&l_new->hash_node, head);
 		l_new = NULL;
 	}
 	ret = 0;
@@ -1103,7 +1103,7 @@ static int htab_lru_map_delete_elem(struct bpf_map *map, void *key)
 	l = lookup_elem_raw(head, hash, key, key_size);
 
 	if (l) {
-		hlist_del_rcu(&l->hash_node);
+		hlist_nulls_del_rcu(&l->hash_node);
 		ret = 0;
 	}
 
