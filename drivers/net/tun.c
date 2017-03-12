@@ -872,7 +872,17 @@ static void tun_net_uninit(struct net_device *dev)
 /* Net device open. */
 static int tun_net_open(struct net_device *dev)
 {
+	struct tun_struct *tun = netdev_priv(dev);
+	int i;
+
 	netif_tx_start_all_queues(dev);
+
+	for (i = 0; i < tun->numqueues; i++) {
+		struct tun_file *tfile;
+
+		tfile = rtnl_dereference(tun->tfiles[i]);
+		tfile->socket.sk->sk_write_space(tfile->socket.sk);
+	}
 
 	return 0;
 }
@@ -1186,9 +1196,10 @@ static unsigned int tun_chr_poll(struct file *file, poll_table *wait)
 	 * tun_sock_write_space(). Then process could get notification
 	 * after it writes to a down device and meets -EIO.
 	 */
-	if (tun_sock_writeable(tun, tfile) ||
-	    (!test_and_set_bit(SOCKWQ_ASYNC_NOSPACE, &sk->sk_socket->flags) &&
-	     tun_sock_writeable(tun, tfile)))
+	if (tun->dev->flags & IFF_UP &&
+	    (tun_sock_writeable(tun, tfile) ||
+	     (!test_and_set_bit(SOCKWQ_ASYNC_NOSPACE, &sk->sk_socket->flags) &&
+	      tun_sock_writeable(tun, tfile))))
 		mask |= POLLOUT | POLLWRNORM;
 
 	if (tun->dev->reg_state != NETREG_REGISTERED)
