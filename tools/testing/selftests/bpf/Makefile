@@ -1,7 +1,8 @@
 LIBDIR := ../../../lib
-BPFOBJ := $(LIBDIR)/bpf/bpf.o
+BPFDIR := $(LIBDIR)/bpf
 
-CFLAGS += -Wall -O2 -lcap -I../../../include/uapi -I$(LIBDIR) $(BPFOBJ)
+CFLAGS += -Wall -O2 -I../../../include/uapi -I$(LIBDIR)
+LDLIBS += -lcap
 
 test_objs = test_verifier test_maps test_lru_map
 
@@ -12,19 +13,19 @@ TEST_FILES := $(test_objs)
 
 all: $(test_objs)
 
-all: $(TEST_GEN_PROGS)
+include ../lib.mk
 
-.PHONY: all clean force
+BPFOBJ := $(OUTPUT)/bpf.o
+
+$(TEST_GEN_PROGS): $(BPFOBJ)
+
+.PHONY: force
 
 # force a rebuild of BPFOBJ when its dependencies are updated
 force:
 
 $(BPFOBJ): force
-	$(MAKE) -C $(dir $(BPFOBJ))
-
-$(test_objs): $(BPFOBJ)
-
-include ../lib.mk
+	$(MAKE) -C $(BPFDIR) OUTPUT=$(OUTPUT)/
 
 clean:
 	$(RM) $(test_objs)
