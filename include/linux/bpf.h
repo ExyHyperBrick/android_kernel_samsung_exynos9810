@@ -62,6 +62,7 @@ struct bpf_map {
 #ifdef CONFIG_SECURITY
 	void *security;
 #endif
+	struct bpf_map *inner_map_meta;
 };
 
 struct bpf_map_type_list {
