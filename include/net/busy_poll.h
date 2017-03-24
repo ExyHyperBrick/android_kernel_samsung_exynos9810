@@ -50,7 +50,11 @@ static inline bool sk_can_busy_loop(struct sock *sk)
 	       !need_resched() && !signal_pending(current);
 }
 
-void sk_busy_loop(struct sock *sk, int nonblock);
+bool sk_busy_loop_end(void *p, unsigned long start_time);
+
+void napi_busy_loop(unsigned int napi_id,
+		    bool (*loop_end)(void *, unsigned long),
+		    void *loop_end_arg);
 
 static inline unsigned long busy_loop_current_time(void)
 {
@@ -58,6 +62,16 @@ static inline unsigned long busy_loop_current_time(void)
 	return (unsigned long)(local_clock() >> 10);
 #else
 	return 0;
+#endif
+}
+
+static inline void sk_busy_loop(struct sock *sk, int nonblock)
+{
+#ifdef CONFIG_NET_RX_BUSY_POLL
+	unsigned int napi_id = READ_ONCE(sk->sk_napi_id);
+
+	if (napi_id >= MIN_NAPI_ID)
+		napi_busy_loop(napi_id, nonblock ? NULL : sk_busy_loop_end, sk);
 #endif
 }
 
@@ -115,10 +129,6 @@ static inline unsigned long net_busy_loop_on(void)
 static inline bool sk_can_busy_loop(struct sock *sk)
 {
 	return false;
-}
-
-static inline void sk_busy_loop(struct sock *sk, int nonblock)
-{
 }
 
 #endif /* CONFIG_NET_RX_BUSY_POLL */
