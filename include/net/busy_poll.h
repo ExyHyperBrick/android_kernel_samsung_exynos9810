@@ -74,7 +74,7 @@ static inline bool busy_loop_timeout(unsigned long end_time)
 	return time_after(now, end_time);
 }
 
-bool sk_busy_loop(struct sock *sk, int nonblock);
+void sk_busy_loop(struct sock *sk, int nonblock);
 
 /* used in the NIC receive handler to mark the skb */
 static inline void skb_mark_napi_id(struct sk_buff *skb,
@@ -119,9 +119,8 @@ static inline bool busy_loop_timeout(unsigned long end_time)
 	return true;
 }
 
-static inline bool sk_busy_loop(struct sock *sk, int nonblock)
+static inline void sk_busy_loop(struct sock *sk, int nonblock)
 {
-	return false;
 }
 
 #endif /* CONFIG_NET_RX_BUSY_POLL */
