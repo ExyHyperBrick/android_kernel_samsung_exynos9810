@@ -37,6 +37,12 @@ extern unsigned int sysctl_net_busy_poll __read_mostly;
 #define LL_FLUSH_FAILED		-1
 #define LL_FLUSH_BUSY		-2
 
+/*		0 - Reserved to indicate value not set
+ *     1..NR_CPUS - Reserved for sender_cpu
+ *  NR_CPUS+1..~0 - Region available for NAPI IDs
+ */
+#define MIN_NAPI_ID ((unsigned int)(NR_CPUS + 1))
+
 static inline bool net_busy_loop_on(void)
 {
 	return READ_ONCE(sysctl_net_busy_poll);
@@ -60,7 +66,7 @@ static inline unsigned long busy_loop_end_time(void)
 
 static inline bool sk_can_busy_loop(struct sock *sk)
 {
-	return sk->sk_ll_usec && sk->sk_napi_id &&
+	return sk->sk_ll_usec &&
 	       !need_resched() && !signal_pending(current);
 }
 

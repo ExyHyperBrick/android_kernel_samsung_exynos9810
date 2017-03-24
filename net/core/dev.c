@@ -5083,11 +5083,12 @@ bool sk_busy_loop(struct sock *sk, int nonblock)
 	unsigned long end_time = !nonblock ? sk_busy_loop_end_time(sk) : 0;
 	int (*busy_poll)(struct napi_struct *dev);
 	struct napi_struct *napi;
+	unsigned int napi_id;
 	int rc = false;
 
 	rcu_read_lock();
 
-	napi = napi_by_id(sk->sk_napi_id);
+	napi = napi_by_id(napi_id);
 	if (!napi)
 		goto out;
 
@@ -5144,10 +5145,10 @@ void napi_hash_add(struct napi_struct *napi)
 
 	spin_lock(&napi_hash_lock);
 
-	/* 0..NR_CPUS+1 range is reserved for sender_cpu use */
+	/* 0..NR_CPUS range is reserved for sender_cpu use */
 	do {
-		if (unlikely(++napi_gen_id < NR_CPUS + 1))
-			napi_gen_id = NR_CPUS + 1;
+		if (unlikely(++napi_gen_id < MIN_NAPI_ID))
+			napi_gen_id = MIN_NAPI_ID;
 	} while (napi_by_id(napi_gen_id));
 	napi->napi_id = napi_gen_id;
 
