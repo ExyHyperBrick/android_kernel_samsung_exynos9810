@@ -17,6 +17,8 @@
 #define DRV_VER_MIN	6
 #define DRV_VER_UPD	0
 
+#include <linux/interrupt.h>
+
 struct tx_bd {
 	__le32 tx_bd_len_flags_type;
 	#define TX_BD_TYPE					(0x3f << 0)

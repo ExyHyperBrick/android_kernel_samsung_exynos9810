@@ -16,6 +16,7 @@
  */
 
 #include <linux/kernel.h>
+#include <linux/interrupt.h>
 #include <linux/device.h>
 #include <linux/etherdevice.h>
 #include <linux/crc32.h>

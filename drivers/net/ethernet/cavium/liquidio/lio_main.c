@@ -20,6 +20,7 @@
 * Contact Cavium, Inc. for more information
 **********************************************************************/
 #include <linux/version.h>
+#include <linux/interrupt.h>
 #include <linux/pci.h>
 #include <linux/firmware.h>
 #include <linux/ptp_clock_kernel.h>
