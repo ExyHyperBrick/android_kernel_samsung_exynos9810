@@ -1907,8 +1907,16 @@ struct net_device {
 #ifdef CONFIG_NETPM
 	bool netpm_use;
 #endif
+	struct bpf_prog __rcu	*xdp_prog;
 };
 #define to_net_dev(d) container_of(d, struct net_device, dev)
+
+static inline bool netif_elide_gro(const struct net_device *dev)
+{
+	if (!(dev->features & NETIF_F_GRO) || dev->xdp_prog)
+		return true;
+	return false;
+}
 
 #define	NETDEV_ALIGN		32
 
