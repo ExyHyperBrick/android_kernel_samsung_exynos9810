@@ -238,7 +238,6 @@ static int veth_dev_init(struct net_device *dev)
 static void veth_dev_free(struct net_device *dev)
 {
 	free_percpu(dev->vstats);
-	free_netdev(dev);
 }
 
 #ifdef CONFIG_NET_POLL_CONTROLLER
@@ -334,7 +333,8 @@ static void veth_setup(struct net_device *dev)
 			       NETIF_F_HW_VLAN_STAG_TX |
 			       NETIF_F_HW_VLAN_CTAG_RX |
 			       NETIF_F_HW_VLAN_STAG_RX);
-	dev->destructor = veth_dev_free;
+	dev->needs_free_netdev = true;
+	dev->priv_destructor = veth_dev_free;
 
 	dev->hw_features = VETH_FEATURES;
 	dev->hw_enc_features = VETH_FEATURES;

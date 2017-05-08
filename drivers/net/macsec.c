@@ -3007,7 +3007,6 @@ static void macsec_free_netdev(struct net_device *dev)
 	free_percpu(macsec->secy.tx_sc.stats);
 
 	dev_put(real_dev);
-	free_netdev(dev);
 }
 
 static void macsec_setup(struct net_device *dev)
@@ -3015,7 +3014,8 @@ static void macsec_setup(struct net_device *dev)
 	ether_setup(dev);
 	dev->priv_flags |= IFF_NO_QUEUE;
 	dev->netdev_ops = &macsec_netdev_ops;
-	dev->destructor = macsec_free_netdev;
+	dev->needs_free_netdev = true;
+	dev->priv_destructor = macsec_free_netdev;
 	SET_NETDEV_DEVTYPE(dev, &macsec_type);
 
 	eth_zero_addr(dev->broadcast);

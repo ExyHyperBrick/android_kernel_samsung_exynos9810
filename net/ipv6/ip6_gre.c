@@ -1007,13 +1007,13 @@ static void ip6gre_dev_free(struct net_device *dev)
 
 	dst_cache_destroy(&t->dst_cache);
 	free_percpu(dev->tstats);
-	free_netdev(dev);
 }
 
 static void ip6gre_tunnel_setup(struct net_device *dev)
 {
 	dev->netdev_ops = &ip6gre_netdev_ops;
-	dev->destructor = ip6gre_dev_free;
+	dev->needs_free_netdev = true;
+	dev->priv_destructor = ip6gre_dev_free;
 
 	dev->type = ARPHRD_IP6GRE;
 
@@ -1160,7 +1160,7 @@ static int __net_init ip6gre_init_net(struct net *net)
 	return 0;
 
 err_reg_dev:
-	ip6gre_dev_free(ndev);
+	free_netdev(ndev);
 err_alloc_dev:
 	return err;
 }
@@ -1304,7 +1304,8 @@ static void ip6gre_tap_setup(struct net_device *dev)
 	ether_setup(dev);
 
 	dev->netdev_ops = &ip6gre_tap_netdev_ops;
-	dev->destructor = ip6gre_dev_free;
+	dev->needs_free_netdev = true;
+	dev->priv_destructor = ip6gre_dev_free;
 
 	dev->features |= NETIF_F_NETNS_LOCAL;
 	dev->priv_flags &= ~IFF_TX_SKB_SHARING;

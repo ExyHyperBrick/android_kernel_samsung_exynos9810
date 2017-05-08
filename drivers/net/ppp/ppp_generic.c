@@ -1420,7 +1420,7 @@ static void ppp_setup(struct net_device *dev)
 	dev->tx_queue_len = 3;
 	dev->type = ARPHRD_PPP;
 	dev->flags = IFF_POINTOPOINT | IFF_NOARP | IFF_MULTICAST;
-	dev->destructor = ppp_dev_priv_destructor;
+	dev->priv_destructor = ppp_dev_priv_destructor;
 	netif_keep_dst(dev);
 }
 

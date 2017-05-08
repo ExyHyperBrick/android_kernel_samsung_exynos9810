@@ -265,7 +265,7 @@ static struct ip_tunnel *ipip6_tunnel_locate(struct net *net,
 	return nt;
 
 failed_free:
-	ipip6_dev_free(dev);
+	free_netdev(dev);
 failed:
 	return NULL;
 }
@@ -1349,7 +1349,6 @@ static void ipip6_dev_free(struct net_device *dev)
 
 	dst_cache_destroy(&tunnel->dst_cache);
 	free_percpu(dev->tstats);
-	free_netdev(dev);
 }
 
 #define SIT_FEATURES (NETIF_F_SG	   | \
@@ -1364,7 +1363,8 @@ static void ipip6_tunnel_setup(struct net_device *dev)
 	int t_hlen = tunnel->hlen + sizeof(struct iphdr);
 
 	dev->netdev_ops		= &ipip6_netdev_ops;
-	dev->destructor		= ipip6_dev_free;
+	dev->needs_free_netdev	= true;
+	dev->priv_destructor	= ipip6_dev_free;
 
 	dev->type		= ARPHRD_SIT;
 	dev->mtu		= ETH_DATA_LEN - t_hlen;
