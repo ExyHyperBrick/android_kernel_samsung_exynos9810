@@ -25,6 +25,7 @@ static void seq_set_overflow(struct seq_file *m)
 
 static void *seq_buf_alloc(unsigned long size)
 {
+<<<<<<< HEAD
 	void *buf;
 	gfp_t gfp = GFP_KERNEL;
 
@@ -43,6 +44,9 @@ static void *seq_buf_alloc(unsigned long size)
 	if (!buf && size > PAGE_SIZE)
 		buf = vmalloc(size);
 	return buf;
+=======
+	return kvmalloc(size, GFP_KERNEL);
+>>>>>>> 6aea5095cca4c (BACKPORT: mm: introduce kv[mz]alloc helpers)
 }
 
 /**

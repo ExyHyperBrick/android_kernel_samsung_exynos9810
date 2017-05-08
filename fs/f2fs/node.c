@@ -2993,7 +2993,7 @@ static int __get_nat_bitmaps(struct f2fs_sb_info *sbi)
 		return 0;
 
 	nm_i->nat_bits_blocks = F2FS_BLK_ALIGN((nat_bits_bytes << 1) + 8);
-	nm_i->nat_bits = f2fs_kvzalloc(sbi,
+	nm_i->nat_bits = kvzalloc(sbi,
 			nm_i->nat_bits_blocks << F2FS_BLKSIZE_BITS, GFP_KERNEL);
 	if (!nm_i->nat_bits)
 		return -ENOMEM;
@@ -3126,28 +3126,28 @@ static int init_free_nid_cache(struct f2fs_sb_info *sbi)
 	int i;
 
 	nm_i->free_nid_bitmap =
-		f2fs_kvzalloc(sbi, array_size(sizeof(unsigned char *),
-					      nm_i->nat_blocks),
-			      GFP_KERNEL);
+		kvzalloc(sbi, array_size(sizeof(unsigned char *),
+					 nm_i->nat_blocks),
+			 GFP_KERNEL);
 	if (!nm_i->free_nid_bitmap)
 		return -ENOMEM;
 
 	for (i = 0; i < nm_i->nat_blocks; i++) {
-		nm_i->free_nid_bitmap[i] = f2fs_kvzalloc(sbi,
+		nm_i->free_nid_bitmap[i] = kvzalloc(sbi,
 			f2fs_bitmap_size(NAT_ENTRY_PER_BLOCK), GFP_KERNEL);
 		if (!nm_i->free_nid_bitmap[i])
 			return -ENOMEM;
 	}
 
-	nm_i->nat_block_bitmap = f2fs_kvzalloc(sbi, nm_i->nat_blocks / 8,
+	nm_i->nat_block_bitmap = kvzalloc(sbi, nm_i->nat_blocks / 8,
 								GFP_KERNEL);
 	if (!nm_i->nat_block_bitmap)
 		return -ENOMEM;
 
 	nm_i->free_nid_count =
-		f2fs_kvzalloc(sbi, array_size(sizeof(unsigned short),
-					      nm_i->nat_blocks),
-			      GFP_KERNEL);
+		kvzalloc(sbi, array_size(sizeof(unsigned short),
+					 nm_i->nat_blocks),
+			 GFP_KERNEL);
 	if (!nm_i->free_nid_count)
 		return -ENOMEM;
 	return 0;
