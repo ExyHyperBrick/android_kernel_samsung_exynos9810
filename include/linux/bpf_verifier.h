@@ -41,6 +41,9 @@ struct bpf_reg_state {
 	s64 min_value;
 	u64 max_value;
 	bool value_from_signed;
+	u32 min_align;
+	u32 aux_off;
+	u32 aux_off_align;
 };
 
 enum bpf_stack_slot_type {
