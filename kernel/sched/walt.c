@@ -114,6 +114,8 @@ void
 walt_fixup_cumulative_runnable_avg(struct rq *rq,
 				   struct task_struct *p, u64 new_task_load)
 {
+	s64 task_load_delta = (s64)new_task_load - task_load(p);
+
 	rq->cumulative_runnable_avg += task_load_delta;
 	if ((s64)rq->cumulative_runnable_avg < 0)
 		panic("cra less than zero: tld: %lld, task_load(p) = %u\n",
