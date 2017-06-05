@@ -1062,6 +1062,7 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *fp)
 #endif
 		fp->bpf_func = (void *)image;
 		fp->jited = 1;
+		fp->jited_len = alloclen;
 	}
 
 out:
