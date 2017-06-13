@@ -640,6 +640,11 @@ static int css_set_count	= 1;	/* 1 for init_css_set */
 /**
  * css_set_populated - does a css_set contain any tasks?
  * @cset: target css_set
+ *
+ * css_set_populated() should be the same as !!cset->nr_tasks at steady
+ * state. However, css_set_populated() can be called while a task is being
+ * added to or removed from the linked list before nr_tasks is updated.
+ * Hence, we cannot just look at ->nr_tasks here.
  */
 static bool css_set_populated(struct css_set *cset)
 {
@@ -1956,6 +1961,7 @@ static void cgroup_enable_task_cg_lists(void)
 				css_set_update_populated(cset, true);
 			list_add_tail(&p->cg_list, &cset->tasks);
 			get_css_set(cset);
+			cset->nr_tasks++;
 		}
 		spin_unlock(&p->sighand->siglock);
 	} while_each_thread(g, p);
@@ -2595,7 +2601,9 @@ static int cgroup_taskset_migrate(struct cgroup_taskset *tset,
 			struct css_set *to_cset = cset->mg_dst_cset;
 
 			get_css_set(to_cset);
+			to_cset->nr_tasks++;
 			css_set_move_task(task, from_cset, to_cset, true);
+			from_cset->nr_tasks--;
 			put_css_set_locked(from_cset);
 		}
 	}
@@ -4084,10 +4092,6 @@ void cgroup_file_notify(struct cgroup_file *cfile)
 /**
  * cgroup_task_count - count the number of tasks in a cgroup.
  * @cgrp: the cgroup in question
- *
- * Return the number of tasks in the cgroup.  The returned number can be
- * higher than the actual number of tasks due to css_set references from
- * namespace roots and temporary usages.
  */
 static int cgroup_task_count(const struct cgroup *cgrp)
 {
@@ -4096,7 +4100,7 @@ static int cgroup_task_count(const struct cgroup *cgrp)
 
 	spin_lock_irq(&css_set_lock);
 	list_for_each_entry(link, &cgrp->cset_links, cset_link)
-		count += atomic_read(&link->cset->refcount);
+		count += link->cset->nr_tasks;
 	spin_unlock_irq(&css_set_lock);
 	return count;
 }
@@ -6181,6 +6185,7 @@ void cgroup_post_fork(struct task_struct *child)
 		cset = task_css_set(current);
 		if (list_empty(&child->cg_list)) {
 			get_css_set(cset);
+			cset->nr_tasks++;
 			css_set_move_task(child, NULL, cset, false);
 		}
 		spin_unlock_irq(&css_set_lock);
@@ -6230,6 +6235,7 @@ void cgroup_exit(struct task_struct *tsk)
 	if (!list_empty(&tsk->cg_list)) {
 		spin_lock_irq(&css_set_lock);
 		css_set_move_task(tsk, cset, NULL, false);
+		cset->nr_tasks--;
 		spin_unlock_irq(&css_set_lock);
 	} else {
 		get_css_set(cset);

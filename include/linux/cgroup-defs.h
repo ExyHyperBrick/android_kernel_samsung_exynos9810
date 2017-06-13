@@ -184,6 +184,9 @@ struct css_set {
 	/* the default cgroup associated with this css_set */
 	struct cgroup *dfl_cgrp;
 
+	/* internal task count, protected by css_set_lock */
+	int nr_tasks;
+
 	/*
 	 * Set of subsystem states, one for each subsystem. This array is
 	 * immutable after creation apart from the init_css_set during
