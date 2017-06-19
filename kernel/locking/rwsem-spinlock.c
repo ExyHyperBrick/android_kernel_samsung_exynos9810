@@ -125,7 +125,7 @@ __rwsem_wake_one_writer(struct rw_semaphore *sem)
 /*
  * get a read lock on the semaphore
  */
-void __sched __down_read(struct rw_semaphore *sem)
+static int __sched __down_read_common(struct rw_semaphore *sem, int state)
 {
 	struct rwsem_waiter waiter;
 	struct task_struct *tsk;
@@ -141,7 +141,6 @@ void __sched __down_read(struct rw_semaphore *sem)
 	}
 
 	tsk = current;
-	set_task_state(tsk, TASK_UNINTERRUPTIBLE);
 
 	/* set up my own style of waitqueue */
 	waiter.task = tsk;
@@ -150,20 +149,40 @@ void __sched __down_read(struct rw_semaphore *sem)
 
 	list_add_tail(&waiter.list, &sem->wait_list);
 
-	/* we don't need to touch the semaphore struct anymore */
-	raw_spin_unlock_irqrestore(&sem->wait_lock, flags);
-
 	/* wait to be given the lock */
 	for (;;) {
 		if (!waiter.task)
 			break;
+		if (signal_pending_state(state, tsk))
+			goto out_nolock;
+		set_task_state(tsk, state);
+		raw_spin_unlock_irqrestore(&sem->wait_lock, flags);
 		schedule();
-		set_task_state(tsk, TASK_UNINTERRUPTIBLE);
+		raw_spin_lock_irqsave(&sem->wait_lock, flags);
 	}
 
+	raw_spin_unlock_irqrestore(&sem->wait_lock, flags);
 	__set_task_state(tsk, TASK_RUNNING);
  out:
-	;
+	return 0;
+
+out_nolock:
+	/* The owner or first waiting writer will wake the next task. */
+	list_del(&waiter.list);
+	raw_spin_unlock_irqrestore(&sem->wait_lock, flags);
+	__set_task_state(tsk, TASK_RUNNING);
+	put_task_struct(tsk);
+	return -EINTR;
+}
+
+void __sched __down_read(struct rw_semaphore *sem)
+{
+	__down_read_common(sem, TASK_UNINTERRUPTIBLE);
+}
+
+int __sched __down_read_killable(struct rw_semaphore *sem)
+{
+	return __down_read_common(sem, TASK_KILLABLE);
 }
 
 /*
@@ -318,4 +337,3 @@ void __downgrade_write(struct rw_semaphore *sem)
 
 	raw_spin_unlock_irqrestore(&sem->wait_lock, flags);
 }
-
