@@ -948,7 +948,9 @@ enum {
 					 * window (in packets) or -1 if default
 					 * value should be used
 					 */
-
+	BPF_SOCK_OPS_NEEDS_ECN,		/* If connection's congestion control
+					 * needs ECN
+					 */
 };
 
 #endif /* _UAPI__LINUX_BPF_H__ */
