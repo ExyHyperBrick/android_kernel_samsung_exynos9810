@@ -2284,4 +2284,14 @@ static inline int tcp_call_bpf(struct sock *sk, int op)
 }
 #endif
 
+static inline u32 tcp_rwnd_init_bpf(struct sock *sk)
+{
+	int rwnd;
+
+	rwnd = tcp_call_bpf(sk, BPF_SOCK_OPS_RWND_INIT);
+
+	if (rwnd < 0)
+		rwnd = 0;
+	return rwnd;
+}
 #endif	/* _TCP_H */
