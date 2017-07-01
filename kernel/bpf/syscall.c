@@ -1160,6 +1160,9 @@ static int bpf_prog_attach(const union bpf_attr *attr)
 	case BPF_CGROUP_INET_SOCK_CREATE:
 		ptype = BPF_PROG_TYPE_CGROUP_SOCK;
 		break;
+	case BPF_CGROUP_SOCK_OPS:
+		ptype = BPF_PROG_TYPE_SOCK_OPS;
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -1206,6 +1209,9 @@ static int bpf_prog_detach(const union bpf_attr *attr)
 	case BPF_CGROUP_INET_SOCK_CREATE:
 		ptype = BPF_PROG_TYPE_CGROUP_SOCK;
 		break;
+	case BPF_CGROUP_SOCK_OPS:
+		ptype = BPF_PROG_TYPE_SOCK_OPS;
+		break;
 
 	default:
 		return -EINVAL;
@@ -1225,6 +1231,7 @@ static int bpf_prog_detach(const union bpf_attr *attr)
 	cgroup_put(cgrp);
 	return ret;
 }
+
 #endif /* CONFIG_CGROUP_BPF */
 
 #define BPF_PROG_TEST_RUN_LAST_FIELD test.duration
