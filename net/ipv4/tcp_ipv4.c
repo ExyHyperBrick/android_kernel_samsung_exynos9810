@@ -1420,7 +1420,7 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 				dst_release(dst);
 			}
 		}
-		tcp_rcv_established(sk, skb, tcp_hdr(skb), skb->len);
+		tcp_rcv_established(sk, skb, tcp_hdr(skb));
 		return 0;
 	}
 
