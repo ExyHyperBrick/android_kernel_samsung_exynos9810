@@ -255,6 +255,10 @@ struct cgroup {
 	 */
 	int level;
 
+	/* Visible and dying descendant cgroups. */
+	int nr_descendants;
+	int nr_dying_descendants;
+
 	/*
 	 * Each non-empty css_set associated with this cgroup contributes
 	 * one to populated_cnt.  All children with non-zero popuplated_cnt
