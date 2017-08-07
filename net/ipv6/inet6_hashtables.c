@@ -137,7 +137,7 @@ struct sock *inet6_lookup_listener(struct net *net,
 	u32 phash = 0;
 
 	sk_nulls_for_each(sk, node, &ilb->nulls_head) {
-		score = compute_score(sk, net, hnum, daddr, dif, exact_dif);
+		score = compute_score(sk, net, hnum, daddr, dif, 0, exact_dif);
 		if (score > hiscore) {
 			reuseport = sk->sk_reuseport;
 			if (reuseport) {
