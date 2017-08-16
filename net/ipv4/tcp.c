@@ -1037,6 +1037,7 @@ int tcp_sendpage_locked(struct sock *sk, struct page *page, int offset,
 
 	return do_tcp_sendpages(sk, page, offset, size, flags);
 }
+EXPORT_SYMBOL_GPL(tcp_sendpage_locked);
 
 int tcp_sendpage(struct sock *sk, struct page *page, int offset,
 		 size_t size, int flags)
@@ -1233,7 +1234,7 @@ restart:
 	err = -EPIPE;
 	if (sk->sk_err || (sk->sk_shutdown & SEND_SHUTDOWN))
 		goto do_error;
-		sg = !!(sk->sk_route_caps & NETIF_F_SG);
+	sg = !!(sk->sk_route_caps & NETIF_F_SG);
 
 	while (msg_data_left(msg)) {
 		int copy = 0;
@@ -1413,6 +1414,7 @@ out_err:
 	}
 	return err;
 }
+EXPORT_SYMBOL_GPL(tcp_sendmsg_locked);
 
 int tcp_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
 {
