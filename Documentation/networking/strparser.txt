@@ -21,7 +21,7 @@ A stream parser can be instantiated for a TCP connection. This is done
 by:
 
 strp_init(struct strparser *strp, struct sock *csk,
-	  struct strp_callbacks *cb)
+	  const struct strp_callbacks *cb)
 
 strp is a struct of type strparser that is allocated by the upper layer.
 csk is the TCP socket associated with the stream parser. Callbacks are
