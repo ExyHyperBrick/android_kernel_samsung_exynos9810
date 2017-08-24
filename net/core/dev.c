@@ -3951,7 +3951,8 @@ static int do_xdp_generic(struct sk_buff *skb)
 		if (act != XDP_PASS) {
 			switch (act) {
 			case XDP_REDIRECT:
-				err = xdp_do_generic_redirect(skb->dev, skb);
+				err = xdp_do_generic_redirect(skb->dev, skb,
+							      xdp_prog);
 				if (err)
 					goto out_redir;
 			/* fallthru to submit skb */
@@ -3964,7 +3965,6 @@ static int do_xdp_generic(struct sk_buff *skb)
 	}
 	return XDP_PASS;
 out_redir:
-	trace_xdp_exception(skb->dev, xdp_prog, XDP_REDIRECT);
 	kfree_skb(skb);
 	return XDP_DROP;
 }
