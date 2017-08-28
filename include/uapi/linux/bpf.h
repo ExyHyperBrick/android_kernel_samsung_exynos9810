@@ -183,9 +183,6 @@ enum bpf_attach_type {
  * earlier programs.
  */
 
-/* If BPF_SOCKMAP_STRPARSER is used sockmap will use strparser on receive */
-#define BPF_SOCKMAP_STRPARSER	(1U << 0)
-
 #define BPF_F_ALLOW_OVERRIDE	(1U << 0)
 #define BPF_F_ALLOW_MULTI	(1U << 1)
 
