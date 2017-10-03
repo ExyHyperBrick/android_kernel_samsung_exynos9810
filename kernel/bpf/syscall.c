@@ -1255,14 +1255,17 @@ static int bpf_prog_detach(const union bpf_attr *attr)
 	switch (attr->attach_type) {
 	case BPF_CGROUP_INET_INGRESS:
 	case BPF_CGROUP_INET_EGRESS:
-	case BPF_CGROUP_INET_SOCK_CREATE:
-	case BPF_CGROUP_SOCK_OPS:
 		ptype = BPF_PROG_TYPE_CGROUP_SKB;
+		break;
+	case BPF_CGROUP_INET_SOCK_CREATE:
+		ptype = BPF_PROG_TYPE_CGROUP_SOCK;
+		break;
+	case BPF_CGROUP_SOCK_OPS:
+		ptype = BPF_PROG_TYPE_SOCK_OPS;
 		break;
 	case BPF_SK_SKB_STREAM_PARSER:
 	case BPF_SK_SKB_STREAM_VERDICT:
-		ret = sockmap_get_from_fd(attr, false);
-		break;
+		return sockmap_get_from_fd(attr, false);
 	default:
 		return -EINVAL;
 	}
