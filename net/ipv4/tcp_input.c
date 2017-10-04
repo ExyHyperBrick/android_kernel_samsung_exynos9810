@@ -6559,14 +6559,15 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 			inet_csk(sk)->icsk_retransmits = 0;
 			reqsk_fastopen_remove(sk, req, false);
 		} else {
+			tcp_mtup_init(sk);
 			/* Make sure socket is routed, for correct metrics. */
 			icsk->icsk_af_ops->rebuild_header(sk);
+			tcp_init_metrics(sk);
 			tcp_call_bpf(sk, BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB, 0, NULL);
 			/* Initialize CC unless BPF initialized it already. */
 			if (!icsk->icsk_ca_initialized)
 				tcp_init_congestion_control(sk);
 
-			tcp_mtup_init(sk);
 			tp->copied_seq = tp->rcv_nxt;
 			tcp_init_buffer_space(sk);
 		}
@@ -6598,8 +6599,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 			 * are sent out.
 			 */
 			tcp_rearm_rto(sk);
-		} else
-			tcp_init_metrics(sk);
+		}
 
 		if (!inet_csk(sk)->icsk_ca_ops->cong_control)
 			tcp_update_pacing_rate(sk);
