@@ -2268,6 +2268,12 @@ enum {
 #define TCP_BPF_DELACK_MAX	1003	/* Max delay ack in usecs */
 #define TCP_BPF_RTO_MIN		1004	/* Min delay ack in usecs */
 
+struct bpf_perf_event_value {
+	__u64 counter;
+	__u64 enabled;
+	__u64 running;
+};
+
 #define BPF_DEVCG_ACC_MKNOD    (1ULL << 0)
 #define BPF_DEVCG_ACC_READ     (1ULL << 1)
 #define BPF_DEVCG_ACC_WRITE    (1ULL << 2)
