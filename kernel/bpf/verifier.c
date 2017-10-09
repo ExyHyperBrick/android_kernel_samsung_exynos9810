@@ -7073,7 +7073,7 @@ static void free_states(struct bpf_verifier_env *env)
 int bpf_check(struct bpf_prog **prog, union bpf_attr *attr,
 	      union bpf_attr __user *uattr)
 {
-	struct bpf_verifier_log *log; 
+	struct bpf_verifier_log *log;
 	struct bpf_verifier_env *env;
 	int ret = -EINVAL;
 
@@ -7108,11 +7108,6 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr,
 		/* log attributes have to be sane */
 		if (log->len_total < 128 || log->len_total > UINT_MAX >> 8 ||
 		    !log->level || !log->ubuf)
-			goto err_unlock;
-
-		ret = -ENOMEM;
-		log->kbuf = vmalloc(log->len_total);
-		if (!log->kbuf)
 			goto err_unlock;
 	}
 
@@ -7173,9 +7168,8 @@ skip_full_check:
 	if (ret == 0)
 		ret = fixup_call_args(env);
 
-	if (log->level && bpf_verifier_log_full(log)) {
+	if (log->level && bpf_verifier_log_full(log))
 		ret = -ENOSPC;
-	}
 
 	if (log->level && !log->ubuf) {
 		ret = -EFAULT;
