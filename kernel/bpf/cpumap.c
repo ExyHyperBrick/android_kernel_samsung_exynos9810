@@ -505,7 +505,8 @@ struct xdp_pkt {
 /* Runs under RCU-read-side, plus in softirq under NAPI protection.
  * Thus, safe percpu variable access.
  */
-int bq_enqueue(struct bpf_cpu_map_entry *rcpu, struct xdp_pkt *xdp_pkt)
+static int bq_enqueue(struct bpf_cpu_map_entry *rcpu,
+		      struct xdp_pkt *xdp_pkt)
 {
 	struct xdp_bulk_queue *bq = this_cpu_ptr(rcpu->bulkq);
 
@@ -523,6 +524,26 @@ int bq_enqueue(struct bpf_cpu_map_entry *rcpu, struct xdp_pkt *xdp_pkt)
 	 */
 	bq->q[bq->count++] = xdp_pkt;
 	return 0;
+}
+
+int cpu_map_enqueue(struct bpf_cpu_map_entry *rcpu, struct xdp_buff *xdp,
+		    struct net_device *dev_rx)
+{
+	struct xdp_pkt *xdp_pkt;
+	int headroom;
+
+	headroom = xdp->data - xdp->data_hard_start;
+	if (headroom < sizeof(*xdp_pkt))
+		return -EOVERFLOW;
+
+	/* The next change expands this into the complete remote-CPU
+	 * packet description. For now preserve the original benchmark
+	 * behavior and queue the buffer start.
+	 */
+	xdp_pkt = xdp->data_hard_start;
+	xdp_pkt->data = xdp->data;
+
+	return bq_enqueue(rcpu, xdp_pkt);
 }
 
 void __cpu_map_insert_ctx(struct bpf_map *map, u32 bit)

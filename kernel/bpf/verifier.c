@@ -4301,7 +4301,8 @@ static int check_map_func_compatibility(struct bpf_verifier_env *env,
 		break;
 	case BPF_FUNC_redirect_map:
 		if (map->map_type != BPF_MAP_TYPE_DEVMAP &&
-		    map->map_type != BPF_MAP_TYPE_DEVMAP_HASH)
+		    map->map_type != BPF_MAP_TYPE_DEVMAP_HASH &&
+		    map->map_type != BPF_MAP_TYPE_CPUMAP)
 			goto error;
 		break;
 	case BPF_FUNC_sk_redirect_map:
