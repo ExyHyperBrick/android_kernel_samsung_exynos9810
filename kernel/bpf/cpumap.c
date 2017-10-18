@@ -19,6 +19,8 @@
 #include <linux/bpf.h>
 #include <linux/filter.h>
 #include <linux/ptr_ring.h>
+#include <linux/netdevice.h>
+#include <linux/etherdevice.h>
 
 #include <linux/sched.h>
 #include <linux/workqueue.h>
@@ -159,6 +161,58 @@ static void get_cpu_map_entry(struct bpf_cpu_map_entry *rcpu)
 	atomic_inc(&rcpu->refcnt);
 }
 
+/* Packet description carried in the buffer headroom to the remote CPU. */
+struct xdp_pkt {
+	void *data;
+	u16 len;
+	u16 headroom;
+	u16 metasize;
+	struct net_device *dev_rx;
+};
+
+static struct xdp_pkt *convert_to_xdp_pkt(struct xdp_buff *xdp)
+{
+	struct xdp_pkt *xdp_pkt;
+	int headroom, metasize;
+
+	headroom = xdp->data - xdp->data_hard_start;
+	metasize = xdp->data - xdp->data_meta;
+	metasize = metasize > 0 ? metasize : 0;
+	if (headroom - metasize < sizeof(*xdp_pkt))
+		return NULL;
+
+	xdp_pkt = xdp->data_hard_start;
+	xdp_pkt->data = xdp->data;
+	xdp_pkt->len = xdp->data_end - xdp->data;
+	xdp_pkt->headroom = headroom - sizeof(*xdp_pkt);
+	xdp_pkt->metasize = metasize;
+
+	return xdp_pkt;
+}
+
+static struct sk_buff *cpu_map_build_skb(struct xdp_pkt *xdp_pkt)
+{
+	unsigned int frame_size;
+	void *pkt_data_start;
+	struct sk_buff *skb;
+
+	frame_size = SKB_DATA_ALIGN(xdp_pkt->len) + xdp_pkt->headroom +
+		SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
+	pkt_data_start = xdp_pkt->data - xdp_pkt->headroom;
+
+	skb = build_skb(pkt_data_start, frame_size);
+	if (!skb)
+		return NULL;
+
+	skb_reserve(skb, xdp_pkt->headroom);
+	__skb_put(skb, xdp_pkt->len);
+	if (xdp_pkt->metasize)
+		skb_metadata_set(skb, xdp_pkt->metasize);
+	skb->protocol = eth_type_trans(skb, xdp_pkt->dev_rx);
+
+	return skb;
+}
+
 /* called from workqueue, to workaround syscall using preempt_disable */
 static void cpu_map_kthread_stop(struct work_struct *work)
 {
@@ -184,18 +238,30 @@ static int cpu_map_kthread_run(void *data)
 
 	/* When kthread gives stop order, then rcpu have been disconnected
 	 * from map, thus no new packets can enter. Remaining in-flight
-	 * per CPU stored packets are flushed to this queue.  Wait honoring
+	 * per CPU stored packets are flushed to this queue. Wait honoring
 	 * kthread_stop signal until queue is empty.
 	 */
 	while (!kthread_should_stop() || !__ptr_ring_empty(rcpu->queue)) {
+		unsigned int processed = 0;
 		struct xdp_pkt *xdp_pkt;
 
 		schedule();
-		/* Do work */
-		while ((xdp_pkt = ptr_ring_consume(rcpu->queue))) {
-			/* For now just "refcnt-free" */
-			__free_page_frag(xdp_pkt);
+
+		local_bh_disable();
+		while ((xdp_pkt = __ptr_ring_consume(rcpu->queue))) {
+			struct sk_buff *skb;
+
+			skb = cpu_map_build_skb(xdp_pkt);
+			if (!skb) {
+				__free_page_frag(xdp_pkt);
+				continue;
+			}
+
+			netif_receive_skb_core(skb);
+			if (++processed == CPU_MAP_BULK_SIZE)
+				break;
 		}
+		local_bh_enable();
 		__set_current_state(TASK_INTERRUPTIBLE);
 	}
 	__set_current_state(TASK_RUNNING);
@@ -495,13 +561,6 @@ static int bq_flush_to_queue(struct bpf_cpu_map_entry *rcpu,
 	return 0;
 }
 
-/* Notice: Will change in later patch */
-struct xdp_pkt {
-	void *data;
-	u16 len;
-	u16 headroom;
-};
-
 /* Runs under RCU-read-side, plus in softirq under NAPI protection.
  * Thus, safe percpu variable access.
  */
@@ -530,19 +589,12 @@ int cpu_map_enqueue(struct bpf_cpu_map_entry *rcpu, struct xdp_buff *xdp,
 		    struct net_device *dev_rx)
 {
 	struct xdp_pkt *xdp_pkt;
-	int headroom;
 
-	headroom = xdp->data - xdp->data_hard_start;
-	if (headroom < sizeof(*xdp_pkt))
+	xdp_pkt = convert_to_xdp_pkt(xdp);
+	if (!xdp_pkt)
 		return -EOVERFLOW;
 
-	/* The next change expands this into the complete remote-CPU
-	 * packet description. For now preserve the original benchmark
-	 * behavior and queue the buffer start.
-	 */
-	xdp_pkt = xdp->data_hard_start;
-	xdp_pkt->data = xdp->data;
-
+	xdp_pkt->dev_rx = dev_rx;
 	return bq_enqueue(rcpu, xdp_pkt);
 }
 

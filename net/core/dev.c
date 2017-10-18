@@ -4503,6 +4503,25 @@ out:
 	return ret;
 }
 
+/**
+ *	netif_receive_skb_core - special purpose receive entry point
+ *	@skb: buffer to process
+ *
+ *	Skip RPS and generic XDP when reinjecting a CPUMAP packet on its
+ *	destination CPU. The caller must run with bottom halves disabled.
+ */
+int netif_receive_skb_core(struct sk_buff *skb)
+{
+	int ret;
+
+	rcu_read_lock();
+	ret = __netif_receive_skb_core(skb, false);
+	rcu_read_unlock();
+
+	return ret;
+}
+EXPORT_SYMBOL(netif_receive_skb_core);
+
 static int __netif_receive_skb(struct sk_buff *skb)
 {
 	int ret;
