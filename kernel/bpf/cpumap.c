@@ -245,7 +245,16 @@ static int cpu_map_kthread_run(void *data)
 		unsigned int processed = 0;
 		struct xdp_pkt *xdp_pkt;
 
-		schedule();
+		if (__ptr_ring_empty(rcpu->queue)) {
+			set_current_state(TASK_INTERRUPTIBLE);
+			/* Recheck to avoid a lost wake-up. */
+			if (__ptr_ring_empty(rcpu->queue))
+				schedule();
+			else
+				__set_current_state(TASK_RUNNING);
+		} else {
+			cond_resched();
+		}
 
 		local_bh_disable();
 		while ((xdp_pkt = __ptr_ring_consume(rcpu->queue))) {
@@ -262,7 +271,6 @@ static int cpu_map_kthread_run(void *data)
 				break;
 		}
 		local_bh_enable();
-		__set_current_state(TASK_INTERRUPTIBLE);
 	}
 	__set_current_state(TASK_RUNNING);
 
