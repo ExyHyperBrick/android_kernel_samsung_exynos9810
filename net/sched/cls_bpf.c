@@ -247,11 +247,8 @@ static int cls_bpf_init(struct tcf_proto *tp)
 	return 0;
 }
 
-static void __cls_bpf_delete_prog(struct cls_bpf_prog *prog)
+static void cls_bpf_free_parms(struct cls_bpf_prog *prog)
 {
-	tcf_exts_destroy(&prog->exts);
-	tcf_exts_put_net(&prog->exts);
-
 	if (cls_bpf_is_ebpf(prog))
 		bpf_prog_put(prog->filter);
 	else
@@ -259,6 +256,14 @@ static void __cls_bpf_delete_prog(struct cls_bpf_prog *prog)
 
 	kfree(prog->bpf_name);
 	kfree(prog->bpf_ops);
+}
+
+static void __cls_bpf_delete_prog(struct cls_bpf_prog *prog)
+{
+	tcf_exts_destroy(&prog->exts);
+	tcf_exts_put_net(&prog->exts);
+
+	cls_bpf_free_parms(prog);
 	kfree(prog);
 }
 
@@ -516,10 +521,8 @@ static int cls_bpf_change(struct net *net, struct sk_buff *in_skb,
 		goto errout;
 
 	ret = cls_bpf_offload(tp, prog, oldprog);
-	if (ret) {
-		__cls_bpf_delete_prog(prog);
-		return ret;
-	}
+	if (ret)
+		goto errout_parms;
 
 	if (!tc_in_hw(prog->gen_flags))
 		prog->gen_flags |= TCA_CLS_FLAGS_NOT_IN_HW;
@@ -536,6 +539,8 @@ static int cls_bpf_change(struct net *net, struct sk_buff *in_skb,
 	*arg = (unsigned long) prog;
 	return 0;
 
+errout_parms:
+	cls_bpf_free_parms(prog);
 errout:
 	tcf_exts_destroy(&prog->exts);
 	kfree(prog);
