@@ -1636,6 +1636,10 @@ extern int vfs_rename(struct inode *, struct dentry *, struct inode *, struct de
 extern int vfs_rename2(struct vfsmount *, struct inode *, struct dentry *, struct inode *, struct dentry *, struct inode **, unsigned int);
 extern int vfs_whiteout(struct inode *, struct dentry *);
 
+int vfs_mkobj(struct dentry *, umode_t,
+		int (*f)(struct dentry *, umode_t, void *),
+		void *);
+
 /*
  * VFS file helper functions.
  */
