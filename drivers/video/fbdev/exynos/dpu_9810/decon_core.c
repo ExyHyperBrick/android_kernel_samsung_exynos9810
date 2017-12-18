@@ -1091,6 +1091,11 @@ static int decon_blank(int blank_mode, struct fb_info *info)
 			blank_mode == FB_BLANK_UNBLANK ? "UNBLANK" : "POWERDOWN",
 			decon->dt.out_type);
 
+	if (IS_ENABLED(CONFIG_EXYNOS_VIRTUAL_DISPLAY)) {
+		decon_info("decon%d virtual display mode\n", decon->id);
+		return 0;
+	}
+
 	decon_hiber_block_exit(decon);
 
 	switch (blank_mode) {
@@ -2476,6 +2481,7 @@ static int decon_set_win_config(struct decon_device *decon,
 #if defined(CONFIG_EXYNOS_COMMON_PANEL)
 		decon_is_bypass(decon) ||
 #endif
+		IS_ENABLED(CONFIG_EXYNOS_VIRTUAL_DISPLAY) ||
 		decon->state == DECON_STATE_TUI) {
 #ifndef CONFIG_NO_LCD
 #if defined(CONFIG_EXYNOS_COMMON_PANEL)
@@ -3740,7 +3746,8 @@ static int decon_initial_display(struct decon_device *decon, bool is_colormap)
 	int connected;
 #endif
 
-	if (decon->id || (decon->dt.out_type != DECON_OUT_DSI)) {
+	if (decon->id || (decon->dt.out_type != DECON_OUT_DSI) ||
+			IS_ENABLED(CONFIG_EXYNOS_VIRTUAL_DISPLAY)) {
 		decon->state = DECON_STATE_OFF;
 		decon_info("decon%d doesn't need to display\n", decon->id);
 		return 0;

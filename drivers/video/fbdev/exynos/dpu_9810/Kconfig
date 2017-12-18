@@ -123,6 +123,10 @@ config EXYNOS_MULTIRESOLUTION
 	depends on EXYNOS_DECON_9810 && FB_WINDOW_UPDATE
 	default y
 
+config EXYNOS_VIRTUAL_DISPLAY
+	bool "Virtual display mode"
+	depends on EXYNOS_DECON_9810
+
 endif
 
 source "drivers/video/fbdev/exynos/dpu_9810/panels/Kconfig"
