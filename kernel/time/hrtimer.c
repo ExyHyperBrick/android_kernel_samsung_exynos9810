@@ -166,7 +166,7 @@ hrtimer_check_target(struct hrtimer *timer, struct hrtimer_clock_base *new_base)
 	ktime_t expires;
 
 	expires = ktime_sub(hrtimer_get_expires(timer), new_base->offset);
-	return expires.tv64 <= new_base->cpu_base->expires_next.tv64;
+	return expires.tv64 < new_base->cpu_base->expires_next.tv64;
 }
 
 #ifdef CONFIG_NO_HZ_COMMON
