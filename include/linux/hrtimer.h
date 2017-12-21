@@ -173,8 +173,8 @@ enum  hrtimer_base_type {
  * @expires_next:	absolute time of the next event which was scheduled
  *			via clock_set_next_event()
  * @next_timer:		Pointer to the first expiring timer
- * @in_hrtirq:		hrtimer_interrupt() is currently executing
  * @hres_active:	State of high resolution mode
+ * @in_hrtirq:		hrtimer_interrupt() is currently executing
  * @hang_detected:	The last hrtimer interrupt detected a hang
  * @nr_events:		Total number of hrtimer interrupt events
  * @nr_retries:		Total number of hrtimer interrupt retries
@@ -193,9 +193,9 @@ struct hrtimer_cpu_base {
 	unsigned int			clock_was_set_seq;
 	bool				migration_enabled;
 	bool				nohz_active;
+	unsigned int			hres_active	: 1;
 #ifdef CONFIG_HIGH_RES_TIMERS
 	unsigned int			in_hrtirq	: 1,
-					hres_active	: 1,
 					hang_detected	: 1;
 	ktime_t				expires_next;
 	struct hrtimer			*next_timer;
@@ -277,15 +277,16 @@ static inline ktime_t hrtimer_cb_get_time(struct hrtimer *timer)
 	return timer->base->get_time();
 }
 
+static inline int hrtimer_is_hres_active(struct hrtimer *timer)
+{
+	return IS_ENABLED(CONFIG_HIGH_RES_TIMERS) ?
+		timer->base->cpu_base->hres_active : 0;
+}
+
 #ifdef CONFIG_HIGH_RES_TIMERS
 struct clock_event_device;
 
 extern void hrtimer_interrupt(struct clock_event_device *dev);
-
-static inline int hrtimer_is_hres_active(struct hrtimer *timer)
-{
-	return timer->base->cpu_base->hres_active;
-}
 
 extern void hrtimer_peek_ahead_timers(void);
 
@@ -312,11 +313,6 @@ extern unsigned int hrtimer_resolution;
 #define hrtimer_resolution	(unsigned int)LOW_RES_NSEC
 
 static inline void hrtimer_peek_ahead_timers(void) { }
-
-static inline int hrtimer_is_hres_active(struct hrtimer *timer)
-{
-	return 0;
-}
 
 static inline void clock_was_set_delayed(void) { }
 
