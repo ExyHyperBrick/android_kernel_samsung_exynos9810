@@ -491,21 +491,13 @@ static inline void debug_deactivate(struct hrtimer *timer)
 }
 
 #if defined(CONFIG_NO_HZ_COMMON) || defined(CONFIG_HIGH_RES_TIMERS)
-static inline void hrtimer_update_next_timer(struct hrtimer_cpu_base *cpu_base,
-					     struct hrtimer *timer)
-{
-#ifdef CONFIG_HIGH_RES_TIMERS
-	cpu_base->next_timer = timer;
-#endif
-}
-
 static ktime_t __hrtimer_get_next_event(struct hrtimer_cpu_base *cpu_base)
 {
 	struct hrtimer_clock_base *base = cpu_base->clock_base;
 	ktime_t expires, expires_next = { .tv64 = KTIME_MAX };
 	unsigned int active = cpu_base->active_bases;
 
-	hrtimer_update_next_timer(cpu_base, NULL);
+	cpu_base->next_timer = NULL;
 	for (; active; base++, active >>= 1) {
 		struct timerqueue_node *next;
 		struct hrtimer *timer;
@@ -518,7 +510,7 @@ static ktime_t __hrtimer_get_next_event(struct hrtimer_cpu_base *cpu_base)
 		expires = ktime_sub(hrtimer_get_expires(timer), base->offset);
 		if (expires.tv64 < expires_next.tv64) {
 			expires_next = expires;
-			hrtimer_update_next_timer(cpu_base, timer);
+			cpu_base->next_timer = timer;
 		}
 	}
 	/*
@@ -1652,9 +1644,9 @@ int hrtimers_prepare_cpu(unsigned int cpu)
 	cpu_base->cpu = cpu;
 	cpu_base->hres_active = 0;
 	cpu_base->expires_next.tv64 = KTIME_MAX;
+	cpu_base->next_timer = NULL;
 #ifdef CONFIG_HIGH_RES_TIMERS
 	cpu_base->hang_detected = 0;
-	cpu_base->next_timer = NULL;
 #endif
 
 	restore_pcpu_tick(cpu);
