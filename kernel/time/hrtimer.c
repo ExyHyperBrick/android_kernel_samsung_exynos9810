@@ -490,13 +490,13 @@ static inline void debug_deactivate(struct hrtimer *timer)
 	trace_hrtimer_cancel(timer);
 }
 
-static ktime_t __hrtimer_get_next_event(struct hrtimer_cpu_base *cpu_base)
+static ktime_t __hrtimer_next_event_base(struct hrtimer_cpu_base *cpu_base,
+					 unsigned int active,
+					 ktime_t expires_next)
 {
 	struct hrtimer_clock_base *base = cpu_base->clock_base;
-	ktime_t expires, expires_next = { .tv64 = KTIME_MAX };
-	unsigned int active = cpu_base->active_bases;
+	ktime_t expires;
 
-	cpu_base->next_timer = NULL;
 	for (; active; base++, active >>= 1) {
 		struct timerqueue_node *next;
 		struct hrtimer *timer;
@@ -519,6 +519,19 @@ static ktime_t __hrtimer_get_next_event(struct hrtimer_cpu_base *cpu_base)
 	 */
 	if (expires_next.tv64 < 0)
 		expires_next.tv64 = 0;
+	return expires_next;
+}
+
+static ktime_t __hrtimer_get_next_event(struct hrtimer_cpu_base *cpu_base)
+{
+	unsigned int active = cpu_base->active_bases;
+	ktime_t expires_next = { .tv64 = KTIME_MAX };
+
+	cpu_base->next_timer = NULL;
+
+	expires_next = __hrtimer_next_event_base(cpu_base, active,
+						 expires_next);
+
 	return expires_next;
 }
 
