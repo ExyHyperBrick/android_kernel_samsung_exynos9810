@@ -973,22 +973,11 @@ static inline ktime_t hrtimer_update_lowres(struct hrtimer *timer, ktime_t tim,
 	return tim;
 }
 
-/**
- * hrtimer_start_range_ns - (re)start an hrtimer on the current CPU
- * @timer:	the timer to be added
- * @tim:	expiry time
- * @delta_ns:	"slack" range for the timer
- * @mode:	expiry mode: absolute (HRTIMER_MODE_ABS) or
- *		relative (HRTIMER_MODE_REL)
- */
-void hrtimer_start_range_ns(struct hrtimer *timer, ktime_t tim,
-			    u64 delta_ns, const enum hrtimer_mode mode)
+static int __hrtimer_start_range_ns(struct hrtimer *timer, ktime_t tim,
+				    u64 delta_ns, const enum hrtimer_mode mode,
+				    struct hrtimer_clock_base *base)
 {
-	struct hrtimer_clock_base *base, *new_base;
-	unsigned long flags;
-	int leftmost;
-
-	base = lock_hrtimer_base(timer, &flags);
+	struct hrtimer_clock_base *new_base;
 
 	/* Remove an active timer from the queue: */
 	remove_hrtimer(timer, base, true);
@@ -1005,12 +994,28 @@ void hrtimer_start_range_ns(struct hrtimer *timer, ktime_t tim,
 
 	timer_stats_hrtimer_set_start_info(timer);
 
-	leftmost = enqueue_hrtimer(timer, new_base);
-	if (!leftmost)
-		goto unlock;
+	return enqueue_hrtimer(timer, new_base);
+}
 
-	hrtimer_reprogram(timer);
-unlock:
+/**
+ * hrtimer_start_range_ns - (re)start an hrtimer on the current CPU
+ * @timer:	the timer to be added
+ * @tim:	expiry time
+ * @delta_ns:	"slack" range for the timer
+ * @mode:	expiry mode: absolute (HRTIMER_MODE_ABS) or
+ *		relative (HRTIMER_MODE_REL)
+ */
+void hrtimer_start_range_ns(struct hrtimer *timer, ktime_t tim,
+			    u64 delta_ns, const enum hrtimer_mode mode)
+{
+	struct hrtimer_clock_base *base;
+	unsigned long flags;
+
+	base = lock_hrtimer_base(timer, &flags);
+
+	if (__hrtimer_start_range_ns(timer, tim, delta_ns, mode, base))
+		hrtimer_reprogram(timer);
+
 	unlock_hrtimer_base(timer, &flags);
 }
 EXPORT_SYMBOL_GPL(hrtimer_start_range_ns);
