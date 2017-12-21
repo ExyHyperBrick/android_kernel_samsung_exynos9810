@@ -95,6 +95,7 @@ enum hrtimer_restart {
  * @base:	pointer to the timer base (per cpu and per clock)
  * @state:	state information (See bit values above)
  * @is_rel:	Set if the timer was armed relative
+ * @is_soft:	Set if the timer expires in soft interrupt context
  * @start_pid:  timer statistics field to store the pid of the task which
  *		started the timer
  * @start_site:	timer statistics field to store the site where the timer
@@ -111,6 +112,7 @@ struct hrtimer {
 	struct hrtimer_clock_base	*base;
 	u8				state;
 	u8				is_rel;
+	u8				is_soft;
 #ifdef CONFIG_TIMER_STATS
 	int				start_pid;
 	void				*start_site;
@@ -184,13 +186,16 @@ enum  hrtimer_base_type {
  * @hres_active:	State of high resolution mode
  * @in_hrtirq:		hrtimer_interrupt() is currently executing
  * @hang_detected:	The last hrtimer interrupt detected a hang
+ * @softirq_activated:	The softirq has already been raised
  * @nr_events:		Total number of hrtimer interrupt events
  * @nr_retries:		Total number of hrtimer interrupt retries
  * @nr_hangs:		Total number of hrtimer interrupt hangs
  * @max_hang_time:	Maximum time spent in hrtimer_interrupt
- * @expires_next:	absolute time of the next event, is required for remote
- *			hrtimer enqueue
+ * @expires_next:	absolute time of the next event, including hard and soft
+ *			timers; required for remote hrtimer enqueue
  * @next_timer:		Pointer to the first expiring timer
+ * @softirq_expires_next: Time at which the soft queues must be expired
+ * @softirq_next_timer:	Pointer to the first expiring soft timer
  * @clock_base:		array of clock bases for this cpu
  *
  * Note: next_timer is just an optimization for __remove_hrtimer().
@@ -204,9 +209,10 @@ struct hrtimer_cpu_base {
 	unsigned int			clock_was_set_seq;
 	bool				migration_enabled;
 	bool				nohz_active;
-	unsigned int			hres_active	: 1,
-					in_hrtirq	: 1,
-					hang_detected	: 1;
+	unsigned int			hres_active		: 1,
+					in_hrtirq		: 1,
+					hang_detected		: 1,
+					softirq_activated	: 1;
 #ifdef CONFIG_HIGH_RES_TIMERS
 	unsigned int			nr_events;
 	unsigned short			nr_retries;
@@ -215,6 +221,8 @@ struct hrtimer_cpu_base {
 #endif
 	ktime_t				expires_next;
 	struct hrtimer			*next_timer;
+	ktime_t				softirq_expires_next;
+	struct hrtimer			*softirq_next_timer;
 	struct hrtimer_clock_base	clock_base[HRTIMER_MAX_CLOCK_BASES];
 } ____cacheline_aligned;
 
