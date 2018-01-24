@@ -1081,7 +1081,9 @@ int decon_enter_hiber(struct decon_device *decon)
 		decon_dpp_stop(decon, false);
 	}
 
+#if defined(CONFIG_EXYNOS9810_BTS)
 	decon->bts.ops->bts_release_bw(decon);
+#endif
 
 	ret = decon_set_out_sd_state(decon, DECON_STATE_HIBER);
 	if (ret < 0) {
