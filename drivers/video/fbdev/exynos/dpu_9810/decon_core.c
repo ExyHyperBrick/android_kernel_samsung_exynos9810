@@ -3216,10 +3216,14 @@ static int decon_register_subdevs(struct decon_device *decon)
 		return ret;
 	}
 
+	for (i = 0;  i < MAX_DPP_SUBDEV; ++i)
+		decon->dpp_sd[i] = NULL;
 	ret = dpu_get_sd_by_drvname(decon, DPP_MODULE_NAME);
 	if (ret)
 		return ret;
 
+	for (i = 0; i < MAX_DSIM_CNT; ++i)
+		decon->dsim_sd[i] = NULL;
 	ret = dpu_get_sd_by_drvname(decon, DSIM_MODULE_NAME);
 	if (ret)
 		return ret;
@@ -3235,6 +3239,8 @@ static int decon_register_subdevs(struct decon_device *decon)
 #endif
 	if (!decon->id) {
 		for (i = 0; i < MAX_DPP_SUBDEV; i++) {
+			if (IS_ERR_OR_NULL(decon->dpp_sd[i]))
+				continue;
 			ret = v4l2_device_register_subdev(v4l2_dev,
 					decon->dpp_sd[i]);
 			if (ret) {
