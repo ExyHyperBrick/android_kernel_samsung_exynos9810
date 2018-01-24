@@ -87,6 +87,7 @@ extern int dpp_log_level;
 #define is_yuv420(config) ((config->format >= DECON_PIXEL_FORMAT_NV12) \
 			&& (config->format <= DECON_PIXEL_FORMAT_YVU420M))
 #define is_vgr(dpp) ((dpp->id == IDMA_VGF0) || (dpp->id == IDMA_VGF1))
+#define is_wb(dpp) (dpp->id == ODMA_WB)
 
 #define dpp_err(fmt, ...)							\
 	do {									\
@@ -162,6 +163,7 @@ struct dpp_img_format {
 	u32		yuv;
 	u32		yuv422;
 	u32		yuv420;
+	u32		wb;
 };
 
 enum dpp_cfg_err {
@@ -361,6 +363,7 @@ static inline void dpp_select_format(struct dpp_device *dpp,
 	vi->yuv = is_yuv(config);
 	vi->yuv422 = is_yuv422(config);
 	vi->yuv420 = is_yuv420(config);
+	vi->wb = is_wb(dpp);
 }
 
 void dpp_dump(struct dpp_device *dpp);
@@ -393,6 +396,7 @@ void dma_reg_set_common_debug(u32 id);
 #define DPP_WIN_CONFIG			_IOW('P', 0, struct decon_win_config)
 #define DPP_STOP			_IOW('P', 1, unsigned long)
 #define DPP_DUMP			_IOW('P', 2, u32)
+#define DPP_WB_WAIT_FOR_FRAMEDONE	_IOR('P', 3, u32)
 #define DPP_WAIT_IDLE			_IOR('P', 4, unsigned long)
 #define DPP_SET_RECOVERY_NUM		_IOR('P', 5, unsigned long)
 #define DPP_GET_RECOVERY_CNT		_IOR('P', 6, unsigned long)

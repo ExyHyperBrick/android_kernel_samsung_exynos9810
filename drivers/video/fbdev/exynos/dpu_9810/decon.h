@@ -76,7 +76,7 @@ extern struct decon_bts_ops decon_bts_control;
 #define VSYNC_TIMEOUT_MSEC	200
 #define DEFAULT_BPP		32
 #define MAX_DECON_WIN		6
-#define MAX_DPP_SUBDEV		6
+#define MAX_DPP_SUBDEV		7
 #define MIN_WIN_BLOCK_WIDTH	8
 #define MIN_WIN_BLOCK_HEIGHT	1
 #define FD_TRY_CNT		3
@@ -195,6 +195,7 @@ enum decon_out_type {
 	DECON_OUT_DSI = 0,
 	DECON_OUT_EDP,
 	DECON_OUT_DP,
+	DECON_OUT_WB
 };
 
 enum decon_dsi_mode {
@@ -297,6 +298,7 @@ enum decon_idma_type {
 	IDMA_VG1,
 	IDMA_VGF0,
 	IDMA_VGF1, /* VGRF in case of Exynos9810 */
+	ODMA_WB,
 	MAX_DECON_DMA_TYPE,
 };
 
@@ -359,6 +361,9 @@ enum decon_data_path {
 	DPATH_DSCC_DSCENC01_OUTFIFO01_DSIMIF1	= 0x0B2,
 	/* DSCC,DSC_ENC0/1 - OUTFIFO01 DSIM_IF0/1*/
 	DPATH_DSCC_DSCENC01_OUTFIFO01_DSIMIF01	= 0x0B3,
+
+	/* WB_PRE */
+	DPATH_WBPRE_ONLY			= 0x100,
 
 	/* No comp - OUTFIFO0 DSIM_IF0 */
 	DECON1_NOCOMP_OUTFIFO0_DSIMIF0	= 0x001,
@@ -1271,6 +1276,13 @@ void decon_destroy_fsync_thread(struct decon_device *decon);
 int decon_create_psr_info(struct decon_device *decon);
 void decon_destroy_psr_info(struct decon_device *decon);
 
+/* DECON to writeback interface functions */
+int decon_wb_register_irq(struct decon_device *decon);
+void decon_wb_free_irq(struct decon_device *decon);
+int decon_wb_get_clocks(struct decon_device *decon);
+void decon_wb_set_clocks(struct decon_device *decon);
+int decon_wb_get_out_sd(struct decon_device *decon);
+
 /* DECON to DISPLAYPORT interface functions */
 int decon_displayport_register_irq(struct decon_device *decon);
 void decon_displayport_free_irq(struct decon_device *decon);
@@ -1555,11 +1567,11 @@ void decon_reg_set_trigger(u32 id, struct decon_mode_info *psr,
 		enum decon_set_trig en);
 int decon_reg_wait_for_update_timeout(u32 id, unsigned long timeout);
 int decon_reg_get_interrupt_and_clear(u32 id, u32 *ext_irq);
+void decon_reg_set_blender_bg_image_size(u32 id, enum decon_dsi_mode dsi_mode,
+		struct decon_lcd *lcd_info);
 #if defined(CONFIG_SOC_EYXNOS8895)
 void decon_reg_config_data_path_size(u32 id,
 	u32 width, u32 height, u32 overlap_w);
-void decon_reg_set_blender_bg_image_size(u32 id, enum decon_dsi_mode dsi_mode,
-		struct decon_lcd *lcd_info);
 #elif defined(CONFIG_SOC_EXYNOS9810)
 void decon_reg_config_data_path_size(u32 id, u32 width, u32 height,
 		u32 overlap_w, struct decon_dsc *p, struct decon_param *param);
@@ -1596,6 +1608,8 @@ u32 dpu_get_bpp(enum decon_pixel_format fmt);
 int dpu_get_meta_plane_cnt(enum decon_pixel_format format);
 int dpu_get_plane_cnt(enum decon_pixel_format format, bool is_hdr);
 u32 dpu_get_alpha_len(int format);
+void dpu_unify_rect(struct decon_rect *r1, struct decon_rect *r2,
+		struct decon_rect *dst);
 
 void decon_dump(struct decon_device *decon, int dsi_dump);
 void decon_to_psr_info(struct decon_device *decon, struct decon_mode_info *psr);

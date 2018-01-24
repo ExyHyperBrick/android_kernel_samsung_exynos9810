@@ -313,6 +313,11 @@ void DPU_EVENT_LOG_WINCON(struct v4l2_subdev *sd, struct decon_reg_data *regs)
 				sizeof(struct decon_win_config));
 	}
 
+	/* write-back case : last window */
+	if (decon->dt.out_type == DECON_OUT_WB)
+		memcpy(&log->data.reg.win_config[win], &regs->dpp_config[win],
+				sizeof(struct decon_win_config));
+
 	if (window_updated) {
 		log->data.reg.win.x = regs->dpp_config[win].dst.x;
 		log->data.reg.win.y = regs->dpp_config[win].dst.y;

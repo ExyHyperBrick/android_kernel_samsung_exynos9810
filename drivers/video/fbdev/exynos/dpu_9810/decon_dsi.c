@@ -1140,11 +1140,13 @@ int decon_enter_hiber(struct decon_device *decon)
 	decon_reg_clear_int_all(decon->id);
 
 	/* DMA protection disable must be happen on dpp domain is alive */
+	if (decon->dt.out_type != DECON_OUT_WB) {
 #if defined(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION)
-	decon_set_protected_content(decon, NULL);
+		decon_set_protected_content(decon, NULL);
 #endif
-	decon->cur_using_dpp = 0;
-	decon_dpp_stop(decon, false);
+		decon->cur_using_dpp = 0;
+		decon_dpp_stop(decon, false);
+	}
 
 	decon->bts.ops->bts_release_bw(decon);
 
