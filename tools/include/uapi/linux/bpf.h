@@ -2148,7 +2148,8 @@ struct bpf_sock_ops {
 };
 
 /* Definitions for bpf_sock_ops_cb_flags */
-#define BPF_SOCK_OPS_ALL_CB_FLAGS       0		/* Mask of all currently
+#define BPF_SOCK_OPS_RTO_CB_FLAG	(1<<0)
+#define BPF_SOCK_OPS_ALL_CB_FLAGS       0x1		/* Mask of all currently
 							 * supported cb flags
 							 */
 
@@ -2184,6 +2185,11 @@ enum {
 					 * algorithm. In general it indicates
 					 * a congestion threshold. RTTs above
 					 * this indicate congestion
+					 */
+	BPF_SOCK_OPS_RTO_CB,		/* Called when an RTO has triggered.
+					 * Arg1: value of icsk_retransmits
+					 * Arg2: value of icsk_rto
+					 * Arg3: whether RTO has expired
 					 */
 	BPF_SOCK_OPS_TCP_LISTEN_CB,	/* Called on listen(2), right after
 					 * socket transition to LISTEN state.
