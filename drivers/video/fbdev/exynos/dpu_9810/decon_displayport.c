@@ -17,23 +17,6 @@
 #include "decon.h"
 #include "displayport.h"
 
-#if !defined(CONFIG_SOC_EXYNOS9810)
-static void decon_displayport_underrun_info(void)
-{
-#if defined(CONFIG_EXYNOS9810_BTS)
-	struct decon_device *decon = get_decon_drvdata(2);
-
-	decon_info("decon%d: underrun MIF(%lu), INT(%lu), DISP(%lu), total bw(%u, %u)\n",
-			decon->id,
-			cal_dfs_cached_get_rate(ACPM_DVFS_MIF),
-			cal_dfs_cached_get_rate(ACPM_DVFS_INT),
-			cal_dfs_cached_get_rate(ACPM_DVFS_DISP),
-			decon->bts.prev_total_bw,
-			decon->bts.total_bw);
-#endif
-}
-#endif
-
 static irqreturn_t decon_displayport_irq_handler(int irq, void *dev_data)
 {
 	struct decon_device *decon = dev_data;
