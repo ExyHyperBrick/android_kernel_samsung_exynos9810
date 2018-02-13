@@ -45,8 +45,8 @@ static int __dpu_match_dev(struct device *dev, void *data)
 	if (!strcmp(DPP_MODULE_NAME, dev->driver->name)) {
 		dpp = (struct dpp_device *)dev_get_drvdata(dev);
 		decon->dpp_sd[dpp->id] = &dpp->sd;
-		decon_dbg("dpp%d sd name(%s)\n", dpp->id,
-				decon->dpp_sd[dpp->id]->name);
+		decon_dbg("dpp%d sd name(%s) attr(0x%lx)\n", dpp->id,
+				decon->dpp_sd[dpp->id]->name, dpp->attr);
 	} else if (!strcmp(DSIM_MODULE_NAME, dev->driver->name)) {
 		dsim = (struct dsim_device *)dev_get_drvdata(dev);
 		decon->dsim_sd[dsim->id] = &dsim->sd;

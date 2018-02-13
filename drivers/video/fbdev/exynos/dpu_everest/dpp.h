@@ -87,7 +87,6 @@ extern int dpp_log_level;
 #define is_yuv420(config) ((config->format >= DECON_PIXEL_FORMAT_NV12) \
 			&& (config->format <= DECON_PIXEL_FORMAT_YVU420M))
 #define is_vgr(dpp) ((dpp->id == IDMA_VGF0) || (dpp->id == IDMA_VGF1))
-#define is_wb(dpp) (dpp->id == ODMA_WB)
 
 #define dpp_err(fmt, ...)							\
 	do {									\
@@ -200,6 +199,21 @@ enum dpp_reg_area {
 	REG_AREA_DMA_COM,
 };
 
+enum dpp_attr {
+	DPP_ATTR_AFBC		= 0,
+	DPP_ATTR_BLOCK		= 1,
+	DPP_ATTR_FLIP		= 2,
+	DPP_ATTR_ROT		= 3,
+	DPP_ATTR_CSC		= 4,
+	DPP_ATTR_SCALE		= 5,
+	DPP_ATTR_HDR		= 6,
+	DPP_ATTR_HDR10		= 7,
+
+	DPP_ATTR_IDMA		= 16,
+	DPP_ATTR_ODMA		= 17,
+	DPP_ATTR_DPP		= 18,
+};
+
 struct dpp_resources {
 	struct clk *gate;
 	void __iomem *regs;
@@ -217,6 +231,7 @@ struct dpp_debug {
 
 struct dpp_device {
 	int id;
+	unsigned long attr;
 	enum dpp_state state;
 	struct device *dev;
 	struct v4l2_subdev sd;
@@ -364,15 +379,15 @@ static inline void dpp_select_format(struct dpp_device *dpp,
 	vi->yuv = is_yuv(config);
 	vi->yuv422 = is_yuv422(config);
 	vi->yuv420 = is_yuv420(config);
-	vi->wb = is_wb(dpp);
+	vi->wb = test_bit(DPP_ATTR_ODMA, &dpp->attr);
 }
 
 void dpp_dump(struct dpp_device *dpp);
 void dpp_release_rpm_hold(u32 id);
 
 /* DPU DMA low-level APIs exposed to DPP driver */
-u32 dma_reg_get_irq_status(u32 id);
-void dma_reg_clear_irq(u32 id, u32 irq);
+u32 dma_reg_get_irq_status(u32 id, unsigned long attr);
+void dma_reg_clear_irq(u32 id, u32 irq, unsigned long attr);
 
 /* BIST mode */
 void dma_reg_set_test_pattern(u32 id, u32 pat_id, u32 pat_dat[4]);
@@ -381,14 +396,14 @@ void dma_reg_set_test_en(u32 id,u32 en);
 
 /* DPP low-level APIs exposed to DPP driver */
 void dpp_reg_irq_enable(u32 id);
-void dpp_reg_init(u32 id);
-int dpp_reg_deinit(u32 id, bool reset);
-void dpp_reg_configure_params(u32 id, struct dpp_params_info *p);
+void dpp_reg_init(u32 id, unsigned long attr);
+int dpp_reg_deinit(u32 id, bool reset, unsigned long attr);
+void dpp_reg_configure_params(u32 id, struct dpp_params_info *p, unsigned long attr);
 u32 dpp_reg_get_irq_status(u32 id);
 void dpp_reg_clear_irq(u32 id, u32 irq);
 void dpp_constraints_params(struct dpp_size_constraints *vc,
 					struct dpp_img_format *vi);
-int dpp_reg_wait_idle_status(int id, unsigned long timeout);
+int dpp_reg_wait_idle_status(int id, unsigned long timeout, unsigned long attr);
 void dma_reg_set_recovery_num(u32 id, u32 rcv_num);
 
 /* DPU DMA DEBUG */

@@ -63,11 +63,11 @@ static void dpp_dump_regs(struct dpp_device *dpp)
 
 	print_hex_dump(KERN_INFO, "", DUMP_PREFIX_ADDRESS, 32, 4,
 			dpp->res.regs, 0x4C, false);
-	if (dpp->id == IDMA_VGF0 || dpp->id == IDMA_VGF1) {
+	if (test_bit(DPP_ATTR_AFBC, &dpp->attr)) {
 		print_hex_dump(KERN_INFO, "", DUMP_PREFIX_ADDRESS, 32, 4,
 				dpp->res.regs + 0x5B0, 0x10, false);
 	}
-	if (dpp->id == IDMA_VGF1) {
+	if (test_bit(DPP_ATTR_ROT, &dpp->attr)) {
 		print_hex_dump(KERN_INFO, "", DUMP_PREFIX_ADDRESS, 32, 4,
 			dpp->res.regs + 0x600, 0x1E0, false);
 	}
@@ -75,7 +75,7 @@ static void dpp_dump_regs(struct dpp_device *dpp)
 			dpp->res.regs + 0xA54, 0x4, false);
 	print_hex_dump(KERN_INFO, "", DUMP_PREFIX_ADDRESS, 32, 4,
 			dpp->res.regs + 0xB00, 0x4C, false);
-	if (dpp->id == IDMA_VGF0 || dpp->id == IDMA_VGF1) {
+	if (test_bit(DPP_ATTR_AFBC, &dpp->attr)) {
 		print_hex_dump(KERN_INFO, "", DUMP_PREFIX_ADDRESS, 32, 4,
 				dpp->res.regs + 0xBB0, 0x10, false);
 	}
@@ -272,7 +272,7 @@ static int dpp_wb_wait_for_framedone(struct dpp_device *dpp)
 	int ret;
 	int done_cnt;
 
-	if (dpp->id != ODMA_WB) {
+	if (!test_bit(DPP_ATTR_ODMA, &dpp->attr)) {
 		dpp_err("waiting for dpp's framedone is only for writeback\n");
 		return -EINVAL;
 	}
@@ -515,13 +515,13 @@ static int dpp_check_addr(struct dpp_device *dpp, struct dpp_params_info *p)
 
 static int dpp_check_format(struct dpp_device *dpp, struct dpp_params_info *p)
 {
-	if ((dpp->id != IDMA_VGF1) && (p->rot > DPP_ROT_180)) {
+	if (!test_bit(DPP_ATTR_ROT, &dpp->attr) && (p->rot > DPP_ROT_180)) {
 		dpp_err("Not support rotation in DPP%d - VGRF only!\n",
 				p->rot);
 		return -EINVAL;
 	}
 
-	if ((dpp->id != IDMA_VGF1) && (p->hdr > DPP_HDR_OFF)) {
+	if (!test_bit(DPP_ATTR_HDR, &dpp->attr) && (p->hdr > DPP_HDR_OFF)) {
 		dpp_err("Not support hdr in DPP%d - VGRF only!\n",
 				dpp->id);
 		return -EINVAL;
@@ -533,24 +533,22 @@ static int dpp_check_format(struct dpp_device *dpp, struct dpp_params_info *p)
 		return -EINVAL;
 	}
 
-	if ((dpp->id == IDMA_G0 || dpp->id == IDMA_G1) &&
+	if (!test_bit(DPP_ATTR_CSC, &dpp->attr) &&
 			(p->format >= DECON_PIXEL_FORMAT_NV16)) {
 		dpp_err("Not support YUV format(%d) in DPP%d - VG & VGF only!\n",
 			p->format, dpp->id);
 		return -EINVAL;
 	}
 
-	if (dpp->id != IDMA_VGF0 && dpp->id != IDMA_VGF1) {
-		if (p->is_comp) {
-			dpp_err("Not support AFBC decoding in DPP%d - VGF only!\n",
-				dpp->id);
-			return -EINVAL;
-		}
+	if (!test_bit(DPP_ATTR_AFBC, &dpp->attr) && p->is_comp) {
+		dpp_err("Not support AFBC decoding in DPP%d - VGF only!\n",
+			dpp->id);
+		return -EINVAL;
+	}
 
-		if (p->is_scale) {
-			dpp_err("Not support SCALING in DPP%d - VGF only!\n", dpp->id);
-			return -EINVAL;
-		}
+	if (!test_bit(DPP_ATTR_SCALE, &dpp->attr) && p->is_scale) {
+		dpp_err("Not support SCALING in DPP%d - VGF only!\n", dpp->id);
+		return -EINVAL;
 	}
 
 	switch (p->format) {
@@ -688,10 +686,10 @@ static int dpp_set_config(struct dpp_device *dpp)
 
 	if (dpp->state == DPP_STATE_OFF) {
 		dpp_dbg("dpp%d is started\n", dpp->id);
-		dpp_reg_init(dpp->id);
+		dpp_reg_init(dpp->id, dpp->attr);
 
 		enable_irq(dpp->res.dma_irq);
-		if (dpp->id != ODMA_WB)
+		if (test_bit(DPP_ATTR_IDMA, &dpp->attr))
 			enable_irq(dpp->res.irq);
 
 		/* DMA_debug registers enable */
@@ -702,7 +700,7 @@ static int dpp_set_config(struct dpp_device *dpp)
 	}
 
 	/* set all parameters to dpp hw */
-	dpp_reg_configure_params(dpp->id, &params);
+	dpp_reg_configure_params(dpp->id, &params, dpp->attr);
 
 	dpp->d.op_timer.expires = (jiffies + 1 * HZ);
 	mod_timer(&dpp->d.op_timer, dpp->d.op_timer.expires);
@@ -752,11 +750,11 @@ static int dpp_stop(struct dpp_device *dpp, bool reset)
 	DPU_EVENT_LOG(DPU_EVT_DPP_STOP, &dpp->sd, ktime_set(0, 0));
 
 	disable_irq(dpp->res.dma_irq);
-	if (dpp->id != ODMA_WB)
+	if (test_bit(DPP_ATTR_IDMA, &dpp->attr))
 		disable_irq(dpp->res.irq);
 
 	del_timer(&dpp->d.op_timer);
-	dpp_reg_deinit(dpp->id, reset);
+	dpp_reg_deinit(dpp->id, reset, dpp->attr);
 
 	dpp_dbg("dpp%d is stopped\n", dpp->id);
 
@@ -804,7 +802,7 @@ static long dpp_subdev_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 	case DPP_WAIT_IDLE:
 		val = (unsigned long)arg;
 		if (dpp->state == DPP_STATE_ON)
-			dpp_reg_wait_idle_status(dpp->id, val);
+			dpp_reg_wait_idle_status(dpp->id, val, dpp->attr);
 		break;
 
 	case DPP_SET_RECOVERY_NUM:
@@ -897,9 +895,9 @@ static irqreturn_t dma_irq_handler(int irq, void *priv)
 	if (dpp->state == DPP_STATE_OFF)
 		goto irq_end;
 
-	irqs = dma_reg_get_irq_status(dpp->id);
+	irqs = dma_reg_get_irq_status(dpp->id, dpp->attr);
 	/* CFG_ERR_STATE SFR is cleared when clearing pending bits */
-	if (dpp->id == ODMA_WB) {
+	if (test_bit(DPP_ATTR_ODMA, &dpp->attr)) {
 		reg_id = ODMA_CFG_ERR_STATE;
 		irq_pend = ODMA_CONFIG_ERROR;
 	} else {
@@ -909,7 +907,7 @@ static irqreturn_t dma_irq_handler(int irq, void *priv)
 
 	if (irqs & irq_pend)
 		cfg_err = dma_read(dpp->id, reg_id);
-	dma_reg_clear_irq(dpp->id, irqs);
+	dma_reg_clear_irq(dpp->id, irqs, dpp->attr);
 
 	if (irqs & IDMA_RECOVERY_START_IRQ) {
 		DPU_EVENT_LOG(DPU_EVT_DMA_RECOVERY, &dpp->sd,
@@ -1033,6 +1031,8 @@ static void dpp_parse_dt(struct dpp_device *dpp, struct device *dev)
 {
 	dpp->id = of_alias_get_id(dev->of_node, "dpp");
 	dpp_info("dpp(%d) probe start..\n", dpp->id);
+	of_property_read_u32(dev->of_node, "attr", (u32 *)&dpp->attr);
+	dpp_info("attributes = 0x%lx\n", dpp->attr);
 
 	dpp->dev = dev;
 
@@ -1111,7 +1111,7 @@ static int dpp_init_resources(struct dpp_device *dpp, struct platform_device *pd
 	}
 	disable_irq(dpp->res.dma_irq);
 
-	if (dpp->id != ODMA_WB) {
+	if (test_bit(DPP_ATTR_IDMA, &dpp->attr)) {
 		res = platform_get_resource(pdev, IORESOURCE_IRQ, 1);
 		if (!res) {
 			dpp_err("failed to get dpp irq resource\n");

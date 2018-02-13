@@ -256,7 +256,7 @@ int dma_reg_wait_op_status(u32 id)
 	return -EBUSY;
 }
 
-u32 dma_reg_get_op_status(u32 id)
+u32 dma_reg_get_op_status(u32 id, unsigned long attr)
 {
 	u32 val;
 
@@ -264,7 +264,7 @@ u32 dma_reg_get_op_status(u32 id)
 	 * IDMA_OP_STATUS was commonly used at ODMA_WB
 	 *   because bit-field is same with ODMA_OP_STATUS
 	 */
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		val = dma_read(id, ODMA_ENABLE);
 	else
 		val = dma_read(id, IDMA_ENABLE);
@@ -309,11 +309,11 @@ void dma_reg_set_sfr_update_force(u32 id)
 	dma_write_mask(id, IDMA_ENABLE, ~0, IDMA_SFR_UPDATE_FORCE);
 }
 
-u32 dma_reg_get_irq_status(u32 id)
+u32 dma_reg_get_irq_status(u32 id, unsigned long attr)
 {
 	u32 val, mask;
 
-	if (id == ODMA_WB) {
+	if (test_bit(DPP_ATTR_ODMA, &attr)) {
 		val = dma_read(id, ODMA_IRQ);
 		mask = ODMA_ALL_IRQ_CLEAR;
 	} else {
@@ -324,19 +324,19 @@ u32 dma_reg_get_irq_status(u32 id)
 	return val & mask;
 }
 
-void dma_reg_clear_irq(u32 id, u32 irq)
+void dma_reg_clear_irq(u32 id, u32 irq, unsigned long attr)
 {
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		dma_write_mask(id, ODMA_IRQ, ~0, irq);
 	else
 		dma_write_mask(id, IDMA_IRQ, ~0, irq);
 }
 
-void dma_reg_clear_irq_all(u32 id)
+void dma_reg_clear_irq_all(u32 id, unsigned long attr)
 {
 	u32 val = IDMA_ALL_IRQ_CLEAR;
 
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		val = ODMA_ALL_IRQ_CLEAR;
 	dma_write_mask(id, IDMA_IRQ, val, val);
 }
@@ -438,27 +438,29 @@ void dma_reg_set_in_vr_mode(u32 id, u32 en)
 	dma_write_mask(id, IDMA_IN_CON, val, IDMA_VR_MODE_EN);
 }
 
-void dma_reg_set_in_ic_max(u32 id, u32 ic_num)
+#if 0 /* not used */
+void dma_reg_set_in_ic_max(u32 id, u32 ic_num, unsigned long attr)
 {
 	u32 val, mask;
 
 	val = IDMA_IN_IC_MAX(ic_num);
 	mask = IDMA_IN_IC_MAX_MASK;
 
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		dma_write_mask(id, ODMA_OUT_CON0, val, mask);
 	else
 		dma_write_mask(id, IDMA_IN_CON, val, mask);
 }
+#endif
 
-void dma_reg_set_img_format(u32 id, u32 fmt)
+void dma_reg_set_img_format(u32 id, u32 fmt, unsigned long attr)
 {
 	u32 val, mask;
 
 	val = IDMA_IMG_FORMAT(fmt);
 	mask = IDMA_IMG_FORMAT_MASK;
 
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		dma_write_mask(id, ODMA_OUT_CON0, val, mask);
 	else
 		dma_write_mask(id, IDMA_IN_CON, val, mask);
@@ -468,65 +470,68 @@ void dma_reg_set_rotation(u32 id, u32 rot)
 {
 	u32 val, mask;
 
-	if (id == ODMA_WB)
-		return;
+	/* ODMA doesn't support rotation */
+	// if (test_bit(DPP_ATTR_ODMA, &attr))
+	// 	return;
 
 	val = IDMA_ROTATION(rot);
 	mask = IDMA_ROTATION_MASK;
 	dma_write_mask(id, IDMA_IN_CON, val, mask);
 }
 
-void dma_reg_set_afbc_en(u32 id, u32 en)
+void dma_reg_set_afbc_en(u32 id, u32 en, unsigned long attr)
 {
 	u32 val = 0;
 
 	val = en ? ~0 : 0;
 
-	if ((id != IDMA_VGF0) && (id != IDMA_VGF1))
+	if (!test_bit(DPP_ATTR_AFBC, &attr))
 		return;
 	dma_write_mask(id, IDMA_IN_CON, val, IDMA_AFBC_EN);
 }
 
-void dma_reg_set_afbc_timeout_en(u32 id, u32 en)
+#if 0 /* not used */
+void dma_reg_set_afbc_timeout_en(u32 id, u32 en, unsigned long attr)
 {
 	u32 val = 0;
 
 	val = en ? ~0 : 0;
 
-	if ((id != IDMA_VGF0) && (id != IDMA_VGF1))
+	if (!test_bit(DPP_ATTR_AFBC, &attr))
 		return;
 	dma_write_mask(id, IDMA_IN_CON, val, IDMA_AFBC_TO_EN);
 }
 
-void dma_reg_set_in_chroma_stride_sel(u32 id, u32 en)
+void dma_reg_set_in_chroma_stride_sel(u32 id, u32 en, unsigned long attr)
 {
 	u32 val, mask;
 
 	val = en ? ~0 : 0;
 	mask = IDMA_IN_CHROMINANCE_STRIDE_SEL;
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		dma_write_mask(id, ODMA_OUT_CON0, val, mask);
 	else
 		dma_write_mask(id, IDMA_IN_CON, val, mask);
 }
+#endif
 
-void dma_reg_set_block_en(u32 id, u32 en)
+void dma_reg_set_block_en(u32 id, u32 en, unsigned long attr)
 {
 	u32 val = 0;
 
 	val = en ? ~0 : 0;
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		return;
 	dma_write_mask(id, IDMA_IN_CON, val, IDMA_BLOCK_EN);
 }
 
-void dma_reg_set_out_frame_alpha(u32 id, u32 alpha)
+void dma_reg_set_out_frame_alpha(u32 id, u32 alpha, unsigned long attr)
 {
 	u32 val, mask;
 
 	val = IDMA_OUT_FRAME_ALPHA(alpha);
 	mask = IDMA_OUT_FRAME_ALPHA_MASK;
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		dma_write_mask(id, ODMA_OUT_CON1, val, mask);
 	else
 		dma_write_mask(id, IDMA_OUT_CON, val, mask);
@@ -534,36 +539,36 @@ void dma_reg_set_out_frame_alpha(u32 id, u32 alpha)
 }
 
 /* IDMA : SRC_SIZE, ODMA : DST_SIZE */
-void dma_reg_set_buf_size(u32 id, u32 w, u32 h)
+void dma_reg_set_buf_size(u32 id, u32 w, u32 h, unsigned long attr)
 {
 	u32 val;
 
 	val = (IDMA_SRC_HEIGHT(h) | IDMA_SRC_WIDTH(w));
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		dma_write(id, ODMA_DST_SIZE, val);
 	else
 		dma_write(id, IDMA_SRC_SIZE, val);
 }
 
 /* IDMA : SRC_OFFSET, ODMA : DST_OFFSET */
-void dma_reg_set_buf_offset(u32 id, u32 x, u32 y)
+void dma_reg_set_buf_offset(u32 id, u32 x, u32 y, unsigned long attr)
 {
 	u32 val;
 
 	val = (IDMA_SRC_OFFSET_Y(y) | IDMA_SRC_OFFSET_X(x));
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		dma_write(id, ODMA_DST_OFFSET, val);
 	else
 		dma_write(id, IDMA_SRC_OFFSET, val);
 	dma_write(id, IDMA_SRC_OFFSET, val);
 }
 
-void dma_reg_set_img_size(u32 id, u32 w, u32 h)
+void dma_reg_set_img_size(u32 id, u32 w, u32 h, unsigned long attr)
 {
 	u32 val;
 
 	val = (IDMA_IMG_HEIGHT(h) | IDMA_IMG_WIDTH(w));
-	if (id == ODMA_WB) {
+	if (test_bit(DPP_ATTR_ODMA, &attr)) {
 		dma_write(id, ODMA_OUT_IMG_SIZE, val);
 		wb_reg_set_dst_size(id, w, h);
 	} else {
@@ -571,32 +576,34 @@ void dma_reg_set_img_size(u32 id, u32 w, u32 h)
 	}
 }
 
-void dma_reg_set_chroma_stride(u32 id, u32 stride)
+#if 0
+void dma_reg_set_chroma_stride(u32 id, u32 stride, unsigned long attr)
 {
 	u32 val, mask;
 
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		return;
 	val = IDMA_CHROMA_STRIDE(stride);
 	mask = IDMA_CHROMA_STRIDE_MASK;
 	dma_write_mask(id, IDMA_CHROMINANCE_STRIDE, val, mask);
 }
+#endif
 
-void dma_reg_set_block_offset(u32 id, u32 x, u32 y)
+void dma_reg_set_block_offset(u32 id, u32 x, u32 y, unsigned long attr)
 {
 	u32 val;
 
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		return;
 	val = (IDMA_BLK_OFFSET_Y(y) | IDMA_BLK_OFFSET_X(x));
 	dma_write(id, IDMA_BLOCK_OFFSET, val);
 }
 
-void dma_reg_set_block_size(u32 id, u32 w, u32 h)
+void dma_reg_set_block_size(u32 id, u32 w, u32 h, unsigned long attr)
 {
 	u32 val;
 
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		return;
 	val = (IDMA_BLK_HEIGHT(h) | IDMA_BLK_WIDTH(w));
 	dma_write(id, IDMA_BLOCK_SIZE, val);
@@ -620,11 +627,11 @@ void dma_reg_set_perf_degradation_en(u32 id, u32 en)
 			val, DPU_DMA_DEGRADATION_EN);
 }
 
-void dma_reg_set_in_qos_lut(u32 id, u32 lut_id, u32 qos_t)
+void dma_reg_set_in_qos_lut(u32 id, u32 lut_id, u32 qos_t, unsigned long attr)
 {
 	u32 reg_id;
 
-	if (id == ODMA_WB) {
+	if (test_bit(DPP_ATTR_ODMA, &attr)) {
 		if (lut_id == 0) /* TODO: reg_id will be changed */
 			reg_id = ODMA_OUT_QOS_LUT07_00;
 		else
@@ -638,9 +645,9 @@ void dma_reg_set_in_qos_lut(u32 id, u32 lut_id, u32 qos_t)
 	dma_com_write(id, reg_id, qos_t);
 }
 
-void dma_reg_set_in_base_addr(u32 id, u32 addr_y, u32 addr_c)
+void dma_reg_set_in_base_addr(u32 id, u32 addr_y, u32 addr_c, unsigned long attr)
 {
-	if (id == ODMA_WB) {
+	if (test_bit(DPP_ATTR_ODMA, &attr)) {
 		dma_write(id, ODMA_IN_BASE_ADDR_Y, addr_y);
 		dma_write(id, ODMA_IN_BASE_ADDR_C, addr_c);
 	} else {
@@ -649,31 +656,32 @@ void dma_reg_set_in_base_addr(u32 id, u32 addr_y, u32 addr_c)
 	}
 }
 
+#if 0
 /* (ODMA only) for SLICE_BYTE(n) */
-void dma_reg_set_slice_byte_cnt(u32 id, u32 s_id, u32 b_cnt)
+void dma_reg_set_slice_byte_cnt(u32 id, u32 s_id, u32 b_cnt, unsigned long attr)
 {
-	if (id != ODMA_WB)
+	if (!test_bit(DPP_ATTR_ODMA, &attr))
 		return;
 	dma_write(id, ODMA_SLICE_BYTE_CNT(s_id), b_cnt);
 }
 
 /* (ODMA only) b_cnt[8] : 0=slice0_cnt, ..., 6=slice6_cnt, 7=frame_cnt */
-void dma_reg_set_slice_byte_cnt_all(u32 id, u32 b_cnt[8])
+void dma_reg_set_slice_byte_cnt_all(u32 id, u32 b_cnt[8], unsigned long attr)
 {
 	u32 i;
 
-	if (id != ODMA_WB)
+	if (!test_bit(DPP_ATTR_ODMA, &attr))
 		return;
 	for (i = 0; i < 8; i++)
 		dma_write(id, ODMA_SLICE_BYTE_CNT(i), b_cnt[i]);
 }
 
 /* ODMA only */
-void dma_reg_set_usb_wb_path_sel(u32 id, u32 p_sel)
+void dma_reg_set_usb_wb_path_sel(u32 id, u32 p_sel, unsigned long attr)
 {
 	u32 val;
 
-	if (id != ODMA_WB)
+	if (!test_bit(DPP_ATTR_ODMA, &attr))
 		return;
 
 	if (p_sel == USB_WB_PATH_OTF)
@@ -684,13 +692,14 @@ void dma_reg_set_usb_wb_path_sel(u32 id, u32 p_sel)
 }
 
 /* ODMA only */
-void dma_reg_set_usb_wb_en(u32 id, u32 en)
+void dma_reg_set_usb_wb_en(u32 id, u32 en, unsigned long attr)
 {
 	u32 val = en ? ~0 : 0;
-	if (id != ODMA_WB)
+	if (!test_bit(DPP_ATTR_ODMA, &attr))
 		return;
 	dma_write_mask(id, ODMA_USB_TV_WB_CON, val, ODMA_USB_WB_EN);
 }
+#endif
 
 void dma_reg_set_in_2b_base_addr(u32 id, u32 addr_y, u32 addr_c)
 {
@@ -698,35 +707,37 @@ void dma_reg_set_in_2b_base_addr(u32 id, u32 addr_y, u32 addr_c)
 	dma_write(id, IDMA_IN_BASE_ADDR_C2, addr_c);
 }
 
-void dma_reg_set_deadlock_num(u32 id, u32 dl_num)
+#if 0 /* not used */
+void dma_reg_set_deadlock_num(u32 id, u32 dl_num, unsigned long attr)
 {
 	u32 val, mask;
 
 	val = IDMA_DEADLOCK_VAL(dl_num);
 	mask = IDMA_DEADLOCK_VAL_MASK;
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		dma_write_mask(id, ODMA_DEADLOCK_NUM, val, mask);
 	else
 		dma_write_mask(id, IDMA_DEADLOCK_NUM, val, mask);
 }
 
-void dma_reg_set_deadlock_en(u32 id, u32 en)
+void dma_reg_set_deadlock_en(u32 id, u32 en, unsigned long attr)
 {
 	u32 val = 0;
 
 	val = en ? ~0 : 0;
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		dma_write_mask(id, ODMA_DEADLOCK_NUM, val, IDMA_DEADLOCK_EN);
 	else
 		dma_write_mask(id, IDMA_DEADLOCK_NUM, val, IDMA_DEADLOCK_EN);
 }
+#endif
 
-void dma_reg_set_dynamic_gating_en_all(u32 id, u32 en)
+void dma_reg_set_dynamic_gating_en_all(u32 id, u32 en, unsigned long attr)
 {
 	u32 val, mask;
 
 	val = en ? ~0 : 0;
-	if (id == ODMA_WB) {
+	if (test_bit(DPP_ATTR_ODMA, &attr)) {
 		mask = ODMA_DG_EN_ALL;
 		dma_write_mask(id, ODMA_DYNAMIC_GATING_EN, val, mask);
 	} else {
@@ -752,11 +763,12 @@ void dma_reg_set_recovery_en(u32 id, u32 en)
 	dma_write_mask(id, IDMA_RECOVERY_CTRL, val, IDMA_RECOVERY_EN);
 }
 
-u32 dma_reg_get_cfg_err_state(u32 id)
+#if 0
+u32 dma_reg_get_cfg_err_state(u32 id, unsigned long attr)
 {
 	u32 val;
 
-	if (id == ODMA_WB) {
+	if (test_bit(DPP_ATTR_ODMA, &attr)) {
 		val = dma_read(id, ODMA_CFG_ERR_STATE);
 		return ODMA_CFG_ERR_GET(val);
 	} else {
@@ -764,6 +776,7 @@ u32 dma_reg_get_cfg_err_state(u32 id)
 		return IDMA_CFG_ERR_GET(val);
 	}
 }
+#endif
 
 int dpp_reg_wait_op_status(u32 id)
 {
@@ -782,7 +795,7 @@ int dpp_reg_wait_op_status(u32 id)
 	return -EBUSY;
 }
 
-u32 dpp_reg_get_op_status(u32 id)
+u32 dpp_reg_get_op_status(u32 id, unsigned long attr)
 {
 	u32 val;
 
@@ -790,7 +803,7 @@ u32 dpp_reg_get_op_status(u32 id)
 	 * DPP_OP_STATUS is commonly used at WB_MUX
 	 * because bit-field is same with WB_OP_STATUS
 	 */
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		val = dpp_read(id, DPU_WB_ENABLE);
 	else
 		val = dpp_read(id, DPP_ENABLE);
@@ -947,14 +960,14 @@ void dpp_reg_set_csc_coef(u32 id, u32 csc_std, u32 csc_rng)
 #endif
 }
 
-void dpp_reg_set_csc_config(u32 id, u32 type)
+void dpp_reg_set_csc_config(u32 id, u32 type, unsigned long attr)
 {
 	u32 csc_std = CSC_BT_601;
 	u32 csc_rng = CSC_RANGE_FULL;
 	u32 csc_type = (CSC_BT_601 | CSC_RANGE_LIMITED);
 	u32 coef_mode = CSC_COEF_HARDWIRED;
 
-	if ((id == IDMA_G0) || (id == IDMA_G1))
+	if (!test_bit(DPP_ATTR_CSC, &attr))
 		return;
 
 	csc_std = (type >> CSC_STANDARD_SHIFT) & 0x3F;
@@ -975,7 +988,7 @@ void dpp_reg_set_csc_config(u32 id, u32 type)
 	else
 		coef_mode = CSC_COEF_CUSTOMIZED;
 
-	if (id == ODMA_WB) {
+	if (test_bit(DPP_ATTR_ODMA, &attr)) {
 		/* only support {601, 709, N, W} */
 		csc_type = (csc_std << 1) | (csc_rng << 0);
 		if (csc_type > 3) {
@@ -1274,7 +1287,7 @@ void dpp_reg_control_linecnt(u32 id, u32 en, u32 mode)
 	dpp_reg_set_linecnt_en(id, en);
 }
 
-int dpp_reg_set_format(u32 id, struct dpp_params_info *p)
+int dpp_reg_set_format(u32 id, struct dpp_params_info *p, unsigned long attr)
 {
 	u32 fmt;
 	/* 0=per-frame, 1=per-pixel */
@@ -1389,10 +1402,10 @@ int dpp_reg_set_format(u32 id, struct dpp_params_info *p)
 		return -EINVAL;
 	}
 
-	dma_reg_set_img_format(id, fmt);
+	dma_reg_set_img_format(id, fmt, attr);
 	dpp_reg_set_alpha_sel(id, a_sel);
 	dpp_reg_set_img_format(id, fmt_type);
-	if (id == ODMA_WB) {
+	if (test_bit(DPP_ATTR_ODMA, &attr)) {
 		if (fmt_type) {
 			wb_reg_set_csc_r2y_en(id, 1);
 			wb_reg_set_uv_offset(id, off_x, off_y);
@@ -1403,7 +1416,7 @@ int dpp_reg_set_format(u32 id, struct dpp_params_info *p)
 	}
 
 #if defined(CONFIG_EXYNOS_AFBC)
-	dma_reg_set_afbc_en(id, p->is_comp);
+	dma_reg_set_afbc_en(id, p->is_comp, attr);
 	if (p->is_comp)
 		dma_reg_set_recovery_en(id, 1);
 	else
@@ -1413,20 +1426,20 @@ int dpp_reg_set_format(u32 id, struct dpp_params_info *p)
 	return 0;
 }
 
-void dpp_reg_set_buf_1p_addr(u32 id, struct dpp_params_info *p)
+void dpp_reg_set_buf_1p_addr(u32 id, struct dpp_params_info *p, unsigned long attr)
 {
 	/* For AFBC stream, BASE_ADDR_C must be same with BASE_ADDR_Y */
-	dma_reg_set_in_base_addr(id, p->addr[0], p->addr[0]);
+	dma_reg_set_in_base_addr(id, p->addr[0], p->addr[0], attr);
 }
 
-void dpp_reg_set_buf_2p_addr(u32 id, struct dpp_params_info *p)
+void dpp_reg_set_buf_2p_addr(u32 id, struct dpp_params_info *p, unsigned long attr)
 {
-	dma_reg_set_in_base_addr(id, p->addr[0], p->addr[1]);
+	dma_reg_set_in_base_addr(id, p->addr[0], p->addr[1], attr);
 }
 
-void dpp_reg_set_buf_4p_addr(u32 id, struct dpp_params_info *p)
+void dpp_reg_set_buf_4p_addr(u32 id, struct dpp_params_info *p, unsigned long attr)
 {
-	dma_reg_set_in_base_addr(id, p->addr[0], p->addr[1]);
+	dma_reg_set_in_base_addr(id, p->addr[0], p->addr[1], attr);
 	dma_reg_set_in_2b_base_addr(id, p->addr[2], p->addr[3]);
 }
 
@@ -1448,17 +1461,17 @@ void dma_reg_set_chroma_2bit_stride(u32 id, u32 stride)
 	dma_write_mask(id, IDMA_2BIT_STRIDE, val, mask);
 }
 
-void dpp_reg_set_buf_addr(u32 id, struct dpp_params_info *p)
+void dpp_reg_set_buf_addr(u32 id, struct dpp_params_info *p, unsigned long attr)
 {
 	if (p->is_4p) {
-		dpp_reg_set_buf_4p_addr(id, p);
+		dpp_reg_set_buf_4p_addr(id, p, attr);
 		dma_reg_set_luma_2bit_stride(id, p->y_2b_strd);
 		dma_reg_set_chroma_2bit_stride(id, p->c_2b_strd);
 	} else {
 		if (p->is_comp)
-			dpp_reg_set_buf_1p_addr(id, p);
+			dpp_reg_set_buf_1p_addr(id, p, attr);
 		else
-			dpp_reg_set_buf_2p_addr(id, p);
+			dpp_reg_set_buf_2p_addr(id, p, attr);
 	}
 	dpp_dbg("dpp id : %d, 1st-plane : 0x%p, 2nd-plane : 0x%p ",
 		id, (void *)p->addr[0], (void *)p->addr[1]);
@@ -1467,67 +1480,69 @@ void dpp_reg_set_buf_addr(u32 id, struct dpp_params_info *p)
 
 }
 
-void dpp_reg_set_size(u32 id, struct dpp_params_info *p)
+void dpp_reg_set_size(u32 id, struct dpp_params_info *p, unsigned long attr)
 {
 	/* source offset */
-	dma_reg_set_buf_offset(id, p->src.x, p->src.y);
+	dma_reg_set_buf_offset(id, p->src.x, p->src.y, attr);
 
 	/* source full(alloc) size */
-	dma_reg_set_buf_size(id, p->src.f_w, p->src.f_h);
+	dma_reg_set_buf_size(id, p->src.f_w, p->src.f_h, attr);
 
 	/* source cropped size */
-	dma_reg_set_img_size(id, p->src.w, p->src.h);
+	dma_reg_set_img_size(id, p->src.w, p->src.h, attr);
 	if (p->rot > DPP_ROT_180)
 		dpp_reg_set_img_size(id, p->src.h, p->src.w);
 	else
 		dpp_reg_set_img_size(id, p->src.w, p->src.h);
 
-	if ((id == IDMA_VGF0) || (id == IDMA_VGF1))
+	if (test_bit(DPP_ATTR_SCALE, &attr))
 		dpp_reg_set_scaled_img_size(id, p->dst.w, p->dst.h);
 }
 
-void dpp_reg_set_block_area(u32 id, struct dpp_params_info *p)
+void dpp_reg_set_block_area(u32 id, struct dpp_params_info *p, unsigned long attr)
 {
 	if (!p->is_block) {
-		dma_reg_set_block_en(id, 0);
+		dma_reg_set_block_en(id, 0, attr);
 		return;
 	}
 
-	dma_reg_set_block_offset(id, p->block.x, p->block.y);
-	dma_reg_set_block_size(id, p->block.w, p->block.h);
-	dma_reg_set_block_en(id, 1);
+	dma_reg_set_block_offset(id, p->block.x, p->block.y, attr);
+	dma_reg_set_block_size(id, p->block.w, p->block.h, attr);
+	dma_reg_set_block_en(id, 1, attr);
 
 	dpp_dbg("block x : %d, y : %d, w : %d, h : %d\n",
 			p->block.x, p->block.y, p->block.w, p->block.h);
 }
 
-void dpp_reg_set_plane_alpha(u32 id, u32 plane_alpha)
+#if 0
+void dpp_reg_set_plane_alpha(u32 id, u32 plane_alpha, unsigned long attr)
 {
 	if (plane_alpha > 0xFF)
 		dpp_info("%d is too big value\n", plane_alpha);
-	dma_reg_set_out_frame_alpha(id, plane_alpha);
-	if (id == ODMA_WB)
+	dma_reg_set_out_frame_alpha(id, plane_alpha, attr);
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		wb_reg_set_out_frame_alpha(id, plane_alpha);
 }
+#endif
 
-void dpp_reg_set_plane_alpha_fixed(u32 id)
+void dpp_reg_set_plane_alpha_fixed(u32 id, unsigned long attr)
 {
-	dma_reg_set_out_frame_alpha(id, 0xFF);
-	if (id == ODMA_WB)
+	dma_reg_set_out_frame_alpha(id, 0xFF, attr);
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		wb_reg_set_out_frame_alpha(id, 0xFF);
 }
 
-void dpp_reg_set_lookup_table(u32 id)
+void dpp_reg_set_lookup_table(u32 id, unsigned long attr)
 {
-	dma_reg_set_in_qos_lut(id, 0, 0x44444444);
-	dma_reg_set_in_qos_lut(id, 1, 0x44444444);
+	dma_reg_set_in_qos_lut(id, 0, 0x44444444, attr);
+	dma_reg_set_in_qos_lut(id, 1, 0x44444444, attr);
 }
 
-void dpp_reg_set_dynamic_clock_gating(u32 id, u32 en)
+void dpp_reg_set_dynamic_clock_gating(u32 id, u32 en, unsigned long attr)
 {
-	dma_reg_set_dynamic_gating_en_all(id, en);
+	dma_reg_set_dynamic_gating_en_all(id, en, attr);
 	dpp_reg_set_dynamic_gating_en_all(id, en);
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		wb_reg_set_dynamic_gating_en_all(id, 1);
 }
 
@@ -1603,7 +1618,7 @@ void dpp_constraints_params(struct dpp_size_constraints *vc,
 	}
 }
 
-int dpp_reg_wait_idle_status(int id, unsigned long timeout)
+int dpp_reg_wait_idle_status(int id, unsigned long timeout, unsigned long attr)
 {
 	u32 dpp_status = 0;
 	u32 dma_status = 0;
@@ -1611,8 +1626,8 @@ int dpp_reg_wait_idle_status(int id, unsigned long timeout)
 	unsigned long cnt = timeout / delay_time;
 
 	while (cnt) {
-		dpp_status = dpp_reg_get_op_status(id);
-		dma_status = dma_reg_get_op_status(id);
+		dpp_status = dpp_reg_get_op_status(id, attr);
+		dma_status = dma_reg_get_op_status(id, attr);
 
 		if ((dpp_status == OP_STATUS_IDLE)
 			&& (dma_status == OP_STATUS_IDLE))
@@ -1633,7 +1648,7 @@ int dpp_reg_wait_idle_status(int id, unsigned long timeout)
 	return 0;
 }
 
-void dpp_reg_init(u32 id)
+void dpp_reg_init(u32 id, unsigned long attr)
 {
 	dma_reg_set_irq_mask_all(id, 1);
 	dpp_reg_set_irq_mask_all(id, 1);
@@ -1641,13 +1656,13 @@ void dpp_reg_init(u32 id)
 	dpp_reg_set_irq_disable(id);
 
 	dma_reg_set_clock_gate_en_all(id, 0);
-	if (id == ODMA_WB)
+	if (test_bit(DPP_ATTR_ODMA, &attr))
 		wb_reg_set_clock_gate_en_all(id, 1);
 	dpp_reg_set_clock_gate_en_all(id, 0);
 
-	dpp_reg_set_lookup_table(id);
-	dpp_reg_set_dynamic_clock_gating(id, 0);
-	dpp_reg_set_plane_alpha_fixed(id);
+	dpp_reg_set_lookup_table(id, attr);
+	dpp_reg_set_dynamic_clock_gating(id, 0, attr);
+	dpp_reg_set_plane_alpha_fixed(id, attr);
 
 	dpp_reg_control_linecnt(id, 1, 0);
 #if defined(CONFIG_EXYNOS_AFBC)
@@ -1663,9 +1678,9 @@ void dpp_reg_irq_enable(u32 id)
 	dpp_reg_set_irq_enable(id);
 }
 
-int dpp_reg_deinit(u32 id, bool reset)
+int dpp_reg_deinit(u32 id, bool reset, unsigned long attr)
 {
-	dma_reg_clear_irq_all(id);
+	dma_reg_clear_irq_all(id, attr);
 	dpp_reg_set_irq_clear_all(id);
 
 	dma_reg_set_irq_mask_all(id, 1);
@@ -1678,7 +1693,7 @@ int dpp_reg_deinit(u32 id, bool reset)
 		if (dpp_reg_wait_sw_reset_status(id)
 			&& dma_reg_wait_sw_reset_status(id))
 			return -EBUSY;
-		if (id == ODMA_WB)
+		if (test_bit(DPP_ATTR_ODMA, &attr))
 			wb_reg_set_sw_reset(id);
 	}
 
@@ -1835,16 +1850,17 @@ void dpp_reg_set_hdr(u32 id, struct dpp_params_info *p)
 
 }
 
-void dpp_reg_configure_params(u32 id, struct dpp_params_info *p)
+void dpp_reg_configure_params(u32 id, struct dpp_params_info *p,
+		unsigned long attr)
 {
-	dpp_reg_set_csc_config(id, p->eq_mode);
+	dpp_reg_set_csc_config(id, p->eq_mode, attr);
 	dpp_reg_set_scale_ratio(id, p);
-	dpp_reg_set_size(id, p);
-	dma_reg_set_rotation(id, p->rot);
-	dpp_reg_set_buf_addr(id, p);
-	dpp_reg_set_block_area(id, p);
-	dpp_reg_set_format(id, p);
-	if (id == IDMA_VGF1)
+	dpp_reg_set_size(id, p, attr);
+	if (test_bit(DPP_ATTR_ROT, &attr))
+		dma_reg_set_rotation(id, p->rot);
+	dpp_reg_set_buf_addr(id, p, attr);
+	dpp_reg_set_block_area(id, p, attr);
+	dpp_reg_set_format(id, p, attr);
+	if (test_bit(DPP_ATTR_HDR, &attr))
 		dpp_reg_set_hdr(id, p);
 }
-
