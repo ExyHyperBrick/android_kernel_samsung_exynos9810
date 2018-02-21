@@ -1570,12 +1570,7 @@ void dpu_reg_set_qactive_pll(u32 id, u32 en);
 int decon_reg_init(u32 id, u32 dsi_idx, struct decon_param *p);
 //void decon_reg_init_probe(u32 id, u32 dsi_idx, struct decon_param *p);
 int decon_reg_start(u32 id, struct decon_mode_info *psr);
-int decon_reg_stop_perframe(u32 id, u32 dsi_idx, struct decon_mode_info *psr);
-int decon_reg_stop_inst(u32 id, u32 dsi_idx, struct decon_mode_info *psr);
-int decon_reg_reset(u32 id);
-void decon_reg_direct_on_off(u32 id, u32 en);
-int decon_reg_stop(u32 id, u32 dsi_idx, struct decon_mode_info *psr);
-int decon_reg_stop_tui(u32 id, u32 dsi_idx, struct decon_mode_info *psr);
+int decon_reg_stop(u32 id, u32 dsi_idx, struct decon_mode_info *psr, bool rst);
 void decon_reg_release_resource(u32 id, struct decon_mode_info *psr);
 void decon_reg_set_int(u32 id, struct decon_mode_info *psr, u32 en);
 void decon_reg_set_window_control(u32 id, int win_idx,

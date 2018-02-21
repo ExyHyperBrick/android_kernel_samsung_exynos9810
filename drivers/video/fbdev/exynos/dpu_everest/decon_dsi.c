@@ -1066,7 +1066,7 @@ int decon_enter_hiber(struct decon_device *decon)
 		decon->eint_status = 0;
 	}
 
-	ret = decon_reg_stop(decon->id, decon->dt.out_idx[0], &psr);
+	ret = decon_reg_stop(decon->id, decon->dt.out_idx[0], &psr, true);
 	if (ret < 0)
 		decon_dump(decon, REQ_DSI_DUMP);
 

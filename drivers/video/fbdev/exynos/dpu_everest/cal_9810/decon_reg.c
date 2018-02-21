@@ -1976,7 +1976,7 @@ int decon_reg_stop_inst(u32 id, u32 dsi_idx, struct decon_mode_info *psr)
  *	1. perframe off
  *	2. instant off
  */
-int decon_reg_stop(u32 id, u32 dsi_idx, struct decon_mode_info *psr)
+int decon_reg_stop(u32 id, u32 dsi_idx, struct decon_mode_info *psr, bool rst)
 {
 	int ret = 0;
 
@@ -1996,25 +1996,9 @@ int decon_reg_stop(u32 id, u32 dsi_idx, struct decon_mode_info *psr)
 		}
 	}
 
-	if (!ret)
+	/* assert reset when stopped normally or requested */
+	if (!ret && rst)
 		decon_reg_reset(id);
-
-	return ret;
-}
-
-int decon_reg_stop_tui(u32 id, u32 dsi_idx, struct decon_mode_info *psr)
-{
-	int ret = 0;
-
-	/* call perframe stop */
-	ret = decon_reg_stop_perframe(id, dsi_idx, psr);
-	if (ret < 0) {
-		decon_err("%s, failed to perframe_stop\n", __func__);
-		/* if fails, call decon instant off */
-		ret = decon_reg_stop_inst(id, dsi_idx, psr);
-		if (ret < 0)
-			decon_err("%s, failed to instant_stop\n", __func__);
-	}
 
 	return ret;
 }

@@ -487,7 +487,7 @@ int decon_tui_protection(bool tui_en)
 		if (decon->win_up.enabled)
 			dpu_set_win_update_config(decon, NULL);
 #endif
-		decon_reg_stop_tui(decon->id, decon->dt.out_idx[0], &psr);
+		decon_reg_stop(decon->id, decon->dt.out_idx[0], &psr, false);
 		decon->cur_using_dpp = 0;
 		decon_dpp_stop(decon, false);
 
@@ -857,7 +857,7 @@ static int _decon_disable(struct decon_device *decon, enum decon_state state)
 		decon->eint_status = 0;
 	}
 
-	ret = decon_reg_stop(decon->id, decon->dt.out_idx[0], &psr);
+	ret = decon_reg_stop(decon->id, decon->dt.out_idx[0], &psr, true);
 	if (ret < 0)
 		decon_dump(decon, REQ_DSI_DUMP);
 
@@ -1042,7 +1042,7 @@ static int decon_dp_disable(struct decon_device *decon)
 	kthread_flush_worker(&decon->up.worker);
 
 	decon_to_psr_info(decon, &psr);
-	ret = decon_reg_stop_perframe(decon->id, decon->dt.out_idx[0], &psr);
+	ret = decon_reg_stop(decon->id, decon->dt.out_idx[0], &psr, true);
 	if (!ret)
 		decon_reg_reset(decon->id);
 	if (ret < 0)
