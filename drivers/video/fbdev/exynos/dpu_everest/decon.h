@@ -1566,7 +1566,6 @@ static inline bool IS_DECON_HIBER_STATE(struct decon_device *decon)
 }
 
 /* CAL APIs list */
-void dpu_reg_set_qactive_pll(u32 id, u32 en);
 int decon_reg_init(u32 id, u32 dsi_idx, struct decon_param *p);
 //void decon_reg_init_probe(u32 id, u32 dsi_idx, struct decon_param *p);
 int decon_reg_start(u32 id, struct decon_mode_info *psr);
@@ -1668,7 +1667,6 @@ void decon_set_cursor_unmask(struct decon_device *decon, bool unmask);
 void dpu_cursor_win_update_config(struct decon_device *decon,
 		struct decon_reg_data *regs);
 int decon_set_cursor_win_config(struct decon_device *decon, int x, int y);
-void decon_reg_set_te_qactive_pll_mode(u32 id, u32 en);
 
 int dpu_sysmmu_fault_handler(struct iommu_domain *domain,
 	struct device *dev, unsigned long iova, int flags, void *token);

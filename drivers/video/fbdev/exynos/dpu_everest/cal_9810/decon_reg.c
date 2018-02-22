@@ -1984,6 +1984,7 @@ int decon_reg_stop(u32 id, u32 dsi_idx, struct decon_mode_info *psr, bool rst)
 		ret = decon_reg_stop_inst(id, dsi_idx, psr);
 		if (ret < 0)
 			decon_err("%s, failed to DP instant_stop\n", __func__);
+		decon_reg_set_te_qactive_pll_mode(id, 0);
 	} else {
 		/* call perframe stop */
 		ret = decon_reg_stop_perframe(id, dsi_idx, psr);

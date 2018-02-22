@@ -870,9 +870,6 @@ static int _decon_disable(struct decon_device *decon, enum decon_state state)
 	decon->cur_using_dpp = 0;
 	decon_dpp_stop(decon, false);
 
-	if (psr.out_type == DECON_OUT_DP)
-		decon_reg_set_te_qactive_pll_mode(decon->id, 0);
-
 	decon->bts.ops->bts_release_bw(decon);
 	ret = decon_set_out_sd_state(decon, state);
 	if (ret < 0) {
@@ -1059,9 +1056,6 @@ static int decon_dp_disable(struct decon_device *decon)
 	}
 
 	decon->bts.ops->bts_release_bw(decon);
-
-	if (psr.out_type == DECON_OUT_DP)
-		decon_reg_set_te_qactive_pll_mode(decon->id, 0);
 
 	decon->state = DECON_STATE_OFF;
 err:
