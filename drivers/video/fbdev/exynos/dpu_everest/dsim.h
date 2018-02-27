@@ -365,6 +365,7 @@ static inline void dsim_phy_write_mask(u32 id, u32 reg_id, u32 val, u32 mask)
 /* CAL APIs list */
 int dsim_reg_init(u32 id, struct decon_lcd *lcd_info,
 			u32 data_lane_cnt, struct dsim_clks *clks);
+int dsim_reg_get_int_and_clear(u32 id);
 int dsim_reg_set_clocks(u32 id, struct dsim_clks *clks,
 			struct stdphy_pms *dphy_pms, u32 en);
 int dsim_reg_set_lanes(u32 id, u32 lanes, u32 en);

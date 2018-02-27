@@ -493,8 +493,7 @@ static irqreturn_t dsim_irq_handler(int irq, void *dev_id)
 	}
 #endif
 
-	int_src = readl(dsim->res.regs + DSIM_INTSRC);
-
+	int_src = dsim_reg_get_int_and_clear(dsim->id);
 	if (int_src & DSIM_INTSRC_SFR_PH_FIFO_EMPTY) {
 		del_timer(&dsim->cmd_timer);
 		complete(&dsim->ph_wr_comp);
@@ -522,8 +521,6 @@ static irqreturn_t dsim_irq_handler(int irq, void *dev_id)
 			wake_up_interruptible_all(&decon->vsync.wait);
 		}
 	}
-
-	dsim_reg_clear_int(dsim->id, int_src);
 
 	spin_unlock(&dsim->slock);
 
