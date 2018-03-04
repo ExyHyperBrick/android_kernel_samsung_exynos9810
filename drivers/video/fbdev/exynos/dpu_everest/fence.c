@@ -1,3 +1,14 @@
+/*
+ * Copyright (c) 2018 Samsung Electronics Co., Ltd.
+ *		http://www.samsung.com
+ *
+ * DPU fence file for Samsung EXYNOS DPU driver
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
 #include <linux/sync_file.h>
 
 #include "decon.h"
