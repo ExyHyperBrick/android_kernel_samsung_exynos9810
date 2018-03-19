@@ -1975,6 +1975,20 @@ static const struct bpf_func_proto bpf_msg_apply_bytes_proto = {
 	.arg2_type	= ARG_ANYTHING,
 };
 
+BPF_CALL_2(bpf_msg_cork_bytes, struct sk_msg *, msg, u32, bytes)
+{
+	msg->cork_bytes = bytes;
+	return 0;
+}
+
+static const struct bpf_func_proto bpf_msg_cork_bytes_proto = {
+	.func		= bpf_msg_cork_bytes,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_CTX,
+	.arg2_type	= ARG_ANYTHING,
+};
+
 BPF_CALL_1(bpf_get_cgroup_classid, const struct sk_buff *, skb)
 {
 	return task_get_classid(skb);
@@ -4556,6 +4570,8 @@ static const struct bpf_func_proto *sk_msg_func_proto(enum bpf_func_id func_id, 
 		return &bpf_msg_redirect_hash_proto;
 	case BPF_FUNC_msg_apply_bytes:
 		return &bpf_msg_apply_bytes_proto;
+	case BPF_FUNC_msg_cork_bytes:
+		return &bpf_msg_cork_bytes_proto;
 	case BPF_FUNC_get_local_storage:
 		return &bpf_get_local_storage_proto;
 	default:
