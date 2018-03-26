@@ -4708,6 +4708,27 @@ static int _bpf_setsockopt(struct sock *sk, int level, int optname,
 			ret = -EINVAL;
 		}
 #ifdef CONFIG_INET
+	} else if (level == SOL_IP) {
+		if (optlen != sizeof(int) || sk->sk_family != AF_INET)
+			return -EINVAL;
+
+		val = *((int *)optval);
+		/* Only some options are supported */
+		switch (optname) {
+		case IP_TOS:
+			if (val < -1 || val > 0xff) {
+				ret = -EINVAL;
+			} else {
+				struct inet_sock *inet = inet_sk(sk);
+
+				if (val == -1)
+					val = 0;
+				inet->tos = val;
+			}
+			break;
+		default:
+			ret = -EINVAL;
+		}
 #if IS_ENABLED(CONFIG_IPV6)
 	} else if (level == SOL_IPV6) {
 		if (optlen != sizeof(int) || sk->sk_family != AF_INET6)
@@ -4797,6 +4818,20 @@ static int _bpf_getsockopt(struct sock *sk, int level, int optname,
 			goto err_clear;
 		}
 #ifdef CONFIG_INET
+	} else if (level == SOL_IP) {
+		struct inet_sock *inet = inet_sk(sk);
+
+		if (optlen != sizeof(int) || sk->sk_family != AF_INET)
+			goto err_clear;
+
+		/* Only some options are supported */
+		switch (optname) {
+		case IP_TOS:
+			*((int *)optval) = (int)inet->tos;
+			break;
+		default:
+			goto err_clear;
+		}
 #if IS_ENABLED(CONFIG_IPV6)
 	} else if (level == SOL_IPV6) {
 		struct ipv6_pinfo *np = inet6_sk(sk);
