@@ -903,6 +903,7 @@ struct decon_cursor {
 	u32 xpos;
 	u32 ypos;
 	bool unmask;	/* if true, cursor unmask period */
+	bool enabled;
 };
 
 /* systrace */
@@ -1153,10 +1154,6 @@ void dpu_set_win_update_partial_size(struct decon_device *decon,
 
 /* multi-resolution related function */
 void dpu_set_mres_config(struct decon_device *decon, struct decon_reg_data *regs);
-
-/* cursor async */
-void dpu_cursor_win_update_config(struct decon_device *decon,
-		struct decon_reg_data *regs);
 
 /* internal only function API */
 int decon_check_var(struct fb_var_screeninfo *var, struct fb_info *info);
@@ -1444,6 +1441,7 @@ void decon_set_cursor_unmask(struct decon_device *decon, bool unmask);
 void dpu_cursor_win_update_config(struct decon_device *decon,
 		struct decon_reg_data *regs);
 int decon_set_cursor_win_config(struct decon_device *decon, int x, int y);
+void dpu_init_cursor_mode(struct decon_device *decon);
 
 int dpu_sysmmu_fault_handler(struct iommu_domain *domain,
 	struct device *dev, unsigned long iova, int flags, void *token);

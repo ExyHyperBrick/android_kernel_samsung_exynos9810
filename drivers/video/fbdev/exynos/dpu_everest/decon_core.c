@@ -4200,6 +4200,7 @@ static int decon_probe(struct platform_device *pdev)
 		goto err_win;
 
 	dpu_init_win_update(decon);
+	dpu_init_cursor_mode(decon);
 
 	decon->bts.ops = &decon_bts_control;
 	decon->bts.ops->bts_init(decon);

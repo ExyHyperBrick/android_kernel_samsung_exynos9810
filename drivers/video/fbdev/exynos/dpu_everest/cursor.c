@@ -15,6 +15,9 @@
 void decon_set_cursor_reset(struct decon_device *decon,
 		struct decon_reg_data *regs)
 {
+	if (!decon->cursor.enabled)
+		return;
+
 	mutex_lock(&decon->cursor.lock);
 	decon->cursor.unmask = false;
 	memcpy(&decon->cursor.regs, regs, sizeof(struct decon_reg_data));
@@ -23,6 +26,9 @@ void decon_set_cursor_reset(struct decon_device *decon,
 
 void decon_set_cursor_unmask(struct decon_device *decon, bool unmask)
 {
+	if (!decon->cursor.enabled)
+		return;
+
 	mutex_lock(&decon->cursor.lock);
 	decon->cursor.unmask = unmask;
 	mutex_unlock(&decon->cursor.lock);
@@ -30,6 +36,9 @@ void decon_set_cursor_unmask(struct decon_device *decon, bool unmask)
 
 static void decon_set_cursor_pos(struct decon_device *decon, int x, int y)
 {
+	if (!decon->cursor.enabled)
+		return;
+
 	if (x < 0)
 		x = 0;
 	if (y < 0)
@@ -45,6 +54,9 @@ static int decon_set_cursor_dpp_config(struct decon_device *decon,
 	int i, ret = 0, err_cnt = 0;
 	struct v4l2_subdev *sd;
 	struct decon_win *win;
+
+	if (!decon->cursor.enabled)
+		return 0;
 
 	if (!regs->is_cursor_win[regs->cursor_win])
 		return -1;
@@ -80,6 +92,9 @@ void dpu_cursor_win_update_config(struct decon_device *decon,
 	struct dpp_ch_restriction ch_res;
 	struct dpp_restriction *res;
 	unsigned short cur = regs->cursor_win;
+
+	if (!decon->cursor.enabled)
+		return;
 
 	if (!decon->id) {
 		decon_dbg("%s, decon[%d] is not support cursor a-sync\n",
@@ -161,6 +176,9 @@ int decon_set_cursor_win_config(struct decon_device *decon, int x, int y)
 
 	DPU_EVENT_START();
 
+	if (!decon->cursor.enabled)
+		return 0;
+
 	decon_set_cursor_pos(decon, x, y);
 
 	mutex_lock(&decon->cursor.lock);
@@ -235,4 +253,17 @@ end:
 	DPU_EVENT_LOG(DPU_EVT_CURSOR_POS, &decon->sd, start);
 
 	return ret;
+}
+
+void dpu_init_cursor_mode(struct decon_device *decon)
+{
+	decon->cursor.enabled = false;
+
+	if (!IS_ENABLED(CONFIG_EXYNOS_CURSOR)) {
+		decon_info("display doesn't support cursor async mode\n");
+		return;
+	}
+
+	decon->cursor.enabled = true;
+	decon_info("display supports cursor async mode\n");
 }
