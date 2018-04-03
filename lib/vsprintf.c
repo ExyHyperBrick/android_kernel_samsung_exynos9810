@@ -2452,6 +2452,8 @@ int vbin_printf(u32 *bin_buf, size_t size, const char *fmt, va_list args)
 			case 's':
 			case 'F':
 			case 'f':
+			case 'x':
+			case 'K':
 				save_arg(void *);
 				break;
 			default:
@@ -2626,6 +2628,8 @@ int bstr_printf(char *buf, size_t size, const char *fmt, const u32 *bin_buf)
 			case 's':
 			case 'F':
 			case 'f':
+			case 'x':
+			case 'K':
 				process = true;
 				break;
 			default:
