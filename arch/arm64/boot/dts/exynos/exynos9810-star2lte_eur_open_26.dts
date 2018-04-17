@@ -4780,28 +4780,28 @@
 
 			core-core0 {
 				busy-cost-data = <212 215 230 225 263 250 304 289 341 341 378 431 415 517 447 605 521 866 563 1037 600 1242 637 1452 683 1798 717 2025 747 2680 821 3180 886 3970 941 4861 959 5623 1015 6412 1024 7533>;
-				idle-cost-data = <10 0 0>;
+				idle-cost-data = <200 0 0>;
 				linux,phandle = <65>;
 				phandle = <65>;
 			};
 
 			core-core1 {
 				busy-cost-data = <46 22 61 31 72 39 84 51 96 63 107 77 127 105 148 149 171 231 182 240 198 250>;
-				idle-cost-data = <1 0 0>;
+				idle-cost-data = <200 0 0>;
 				linux,phandle = <62>;
 				phandle = <62>;
 			};
 
 			cluster-core0 {
 				busy-cost-data = <212 61 230 64 263 70 304 76 341 93 378 123 415 151 447 181 521 268 563 325 600 393 637 463 683 579 717 654 747 873 821 1039 886 1302 941 1600 959 1854 1015 2117 1024 2490>;
-				idle-cost-data = <268 268 0>;
+				idle-cost-data = <768 768 0>;
 				linux,phandle = <66>;
 				phandle = <66>;
 			};
 
 			cluster-core1 {
 				busy-cost-data = <46 1 61 3 72 4 84 7 96 9 107 12 127 18 148 26 171 43 182 53 198 58>;
-				idle-cost-data = <5 5 0>;
+				idle-cost-data = <200 200 0>;
 				linux,phandle = <63>;
 				phandle = <63>;
 			};
