@@ -4151,6 +4151,8 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 	if (icsk->icsk_pending == ICSK_TIME_RETRANS)
 		tcp_schedule_loss_probe(sk);
 	delivered = tp->delivered - delivered;	/* freshly ACKed or SACKed */
+	if (flag & FLAG_ECE)
+		tp->delivered_ce += delivered;
 	lost = tp->lost - lost;			/* freshly marked lost */
 	rs.is_ack_delayed = !!(flag & FLAG_ACK_MAYBE_DELAYED);
 	tcp_rate_gen(sk, delivered, lost, is_sack_reneg, &now, &rs);
