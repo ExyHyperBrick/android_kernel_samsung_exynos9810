@@ -60,6 +60,7 @@
 #include <net/strparser.h>
 #include <net/busy_poll.h>
 #include <net/tcp.h>
+#include <net/xfrm.h>
 #include <linux/bpf_trace.h>
 #include <net/net_namespace.h>
 #include <net/udp.h>
@@ -5246,6 +5247,49 @@ static const struct bpf_func_proto bpf_bind_proto = {
 	.arg3_type	= ARG_CONST_SIZE,
 };
 
+#ifdef CONFIG_XFRM
+BPF_CALL_5(bpf_skb_get_xfrm_state, struct sk_buff *, skb, u32, index,
+	   struct bpf_xfrm_state *, to, u32, size, u64, flags)
+{
+	const struct sec_path *sp = skb_sec_path(skb);
+	const struct xfrm_state *x;
+
+	if (!sp || unlikely(index >= sp->len || flags))
+		goto err_clear;
+
+	x = sp->xvec[index];
+
+	if (unlikely(size != sizeof(struct bpf_xfrm_state)))
+		goto err_clear;
+
+	to->reqid = x->props.reqid;
+	to->spi = x->id.spi;
+	to->family = x->props.family;
+	if (to->family == AF_INET6) {
+		memcpy(to->remote_ipv6, x->props.saddr.a6,
+		       sizeof(to->remote_ipv6));
+	} else {
+		to->remote_ipv4 = x->props.saddr.a4;
+	}
+
+	return 0;
+err_clear:
+	memset(to, 0, size);
+	return -EINVAL;
+}
+
+static const struct bpf_func_proto bpf_skb_get_xfrm_state_proto = {
+	.func		= bpf_skb_get_xfrm_state,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_CTX,
+	.arg2_type	= ARG_ANYTHING,
+	.arg3_type	= ARG_PTR_TO_UNINIT_MEM,
+	.arg4_type	= ARG_CONST_SIZE,
+	.arg5_type	= ARG_ANYTHING,
+};
+#endif
+
 extern const struct bpf_func_proto bpf_get_current_task_proto __weak;
 extern const struct bpf_func_proto bpf_probe_read_user_proto __weak;
 extern const struct bpf_func_proto bpf_probe_read_user_str_proto __weak;
@@ -5487,6 +5531,10 @@ tc_cls_act_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_skb_get_tunnel_opt_proto;
 	case BPF_FUNC_skb_set_tunnel_opt:
 		return bpf_get_skb_set_tunnel_proto(func_id);
+#ifdef CONFIG_XFRM
+	case BPF_FUNC_skb_get_xfrm_state:
+		return &bpf_skb_get_xfrm_state_proto;
+#endif
 	case BPF_FUNC_redirect:
 		return &bpf_redirect_proto;
 	case BPF_FUNC_get_route_realm:

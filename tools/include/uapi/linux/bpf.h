@@ -1825,6 +1825,19 @@ struct bpf_tunnel_key {
 	__u32 tunnel_label;
 };
 
+/* user accessible mirror of in-kernel xfrm_state.
+ * new fields can only be added to the end of this structure
+ */
+struct bpf_xfrm_state {
+	__u32 reqid;
+	__u32 spi;	/* Stored in network byte order */
+	__u16 family;
+	union {
+		__u32 remote_ipv4;	/* Stored in network byte order */
+		__u32 remote_ipv6[4];	/* Stored in network byte order */
+	};
+};
+
 /* Generic BPF return codes which all BPF program types may support.
  * The values are binary compatible with their TC_ACT_* counter-part to
  * provide backwards compatibility with existing SCHED_CLS and SCHED_ACT
