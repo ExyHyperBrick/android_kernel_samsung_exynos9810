@@ -35,6 +35,7 @@
 #include <linux/rcupdate.h>
 #include <linux/module.h>
 #include <linux/nospec.h>
+#include <linux/perf_event.h>
 
 #include <asm/barrier.h>
 #include <asm/unaligned.h>
@@ -2432,6 +2433,10 @@ static void bpf_prog_free_deferred(struct work_struct *work)
 	if (bpf_prog_is_dev_bound(aux))
 		bpf_prog_offload_destroy(aux->prog);
 
+#ifdef CONFIG_PERF_EVENTS
+	if (aux->prog->has_callchain_buf)
+		put_callchain_buffers();
+#endif
 	bpf_trampoline_put(aux->trampoline);
 	for (i = 0; i < aux->func_cnt; i++)
 		bpf_jit_free(aux->func[i]);
