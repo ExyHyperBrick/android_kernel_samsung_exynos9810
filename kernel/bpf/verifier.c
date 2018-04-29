@@ -47,6 +47,7 @@
 #include <linux/ctype.h>
 #include <linux/kallsyms.h>
 #include <linux/overflow.h>
+#include <linux/perf_event.h>
 
 #include "disasm.h"
 
@@ -5147,6 +5148,24 @@ static int check_helper_call(struct bpf_verifier_env *env,
 		if (err)
 			return err;
 		env->prog->call_get_func_ip = true;
+	}
+
+	if (func_id == BPF_FUNC_get_stack && !env->prog->has_callchain_buf) {
+		const char *err_str;
+
+#ifdef CONFIG_PERF_EVENTS
+		err = get_callchain_buffers(sysctl_perf_event_max_stack);
+		err_str = "cannot get callchain buffer for func %s#%d\n";
+#else
+		err = -ENOTSUPP;
+		err_str = "func %s#%d not supported without CONFIG_PERF_EVENTS\n";
+#endif
+		if (err) {
+			verbose(env, err_str, func_id_name(func_id), func_id);
+			return err;
+		}
+
+		env->prog->has_callchain_buf = true;
 	}
 
 	/* reset caller saved regs */

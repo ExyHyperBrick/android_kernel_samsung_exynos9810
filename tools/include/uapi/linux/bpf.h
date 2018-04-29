@@ -1661,11 +1661,14 @@ enum bpf_func_id {
 /* BPF_FUNC_skb_set_tunnel_key and BPF_FUNC_skb_get_tunnel_key flags. */
 #define BPF_F_TUNINFO_IPV6		(1ULL << 0)
 
-/* BPF_FUNC_get_stackid flags. */
+/* flags for both BPF_FUNC_get_stackid and BPF_FUNC_get_stack. */
 #define BPF_F_SKIP_FIELD_MASK		0xffULL
 #define BPF_F_USER_STACK		(1ULL << 8)
+/* flags used by BPF_FUNC_get_stackid only. */
 #define BPF_F_FAST_STACK_CMP		(1ULL << 9)
 #define BPF_F_REUSE_STACKID		(1ULL << 10)
+/* flags used by BPF_FUNC_get_stack only. */
+#define BPF_F_USER_BUILD_ID		(1ULL << 11)
 
 /* BPF_FUNC_skb_set_tunnel_key flags. */
 #define BPF_F_ZERO_CSUM_TX		(1ULL << 1)
