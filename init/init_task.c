@@ -8,6 +8,7 @@
 #include <linux/fs.h>
 #include <linux/mm.h>
 #include <linux/task_integrity.h>
+#include <linux/scs.h>
 
 #include <asm/pgtable.h>
 #include <asm/uaccess.h>
@@ -17,6 +18,11 @@ static struct sighand_struct init_sighand = INIT_SIGHAND(init_sighand);
 #ifdef CONFIG_FIVE
 static struct task_integrity init_integrity =
 					INIT_TASK_INTEGRITY(init_integrity);
+#endif
+
+#ifdef CONFIG_SHADOW_CALL_STACK
+unsigned long init_shadow_call_stack[SCS_SIZE / sizeof(long)]
+	__init_task_data __aligned(SCS_SIZE);
 #endif
 
 /* Initial task structure */
