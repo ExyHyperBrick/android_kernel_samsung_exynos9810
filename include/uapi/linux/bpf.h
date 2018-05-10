@@ -2310,6 +2310,41 @@ struct bpf_raw_tracepoint_args {
 	__u64 args[0];
 };
 
+/* DIRECT: Skip the FIB rules and go to FIB table associated with device
+ * OUTPUT: Do lookup from egress perspective; default is ingress
+ */
+#define BPF_FIB_LOOKUP_DIRECT	(1U << 0)
+#define BPF_FIB_LOOKUP_OUTPUT	(1U << 1)
+
+struct bpf_fib_lookup {
+	/* input */
+	__u8	family;		/* AF_INET, AF_INET6, AF_MPLS */
+	__u8	l4_protocol;
+	__be16	sport;
+	__be16	dport;
+	__u16	tot_len;
+	__u32	ifindex;
+	union {
+		__u8	tos;		/* AF_INET */
+		__be32	flowlabel;	/* AF_INET6 */
+		__u32	rt_metric;
+	};
+	union {
+		__be32	mpls_in;
+		__be32	ipv4_src;
+		__u32	ipv6_src[4];
+	};
+	union {
+		__be32	mpls_out[4];
+		__be32	ipv4_dst;
+		__u32	ipv6_dst[4];
+	};
+	__be16	h_vlan_proto;
+	__be16	h_vlan_TCI;
+	__u8	smac[6];
+	__u8	dmac[6];
+};
+
 #define BPF_FLOW_DISSECTOR_F_PARSE_1ST_FRAG		(1U << 0)
 #define BPF_FLOW_DISSECTOR_F_STOP_AT_FLOW_LABEL		(1U << 1)
 #define BPF_FLOW_DISSECTOR_F_STOP_AT_ENCAP		(1U << 2)
