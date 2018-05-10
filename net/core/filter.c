@@ -62,6 +62,12 @@
 #include <net/tcp.h>
 #include <net/xfrm.h>
 #include <linux/bpf_trace.h>
+#include <linux/inetdevice.h>
+#include <net/ip_fib.h>
+#include <net/ip6_fib.h>
+#include <net/ip6_route.h>
+#include <net/arp.h>
+#include <net/ndisc.h>
 #include <net/net_namespace.h>
 #include <net/udp.h>
 #include <net/inet_hashtables.h>
@@ -5290,6 +5296,228 @@ static const struct bpf_func_proto bpf_skb_get_xfrm_state_proto = {
 };
 #endif
 
+#if IS_ENABLED(CONFIG_INET) || IS_ENABLED(CONFIG_IPV6)
+static int bpf_fib_set_fwd_params(struct bpf_fib_lookup *params,
+				  const struct neighbour *neigh,
+				  const struct net_device *dev)
+{
+	memcpy(params->dmac, neigh->ha, ETH_ALEN);
+	memcpy(params->smac, dev->dev_addr, ETH_ALEN);
+	params->h_vlan_TCI = 0;
+	params->h_vlan_proto = 0;
+
+	return dev->ifindex;
+}
+#endif
+
+#if IS_ENABLED(CONFIG_INET)
+static int bpf_ipv4_fib_lookup(struct net *net, struct bpf_fib_lookup *params,
+			       u32 flags)
+{
+	struct in_device *in_dev;
+	struct neighbour *neigh;
+	struct net_device *dev;
+	struct fib_result res;
+	struct fib_nh *nh;
+	struct flowi4 fl4;
+	int err;
+
+	dev = dev_get_by_index_rcu(net, params->ifindex);
+	if (unlikely(!dev))
+		return -ENODEV;
+
+	in_dev = __in_dev_get_rcu(dev);
+	if (unlikely(!in_dev || !IN_DEV_FORWARD(in_dev)))
+		return 0;
+
+	memset(&fl4, 0, sizeof(fl4));
+	if (flags & BPF_FIB_LOOKUP_OUTPUT) {
+		fl4.flowi4_iif = 1;
+		fl4.flowi4_oif = params->ifindex;
+	} else {
+		fl4.flowi4_iif = params->ifindex;
+	}
+	fl4.flowi4_tos = params->tos & IPTOS_RT_MASK;
+	fl4.flowi4_scope = RT_SCOPE_UNIVERSE;
+	fl4.flowi4_proto = params->l4_protocol;
+	fl4.daddr = params->ipv4_dst;
+	fl4.saddr = params->ipv4_src;
+	fl4.fl4_sport = params->sport;
+	fl4.fl4_dport = params->dport;
+
+	if (flags & BPF_FIB_LOOKUP_DIRECT) {
+		u32 tbid = l3mdev_fib_table_rcu(dev) ? : RT_TABLE_MAIN;
+		struct fib_table *tb;
+
+		tb = fib_get_table(net, tbid);
+		if (unlikely(!tb))
+			return 0;
+		err = fib_table_lookup(tb, &fl4, &res, FIB_LOOKUP_NOREF);
+	} else {
+		fl4.flowi4_uid = sock_net_uid(net, NULL);
+		err = fib_lookup(net, &fl4, &res, FIB_LOOKUP_NOREF);
+	}
+
+	if (err || res.type != RTN_UNICAST)
+		return 0;
+
+	if (res.fi->fib_nhs > 1)
+		fib_select_path(net, &res, &fl4, -1);
+
+	nh = &res.fi->fib_nh[res.nh_sel];
+	if (nh->nh_lwtstate)
+		return 0;
+
+	dev = nh->nh_dev;
+	if (unlikely(!dev))
+		return 0;
+	if (nh->nh_gw)
+		params->ipv4_dst = nh->nh_gw;
+	params->rt_metric = res.fi->fib_priority;
+
+	neigh = __ipv4_neigh_lookup_noref(dev,
+					  (__force u32)params->ipv4_dst);
+	if (neigh)
+		return bpf_fib_set_fwd_params(params, neigh, dev);
+
+	return 0;
+}
+#endif
+
+#if IS_ENABLED(CONFIG_IPV6)
+static int bpf_ipv6_fib_lookup(struct net *net, struct bpf_fib_lookup *params,
+			       u32 flags)
+{
+	struct in6_addr *src = (struct in6_addr *)params->ipv6_src;
+	struct in6_addr *dst = (struct in6_addr *)params->ipv6_dst;
+	struct neighbour *neigh;
+	struct net_device *dev;
+	struct inet6_dev *idev;
+	struct rt6_info *rt;
+	struct flowi6 fl6;
+	int ret = 0;
+	int strict = 0;
+	int oif;
+
+	if (rt6_need_strict(dst) || rt6_need_strict(src))
+		return 0;
+
+	dev = dev_get_by_index_rcu(net, params->ifindex);
+	if (unlikely(!dev))
+		return -ENODEV;
+
+	idev = __in6_dev_get_safely(dev);
+	if (unlikely(!idev || !net->ipv6.devconf_all->forwarding))
+		return 0;
+
+	memset(&fl6, 0, sizeof(fl6));
+	if (flags & BPF_FIB_LOOKUP_OUTPUT) {
+		fl6.flowi6_iif = 1;
+		oif = fl6.flowi6_oif = params->ifindex;
+	} else {
+		oif = fl6.flowi6_iif = params->ifindex;
+		strict = RT6_LOOKUP_F_HAS_SADDR;
+	}
+	fl6.flowlabel = params->flowlabel;
+	fl6.flowi6_proto = params->l4_protocol;
+	fl6.daddr = *dst;
+	fl6.saddr = *src;
+	fl6.fl6_sport = params->sport;
+	fl6.fl6_dport = params->dport;
+
+	if (flags & BPF_FIB_LOOKUP_DIRECT) {
+		u32 tbid = l3mdev_fib_table_rcu(dev) ? : RT_TABLE_MAIN;
+		struct fib6_table *tb = fib6_get_table(net, tbid);
+
+		if (unlikely(!tb))
+			return 0;
+		rt = ip6_pol_route(net, tb, oif, &fl6, strict);
+	} else {
+		fl6.flowi6_uid = sock_net_uid(net, NULL);
+		rt = (struct rt6_info *)ip6_route_lookup(net, &fl6, strict);
+	}
+
+	if (unlikely(!rt || rt == net->ipv6.ip6_null_entry || rt->dst.error))
+		goto out;
+	if (unlikely(rt->rt6i_flags &
+		     (RTF_REJECT | RTF_LOCAL | RTF_ANYCAST | RTF_NONEXTHOP)))
+		goto out;
+	if (rt->dst.lwtstate)
+		goto out;
+
+	if (rt->rt6i_flags & RTF_GATEWAY)
+		*dst = rt->rt6i_gateway;
+	dev = rt->dst.dev;
+	params->rt_metric = rt->rt6i_metric;
+
+	neigh = __ipv6_neigh_lookup_noref(dev, dst);
+	if (neigh)
+		ret = bpf_fib_set_fwd_params(params, neigh, dev);
+out:
+	if (rt)
+		ip6_rt_put(rt);
+	return ret;
+}
+#endif
+
+BPF_CALL_4(bpf_xdp_fib_lookup, struct xdp_buff *, ctx,
+	   struct bpf_fib_lookup *, params, int, plen, u32, flags)
+{
+	if (plen < sizeof(*params))
+		return -EINVAL;
+
+	switch (params->family) {
+#if IS_ENABLED(CONFIG_INET)
+	case AF_INET:
+		return bpf_ipv4_fib_lookup(dev_net(ctx->rxq->dev), params, flags);
+#endif
+#if IS_ENABLED(CONFIG_IPV6)
+	case AF_INET6:
+		return bpf_ipv6_fib_lookup(dev_net(ctx->rxq->dev), params, flags);
+#endif
+	}
+	return 0;
+}
+
+static const struct bpf_func_proto bpf_xdp_fib_lookup_proto = {
+	.func		= bpf_xdp_fib_lookup,
+	.gpl_only	= true,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_CTX,
+	.arg2_type	= ARG_PTR_TO_MEM,
+	.arg3_type	= ARG_CONST_SIZE,
+	.arg4_type	= ARG_ANYTHING,
+};
+
+BPF_CALL_4(bpf_skb_fib_lookup, struct sk_buff *, skb,
+	   struct bpf_fib_lookup *, params, int, plen, u32, flags)
+{
+	if (plen < sizeof(*params))
+		return -EINVAL;
+
+	switch (params->family) {
+#if IS_ENABLED(CONFIG_INET)
+	case AF_INET:
+		return bpf_ipv4_fib_lookup(dev_net(skb->dev), params, flags);
+#endif
+#if IS_ENABLED(CONFIG_IPV6)
+	case AF_INET6:
+		return bpf_ipv6_fib_lookup(dev_net(skb->dev), params, flags);
+#endif
+	}
+	return -ENOTSUPP;
+}
+
+static const struct bpf_func_proto bpf_skb_fib_lookup_proto = {
+	.func		= bpf_skb_fib_lookup,
+	.gpl_only	= true,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_CTX,
+	.arg2_type	= ARG_PTR_TO_MEM,
+	.arg3_type	= ARG_CONST_SIZE,
+	.arg4_type	= ARG_ANYTHING,
+};
+
 extern const struct bpf_func_proto bpf_get_current_task_proto __weak;
 extern const struct bpf_func_proto bpf_probe_read_user_proto __weak;
 extern const struct bpf_func_proto bpf_probe_read_user_str_proto __weak;
@@ -5535,6 +5763,8 @@ tc_cls_act_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 	case BPF_FUNC_skb_get_xfrm_state:
 		return &bpf_skb_get_xfrm_state_proto;
 #endif
+	case BPF_FUNC_fib_lookup:
+		return &bpf_skb_fib_lookup_proto;
 	case BPF_FUNC_redirect:
 		return &bpf_redirect_proto;
 	case BPF_FUNC_get_route_realm:
@@ -5602,6 +5832,8 @@ xdp_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_xdp_redirect_map_proto;
 	case BPF_FUNC_check_mtu:
 		return &bpf_xdp_check_mtu_proto;
+	case BPF_FUNC_fib_lookup:
+		return &bpf_xdp_fib_lookup_proto;
 #ifdef CONFIG_INET
 	case BPF_FUNC_sk_lookup_tcp:
 		return &bpf_xdp_sk_lookup_tcp_proto;
