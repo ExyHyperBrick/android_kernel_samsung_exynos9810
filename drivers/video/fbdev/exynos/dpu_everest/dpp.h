@@ -229,6 +229,52 @@ struct dpp_debug {
 	u32 recovery_cnt;
 };
 
+struct dpp_size_range {
+	u32 min;
+	u32 max;
+	u32 align;
+};
+
+struct dpp_restriction {
+	struct dpp_size_range src_f_w;
+	struct dpp_size_range src_f_h;
+	struct dpp_size_range src_w;
+	struct dpp_size_range src_h;
+	u32 src_x_align;
+	u32 src_y_align;
+
+	struct dpp_size_range dst_f_w;
+	struct dpp_size_range dst_f_h;
+	struct dpp_size_range dst_w;
+	struct dpp_size_range dst_h;
+	u32 dst_x_align;
+	u32 dst_y_align;
+
+	struct dpp_size_range blk_w;
+	struct dpp_size_range blk_h;
+	u32 blk_x_align;
+	u32 blk_y_align;
+
+	u32 src_h_rot_max; /* limit of source img height in case of rotation */
+
+	u32 *format; /* supported format list for each DPP channel */
+	u32 reserved[8];
+};
+
+struct dpp_ch_restriction {
+	int id;
+	unsigned long attr;
+
+	struct dpp_restriction restriction;
+	u32 reserved[4];
+};
+
+struct dpp_restrictions_info {
+	u32 ver; /* version of dpp_restrictions_info structure */
+	struct dpp_ch_restriction dpp_ch[MAX_DPP_CNT];
+	u32 reserved[4];
+};
+
 struct dpp_device {
 	int id;
 	unsigned long attr;
@@ -243,6 +289,7 @@ struct dpp_device {
 	spinlock_t dma_slock;
 	struct mutex lock;
 	bool hold_rpm_on_boot;
+	struct dpp_restriction restriction;
 };
 
 struct dpp_params_info {
