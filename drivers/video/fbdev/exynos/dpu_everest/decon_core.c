@@ -3921,7 +3921,7 @@ static int decon_itmon_notifier(struct notifier_block *nb,
 static int decon_initial_display(struct decon_device *decon, bool is_colormap)
 {
 	struct decon_param p;
-	struct fb_info *fbinfo = decon->win[decon->dt.dft_win]->fbinfo;
+	struct fb_info *fbinfo;
 	struct decon_window_regs win_regs;
 	struct decon_win_config config;
 	struct v4l2_subdev *sd = NULL;
@@ -3938,6 +3938,8 @@ static int decon_initial_display(struct decon_device *decon, bool is_colormap)
 		decon_info("decon%d doesn't need to display\n", decon->id);
 		return 0;
 	}
+
+	fbinfo = decon->win[decon->dt.dft_win]->fbinfo;
 
 	pm_stay_awake(decon->dev);
 	dev_warn(decon->dev, "pm_stay_awake");
