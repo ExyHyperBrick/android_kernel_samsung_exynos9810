@@ -816,6 +816,11 @@ static long dpp_subdev_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 			*((int *)arg) = dpp->d.recovery_cnt;
 		break;
 
+	case DPP_GET_RESTRICTION:
+		memcpy((struct dpp_restriction *)arg, &dpp->restriction,
+				sizeof(struct dpp_restriction));
+		break;
+
 	default:
 		break;
 	}
