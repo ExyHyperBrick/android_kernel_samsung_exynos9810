@@ -10411,22 +10411,18 @@
 			device_type = "freqvar-tune";
 			shared-cpus = "0-3";
 			boost_table = < 0 >;
-			boost_table2 = < 30 598000 20 715000 15 832000 10 949000 5 1053000 0 >;
 			up_rate_limit_table = < 0 >;
-			down_rate_limit_table = < 8000 >;
-			upscale_ratio_table = < 70 >;
-			upscale_ratio_table2 = < 140 598000 90 >;
-			upscale_ratio_table3 = < 140 598000 130 715000 120 832000 110 949000 100 1053000 90 1248000 90 1456000 90 1690000 90 1794000 90 >;
+			down_rate_limit_table = < 0 >;
+			upscale_ratio_table = < 80 1248000 90 1456000 95>;
 		};
 
 		domain@1 {
 			device_type = "freqvar-tune";
 			shared-cpus = "4-7";
 			boost_table = < 0 >;
-			boost_table2 = < 20 858000 15 962000 5 1261000 0 >;
-			up_rate_limit_table = <500>;
+			up_rate_limit_table = <8000>;
 			down_rate_limit_table = <2500>;
-			upscale_ratio_table = < 50 962000 65 1469000 80 >;
+			upscale_ratio_table = < 80 1261000 90>;
 		};
 	};
 
@@ -10543,7 +10539,7 @@
 			dm-type = <1>;
 			min-freq = <962000>;
 			max-freq = <2314000>;
-			policy-max = <2314000>;
+			policy-max = <1794000>;
 			pm_qos-min-class = <5>;
 			pm_qos-max-class = <6>;
 			pm_qos-booting = <1794000>;
@@ -10556,7 +10552,29 @@
 				mif-perf {
 					const-type = <0>;
 					dm-type = <2>;
-					table = <2886000 1794000 2860000 1794000 2704000 1794000 2652000 1794000 2496000 1794000 2314000 1794000 2106000 1794000 2002000 1794000 1924000 1794000 1794000 1794000 1690000 1539000 1586000 1014000 1469000 845000 1261000 676000 1170000 676000 1066000 676000 962000 421000 858000 421000 741000 421000 650000 421000 598000 421000>;
+                                        table = <
+                                                2964000 1794000
+                                                2860000 1794000
+                                                2704000 1794000
+                                                2652000 1794000
+                                                2496000 1794000
+                                                2314000 1539000
+                                                2158000 1539000
+                                                2002000 1539000
+                                                1924000 1539000
+                                                1794000 1539000
+                                                1690000 1014000
+                                                1586000 845000
+                                                1469000 845000
+                                                1261000 676000
+                                                1170000 676000
+                                                1066000 676000
+                                                962000 421000
+                                                858000 421000
+                                                741000 421000
+                                                650000 421000
+                                                598000 421000
+                                        >;
 				};
 
 				mif-skew {
@@ -13793,10 +13811,10 @@
 		fuelgauge,sw_v_empty_voltage = <3200>;
 		fuelgauge,sw_v_empty_voltage_cisd = <3100>;
 		fuelgauge,sw_v_empty_recover_voltage = <3480>;
-		fuelgauge,qrtable20 = <3334>;
-		fuelgauge,qrtable30 = <2820>;
+		fuelgauge,qrtable20 = <3456>;
+		fuelgauge,qrtable30 = <3328>;
 		fuelgauge,fg_resistor = <2>;
-		fuelgauge,capacity = <3753>;
+		fuelgauge,capacity = <3000>;
 		fuelgauge,discharge_temp_threshold = <600>;
 		fuelgauge,discharge_volt_threshold = <4200>;
 		fuelgauge,ttf_capacity = <4000>;
