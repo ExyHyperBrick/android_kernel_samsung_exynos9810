@@ -2317,8 +2317,10 @@ struct bpf_raw_tracepoint_args {
 #define BPF_FIB_LOOKUP_OUTPUT	(1U << 1)
 
 struct bpf_fib_lookup {
-	/* input */
-	__u8	family;		/* AF_INET, AF_INET6, AF_MPLS */
+	/* input: network family for lookup (AF_INET, AF_INET6)
+	 * output: network family of egress nexthop
+	 */
+	__u8	family;
 	__u8	l4_protocol;
 	__be16	sport;
 	__be16	dport;
@@ -2330,12 +2332,10 @@ struct bpf_fib_lookup {
 		__u32	rt_metric;
 	};
 	union {
-		__be32	mpls_in;
 		__be32	ipv4_src;
 		__u32	ipv6_src[4];
 	};
 	union {
-		__be32	mpls_out[4];
 		__be32	ipv4_dst;
 		__u32	ipv6_dst[4];
 	};
