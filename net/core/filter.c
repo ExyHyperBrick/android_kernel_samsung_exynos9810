@@ -5432,7 +5432,7 @@ static int bpf_ipv6_fib_lookup(struct net *net, struct bpf_fib_lookup *params,
 		oif = fl6.flowi6_iif = params->ifindex;
 		strict = RT6_LOOKUP_F_HAS_SADDR;
 	}
-	fl6.flowlabel = params->flowlabel;
+	fl6.flowlabel = params->flowinfo;
 	fl6.flowi6_proto = params->l4_protocol;
 	fl6.daddr = *dst;
 	fl6.saddr = *src;

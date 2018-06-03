@@ -2329,7 +2329,7 @@ struct bpf_fib_lookup {
 	__u32	ifindex;
 	union {
 		__u8	tos;		/* AF_INET */
-		__be32	flowlabel;	/* AF_INET6 */
+		__be32	flowinfo;	/* AF_INET6, flow_label + priority */
 		__u32	rt_metric;
 	};
 	union {
