@@ -237,6 +237,14 @@ static void dpp_dump_debug_regs(int id)
 	__dpp_dump_ch_data(id, REG_AREA_DPP, sel, cnt);
 }
 
+static u32 default_fmt[DEFAULT_FMT_CNT] = {
+	DECON_PIXEL_FORMAT_ARGB_8888, DECON_PIXEL_FORMAT_ABGR_8888,
+	DECON_PIXEL_FORMAT_RGBA_8888, DECON_PIXEL_FORMAT_BGRA_8888,
+	DECON_PIXEL_FORMAT_XRGB_8888, DECON_PIXEL_FORMAT_XBGR_8888,
+	DECON_PIXEL_FORMAT_RGBX_8888, DECON_PIXEL_FORMAT_BGRX_8888,
+	DECON_PIXEL_FORMAT_RGB_565
+};
+
 void dpp_dump(struct dpp_device *dpp)
 {
 	int acquired = console_trylock();
@@ -817,8 +825,11 @@ static long dpp_subdev_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 		break;
 
 	case DPP_GET_RESTRICTION:
-		memcpy((struct dpp_restriction *)arg, &dpp->restriction,
+		memcpy(&(((struct dpp_ch_restriction *)arg)->restriction),
+				&dpp->restriction,
 				sizeof(struct dpp_restriction));
+		((struct dpp_ch_restriction *)arg)->id = dpp->id;
+		((struct dpp_ch_restriction *)arg)->attr = dpp->attr;
 		break;
 
 	default:
@@ -1138,6 +1149,10 @@ static void dpp_parse_dt(struct dpp_device *dpp, struct device *dev)
 {
 	struct device_node *node = dev->of_node;
 	struct dpp_device *dpp0 = get_dpp_drvdata(0);
+	struct dpp_restriction *res = &dpp->restriction;
+	int i;
+	char format_list[128] = {0, };
+	int len = 0, ret;
 
 	dpp->id = of_alias_get_id(node, "dpp");
 	dpp_info("dpp(%d) probe start..\n", dpp->id);
@@ -1152,6 +1167,21 @@ static void dpp_parse_dt(struct dpp_device *dpp, struct device *dev)
 				sizeof(struct dpp_restriction));
 		dpp_print_restriction(dpp);
 	}
+
+	memcpy(res->format, default_fmt, sizeof(u32) * DEFAULT_FMT_CNT);
+	of_property_read_u32(node, "fmt_cnt", (u32 *)&res->format_cnt);
+	of_property_read_u32_array(node, "fmt", &res->format[DEFAULT_FMT_CNT],
+			res->format_cnt);
+	res->format_cnt += DEFAULT_FMT_CNT;
+	dpp_info("supported format count = %d\n", dpp->restriction.format_cnt);
+
+	for (i = 0; i < dpp->restriction.format_cnt; ++i) {
+		ret = snprintf(format_list + len, sizeof(format_list) - len,
+				"%d ", dpp->restriction.format[i]);
+		len += ret;
+	}
+	format_list[len] = '\0';
+	dpp_info("supported format list : %s\n", format_list);
 
 	dpp->dev = dev;
 

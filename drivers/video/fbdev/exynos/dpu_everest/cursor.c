@@ -77,7 +77,8 @@ void dpu_cursor_win_update_config(struct decon_device *decon,
 {
 	struct decon_frame src, dst;
 	struct v4l2_subdev *sd;
-	struct dpp_restriction res;
+	struct dpp_ch_restriction ch_res;
+	struct dpp_restriction *res;
 	unsigned short cur = regs->cursor_win;
 
 	if (!decon->id) {
@@ -97,7 +98,8 @@ void dpu_cursor_win_update_config(struct decon_device *decon,
 	}
 
 	sd = decon->dpp_sd[0];
-	v4l2_subdev_call(sd, core, ioctl, DPP_GET_RESTRICTION, &res);
+	v4l2_subdev_call(sd, core, ioctl, DPP_GET_RESTRICTION, &ch_res);
+	res = &ch_res.restriction;
 
 	memcpy(&src, &regs->dpp_config[cur].src, sizeof(struct decon_frame));
 	memcpy(&dst, &regs->dpp_config[cur].dst, sizeof(struct decon_frame));
@@ -110,8 +112,8 @@ void dpu_cursor_win_update_config(struct decon_device *decon,
 	if ((dst.y + dst.h) > decon->lcd_info->yres)
 		dst.h = dst.h - ((dst.y + dst.h) - decon->lcd_info->yres);
 
-	if (dst.w > res.src_f_w.max || dst.w < res.src_f_w.min ||
-		dst.h > res.src_f_h.max || dst.h < res.src_f_h.min) {
+	if (dst.w > res->src_f_w.max || dst.w < res->src_f_w.min ||
+		dst.h > res->src_f_h.max || dst.h < res->src_f_h.min) {
 		decon_info("not supported cursor: [%d] [%d %d] ",
 				cur, decon->lcd_info->xres,
 				decon->lcd_info->yres);

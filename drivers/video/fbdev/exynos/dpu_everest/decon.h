@@ -56,6 +56,8 @@
 #define MAX_DECON_CNT		3
 #define SUCCESS_EXYNOS_SMC	0
 
+#define DISP_RESTRICTION_VER	20180608
+
 extern struct ion_device *ion_exynos;
 extern struct decon_device *decon_drvdata[MAX_DECON_CNT];
 extern int decon_log_level;
@@ -1689,6 +1691,8 @@ int dpu_sysmmu_fault_handler(struct iommu_domain *domain,
 						struct decon_win_config_data)
 #define EXYNOS_DISP_INFO		_IOW('F', 260, \
 						struct decon_disp_info)
+#define EXYNOS_DISP_RESTRICTIONS	_IOW('F', 261, \
+						struct dpp_restrictions_info)
 
 #define S3CFB_START_CRC			_IOW('F', 270, u32)
 #define S3CFB_SEL_CRC_BITS		_IOW('F', 271, u32)
