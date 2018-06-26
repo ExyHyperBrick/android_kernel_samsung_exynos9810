@@ -5311,8 +5311,9 @@ static int bpf_fib_set_fwd_params(struct bpf_fib_lookup *params,
 	memcpy(params->smac, dev->dev_addr, ETH_ALEN);
 	params->h_vlan_TCI = 0;
 	params->h_vlan_proto = 0;
+	params->ifindex = dev->ifindex;
 
-	return dev->ifindex;
+	return 0;
 }
 #endif
 
@@ -5335,7 +5336,7 @@ static int bpf_ipv4_fib_lookup(struct net *net, struct bpf_fib_lookup *params,
 
 	in_dev = __in_dev_get_rcu(dev);
 	if (unlikely(!in_dev || !IN_DEV_FORWARD(in_dev)))
-		return 0;
+		return BPF_FIB_LKUP_RET_FWD_DISABLED;
 
 	memset(&fl4, 0, sizeof(fl4));
 	if (flags & BPF_FIB_LOOKUP_OUTPUT) {
@@ -5358,43 +5359,50 @@ static int bpf_ipv4_fib_lookup(struct net *net, struct bpf_fib_lookup *params,
 
 		tb = fib_get_table(net, tbid);
 		if (unlikely(!tb))
-			return 0;
+			return BPF_FIB_LKUP_RET_NOT_FWDED;
 		err = fib_table_lookup(tb, &fl4, &res, FIB_LOOKUP_NOREF);
 	} else {
 		fl4.flowi4_uid = sock_net_uid(net, NULL);
 		err = fib_lookup(net, &fl4, &res, FIB_LOOKUP_NOREF);
 	}
 
-	if (err || res.type != RTN_UNICAST)
-		return 0;
+	if (err) {
+		if (err == -EINVAL)
+			return BPF_FIB_LKUP_RET_BLACKHOLE;
+		if (err == -EHOSTUNREACH)
+			return BPF_FIB_LKUP_RET_UNREACHABLE;
+		if (err == -EACCES)
+			return BPF_FIB_LKUP_RET_PROHIBIT;
+		return BPF_FIB_LKUP_RET_NOT_FWDED;
+	}
+	if (res.type != RTN_UNICAST)
+		return BPF_FIB_LKUP_RET_NOT_FWDED;
 
 	if (res.fi->fib_nhs > 1)
 		fib_select_path(net, &res, &fl4, -1);
 
 	nh = &res.fi->fib_nh[res.nh_sel];
-	if (nh->nh_lwtstate)
-		return 0;
 	if (check_mtu) {
 		mtu = READ_ONCE(nh->nh_dev->mtu);
 		if (res.fi->fib_mtu)
 			mtu = min(mtu, res.fi->fib_mtu);
 		if (params->tot_len > mtu)
-			return 0;
+			return BPF_FIB_LKUP_RET_FRAG_NEEDED;
 	}
+	if (nh->nh_lwtstate)
+		return BPF_FIB_LKUP_RET_UNSUPP_LWT;
 
 	dev = nh->nh_dev;
-	if (unlikely(!dev))
-		return 0;
 	if (nh->nh_gw)
 		params->ipv4_dst = nh->nh_gw;
 	params->rt_metric = res.fi->fib_priority;
 
 	neigh = __ipv4_neigh_lookup_noref(dev,
 					  (__force u32)params->ipv4_dst);
-	if (neigh)
-		return bpf_fib_set_fwd_params(params, neigh, dev);
+	if (!neigh)
+		return BPF_FIB_LKUP_RET_NO_NEIGH;
 
-	return 0;
+	return bpf_fib_set_fwd_params(params, neigh, dev);
 }
 #endif
 
@@ -5414,7 +5422,7 @@ static int bpf_ipv6_fib_lookup(struct net *net, struct bpf_fib_lookup *params,
 	int oif;
 
 	if (rt6_need_strict(dst) || rt6_need_strict(src))
-		return 0;
+		return BPF_FIB_LKUP_RET_NOT_FWDED;
 
 	dev = dev_get_by_index_rcu(net, params->ifindex);
 	if (unlikely(!dev))
@@ -5422,7 +5430,7 @@ static int bpf_ipv6_fib_lookup(struct net *net, struct bpf_fib_lookup *params,
 
 	idev = __in6_dev_get_safely(dev);
 	if (unlikely(!idev || !net->ipv6.devconf_all->forwarding))
-		return 0;
+		return BPF_FIB_LKUP_RET_FWD_DISABLED;
 
 	memset(&fl6, 0, sizeof(fl6));
 	if (flags & BPF_FIB_LOOKUP_OUTPUT) {
@@ -5444,22 +5452,41 @@ static int bpf_ipv6_fib_lookup(struct net *net, struct bpf_fib_lookup *params,
 		struct fib6_table *tb = fib6_get_table(net, tbid);
 
 		if (unlikely(!tb))
-			return 0;
+			return BPF_FIB_LKUP_RET_NOT_FWDED;
 		rt = ip6_pol_route(net, tb, oif, &fl6, strict);
 	} else {
 		fl6.flowi6_uid = sock_net_uid(net, NULL);
 		rt = (struct rt6_info *)ip6_route_lookup(net, &fl6, strict);
 	}
 
-	if (unlikely(!rt || rt == net->ipv6.ip6_null_entry || rt->dst.error))
+	if (unlikely(!rt || rt == net->ipv6.ip6_null_entry)) {
+		ret = BPF_FIB_LKUP_RET_NOT_FWDED;
 		goto out;
+	}
+	if (rt->dst.error) {
+		if (rt->dst.error == -EINVAL)
+			ret = BPF_FIB_LKUP_RET_BLACKHOLE;
+		else if (rt->dst.error == -EHOSTUNREACH)
+			ret = BPF_FIB_LKUP_RET_UNREACHABLE;
+		else if (rt->dst.error == -EACCES)
+			ret = BPF_FIB_LKUP_RET_PROHIBIT;
+		else
+			ret = BPF_FIB_LKUP_RET_NOT_FWDED;
+		goto out;
+	}
 	if (unlikely(rt->rt6i_flags &
-		     (RTF_REJECT | RTF_LOCAL | RTF_ANYCAST | RTF_NONEXTHOP)))
+		     (RTF_REJECT | RTF_LOCAL | RTF_ANYCAST | RTF_NONEXTHOP))) {
+		ret = BPF_FIB_LKUP_RET_NOT_FWDED;
 		goto out;
-	if (check_mtu && params->tot_len > dst_mtu(&rt->dst))
+	}
+	if (check_mtu && params->tot_len > dst_mtu(&rt->dst)) {
+		ret = BPF_FIB_LKUP_RET_FRAG_NEEDED;
 		goto out;
-	if (rt->dst.lwtstate)
+	}
+	if (rt->dst.lwtstate) {
+		ret = BPF_FIB_LKUP_RET_UNSUPP_LWT;
 		goto out;
+	}
 
 	if (rt->rt6i_flags & RTF_GATEWAY)
 		*dst = rt->rt6i_gateway;
@@ -5469,6 +5496,8 @@ static int bpf_ipv6_fib_lookup(struct net *net, struct bpf_fib_lookup *params,
 	neigh = __ipv6_neigh_lookup_noref(dev, dst);
 	if (neigh)
 		ret = bpf_fib_set_fwd_params(params, neigh, dev);
+	else
+		ret = BPF_FIB_LKUP_RET_NO_NEIGH;
 out:
 	if (rt)
 		ip6_rt_put(rt);
@@ -5514,7 +5543,7 @@ BPF_CALL_4(bpf_skb_fib_lookup, struct sk_buff *, skb,
 	   struct bpf_fib_lookup *, params, int, plen, u32, flags)
 {
 	struct net *net = dev_net(skb->dev);
-	int index = -EAFNOSUPPORT;
+	int rc = -EAFNOSUPPORT;
 
 	if (plen < sizeof(*params))
 		return -EINVAL;
@@ -5525,25 +5554,25 @@ BPF_CALL_4(bpf_skb_fib_lookup, struct sk_buff *, skb,
 	switch (params->family) {
 #if IS_ENABLED(CONFIG_INET)
 	case AF_INET:
-		index = bpf_ipv4_fib_lookup(net, params, flags, false);
+		rc = bpf_ipv4_fib_lookup(net, params, flags, false);
 		break;
 #endif
 #if IS_ENABLED(CONFIG_IPV6)
 	case AF_INET6:
-		index = bpf_ipv6_fib_lookup(net, params, flags, false);
+		rc = bpf_ipv6_fib_lookup(net, params, flags, false);
 		break;
 #endif
 	}
 
-	if (index > 0) {
+	if (!rc) {
 		struct net_device *dev;
 
-		dev = dev_get_by_index_rcu(net, index);
+		dev = dev_get_by_index_rcu(net, params->ifindex);
 		if (!is_skb_forwardable(dev, skb))
-			index = 0;
+			rc = BPF_FIB_LKUP_RET_FRAG_NEEDED;
 	}
 
-	return index;
+	return rc;
 }
 
 static const struct bpf_func_proto bpf_skb_fib_lookup_proto = {

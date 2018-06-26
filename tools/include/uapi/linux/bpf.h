@@ -2317,6 +2317,18 @@ struct bpf_raw_tracepoint_args {
 #define BPF_FIB_LOOKUP_DIRECT	(1U << 0)
 #define BPF_FIB_LOOKUP_OUTPUT	(1U << 1)
 
+enum {
+	BPF_FIB_LKUP_RET_SUCCESS,
+	BPF_FIB_LKUP_RET_BLACKHOLE,
+	BPF_FIB_LKUP_RET_UNREACHABLE,
+	BPF_FIB_LKUP_RET_PROHIBIT,
+	BPF_FIB_LKUP_RET_NOT_FWDED,
+	BPF_FIB_LKUP_RET_FWD_DISABLED,
+	BPF_FIB_LKUP_RET_UNSUPP_LWT,
+	BPF_FIB_LKUP_RET_NO_NEIGH,
+	BPF_FIB_LKUP_RET_FRAG_NEEDED,
+};
+
 struct bpf_fib_lookup {
 	/* input: network family for lookup (AF_INET, AF_INET6)
 	 * output: network family of egress nexthop
@@ -2326,6 +2338,7 @@ struct bpf_fib_lookup {
 	__be16	sport;
 	__be16	dport;
 	__u16	tot_len;
+	/* input: L3 device; output: nexthop device */
 	__u32	ifindex;
 	union {
 		__u8	tos;		/* AF_INET */
