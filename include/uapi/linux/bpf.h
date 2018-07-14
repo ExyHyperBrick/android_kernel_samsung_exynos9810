@@ -2076,6 +2076,9 @@ enum {
 	BPF_SOCK_OPS_NEEDS_ECN,		/* If connection's congestion control
 					 * needs ECN
 					 */
+	BPF_SOCK_OPS_TCP_LISTEN_CB,	/* Called on listen(2), right after
+					 * socket transition to LISTEN state.
+					 */
 };
 
 #define TCP_BPF_IW		1001	/* Set TCP initial congestion window */
