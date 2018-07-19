@@ -227,7 +227,11 @@ struct dpp_restriction {
 
 	u32 format[MAX_FMT_CNT]; /* supported format list for each DPP channel */
 	int format_cnt;
-	u32 reserved[8];
+
+	u32 scale_down;
+	u32 scale_up;
+
+	u32 reserved[6];
 };
 
 struct dpp_ch_restriction {

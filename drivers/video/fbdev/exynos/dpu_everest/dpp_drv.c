@@ -1203,6 +1203,11 @@ static void dpp_parse_dt(struct dpp_device *dpp, struct device *dev)
 #endif
 	}
 
+	of_property_read_u32(node, "scale_down", (u32 *)&res->scale_down);
+	of_property_read_u32(node, "scale_up", (u32 *)&res->scale_up);
+	dpp_info("max scale up(%dx), down(1/%dx) ratio\n", res->scale_up,
+			res->scale_down);
+
 	memcpy(res->format, default_fmt, sizeof(u32) * DEFAULT_FMT_CNT);
 	of_property_read_u32(node, "fmt_cnt", (u32 *)&res->format_cnt);
 	of_property_read_u32_array(node, "fmt", &res->format[DEFAULT_FMT_CNT],
