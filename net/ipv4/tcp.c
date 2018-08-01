@@ -2459,6 +2459,7 @@ int tcp_disconnect(struct sock *sk, int flags)
 	tp->bytes_received = 0;
 	tp->data_segs_in = 0;
 	tp->data_segs_out = 0;
+	tp->dsack_dups = 0;
 
 	/* Clean up fastopen related fields */
 	tcp_free_fastopen_req(tp);
@@ -3028,6 +3029,7 @@ void tcp_get_info(struct sock *sk, struct tcp_info *info)
 	info->tcpi_min_rtt = tcp_min_rtt(tp);
 	info->tcpi_data_segs_in = tp->data_segs_in;
 	info->tcpi_data_segs_out = tp->data_segs_out;
+	info->tcpi_dsack_dups = tp->dsack_dups;
 
 	info->tcpi_delivery_rate_app_limited = tp->rate_app_limited ? 1 : 0;
 	rate = READ_ONCE(tp->rate_delivered);
@@ -3046,7 +3048,8 @@ struct sk_buff *tcp_get_timestamping_opt_stats(const struct sock *sk)
 	struct sk_buff *stats;
 	struct tcp_info info;
 
-	stats = alloc_skb(3 * nla_total_size_64bit(sizeof(u64)), GFP_ATOMIC);
+	stats = alloc_skb(3 * nla_total_size_64bit(sizeof(u64)) +
+			  nla_total_size(sizeof(u32)), GFP_ATOMIC);
 	if (!stats)
 		return NULL;
 
@@ -3057,6 +3060,7 @@ struct sk_buff *tcp_get_timestamping_opt_stats(const struct sock *sk)
 			  info.tcpi_rwnd_limited, TCP_NLA_PAD);
 	nla_put_u64_64bit(stats, TCP_NLA_SNDBUF_LIMITED,
 			  info.tcpi_sndbuf_limited, TCP_NLA_PAD);
+	nla_put_u32(stats, TCP_NLA_DSACK_DUPS, tp->dsack_dups);
 	return stats;
 }
 
