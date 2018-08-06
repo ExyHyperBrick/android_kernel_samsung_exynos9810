@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
+// SPDX-License-Identifier: LGPL-2.1
 /* Copyright (c) 2018 Facebook */
 
 #include <errno.h>
