@@ -3801,7 +3801,7 @@ static int decon_init_resources(struct decon_device *decon,
 		struct platform_device *pdev, char *name)
 {
 	struct resource *res;
-	int ret;
+	int ret = 0;
 
 	/* Get memory resource and map SFR region. */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
