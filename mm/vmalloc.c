@@ -1863,10 +1863,6 @@ void *vzalloc_node(unsigned long size, int node)
 }
 EXPORT_SYMBOL(vzalloc_node);
 
-#ifndef PAGE_KERNEL_EXEC
-# define PAGE_KERNEL_EXEC PAGE_KERNEL
-#endif
-
 /**
  * vmalloc_user_node_flags - allocate memory for userspace on a specific node
  * @size: allocation size
