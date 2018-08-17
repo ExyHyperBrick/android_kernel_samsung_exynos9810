@@ -1159,6 +1159,33 @@ static void dpp_parse_dt(struct dpp_device *dpp, struct device *dev)
 	of_property_read_u32(node, "attr", (u32 *)&dpp->attr);
 	dpp_info("attributes = 0x%lx\n", dpp->attr);
 
+	switch (dpp->id) {
+	case IDMA_G0:
+		dpp_info("IDMA type is IDMA_G0");
+		break;
+	case IDMA_G1:
+		dpp_info("IDMA type is IDMA_G1");
+		break;
+	case IDMA_VG0:
+		dpp_info("IDMA type is IDMA_VG0");
+		break;
+	case IDMA_VG1:
+		dpp_info("IDMA type is IDMA_VG1");
+		break;
+	case IDMA_VGF0:
+		dpp_info("IDMA type is IDMA_VGF0");
+		break;
+	case IDMA_VGF1:
+		dpp_info("IDMA type is IDMA_VGF1");
+		break;
+	case ODMA_WB:
+		dpp_info("IDMA type is ODMA_WB");
+		break;
+	default:
+		dpp_info("Unknown IDMA type");
+		break;
+	}
+
 	if (dpp->id == IDMA_G0) {
 		dpp_parse_restriction(dpp, node);
 		dpp_print_restriction(dpp);
