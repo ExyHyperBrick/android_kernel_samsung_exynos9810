@@ -1993,10 +1993,10 @@ BPF_CALL_4(bpf_msg_pull_data, struct sk_msg *, msg, u32, start,
 	   u32, end, u64, flags)
 {
 	unsigned int len = 0, offset = 0, copy = 0;
+	int bytes = end - start, bytes_sg_total;
 	struct scatterlist *sg = msg->sg.data;
 	int first_sg, last_sg, i, shift;
 	unsigned char *p, *to, *from;
-	int bytes = end - start;
 	struct page *page;
 
 	if (unlikely(flags || end <= start))
@@ -2006,9 +2006,9 @@ BPF_CALL_4(bpf_msg_pull_data, struct sk_msg *, msg, u32, start,
 	i = msg->sg.start;
 	do {
 		len = sg[i].length;
-		offset += len;
 		if (start < offset + len)
 			break;
+		offset += len;
 		i++;
 		if (i == MAX_MSG_FRAGS)
 			i = 0;
@@ -2017,7 +2017,11 @@ BPF_CALL_4(bpf_msg_pull_data, struct sk_msg *, msg, u32, start,
 	if (unlikely(start >= offset + len))
 		return -EINVAL;
 
-	if (!msg->sg.copy[i] && bytes <= len)
+	/* The start may point into the sg element so we need to also
+	 * account for the headroom.
+	 */
+	bytes_sg_total = start - offset + bytes;
+	if (!msg->sg.copy[i] && bytes_sg_total <= len)
 		goto out;
 
 	first_sg = i;
@@ -2037,12 +2041,12 @@ BPF_CALL_4(bpf_msg_pull_data, struct sk_msg *, msg, u32, start,
 		i++;
 		if (i == MAX_MSG_FRAGS)
 			i = 0;
-		if (bytes < copy)
+		if (bytes_sg_total <= copy)
 			break;
 	} while (i != msg->sg.end);
 	last_sg = i;
 
-	if (unlikely(copy < end - start))
+	if (unlikely(bytes_sg_total > copy))
 		return -EINVAL;
 
 	page = alloc_pages(__GFP_NOWARN | GFP_ATOMIC, get_order(copy));
