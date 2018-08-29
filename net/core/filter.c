@@ -2077,7 +2077,15 @@ BPF_CALL_4(bpf_msg_pull_data, struct sk_msg *, msg, u32, start,
 	 * had a single entry though we can just replace it and
 	 * be done. Otherwise walk the ring and shift the entries.
 	 */
-	shift = last_sg - first_sg - 1;
+	if (last_sg == first_sg) {
+		if (WARN_ON_ONCE(!msg->sg.size))
+			return -EINVAL;
+		shift = MAX_MSG_FRAGS - 1;
+	} else {
+		shift = last_sg > first_sg ?
+			last_sg - first_sg - 1 :
+			MAX_MSG_FRAGS - first_sg + last_sg - 1;
+	}
 	if (!shift)
 		goto out;
 
