@@ -2009,9 +2009,7 @@ BPF_CALL_4(bpf_msg_pull_data, struct sk_msg *, msg, u32, start,
 		if (start < offset + len)
 			break;
 		offset += len;
-		i++;
-		if (i == MAX_MSG_FRAGS)
-			i = 0;
+		sk_msg_iter_var_next(i);
 	} while (i != msg->sg.end);
 
 	if (unlikely(start >= offset + len))
@@ -2037,9 +2035,7 @@ BPF_CALL_4(bpf_msg_pull_data, struct sk_msg *, msg, u32, start,
 	 */
 	do {
 		copy += sg[i].length;
-		i++;
-		if (i == MAX_MSG_FRAGS)
-			i = 0;
+		sk_msg_iter_var_next(i);
 		if (bytes_sg_total <= copy)
 			break;
 	} while (i != msg->sg.end);
@@ -2065,9 +2061,7 @@ BPF_CALL_4(bpf_msg_pull_data, struct sk_msg *, msg, u32, start,
 		sg[i].length = 0;
 		put_page(sg_page(&sg[i]));
 
-		i++;
-		if (i == MAX_MSG_FRAGS)
-			i = 0;
+		sk_msg_iter_var_next(i);
 	} while (i != last_sg);
 
 	sg[first_sg].length = copy;
@@ -2089,7 +2083,8 @@ BPF_CALL_4(bpf_msg_pull_data, struct sk_msg *, msg, u32, start,
 	if (!shift)
 		goto out;
 
-	i = first_sg + 1;
+	i = first_sg;
+	sk_msg_iter_var_next(i);
 	do {
 		int move_from;
 
@@ -2106,9 +2101,7 @@ BPF_CALL_4(bpf_msg_pull_data, struct sk_msg *, msg, u32, start,
 		sg[move_from].page_link = 0;
 		sg[move_from].offset = 0;
 
-		i++;
-		if (i == MAX_MSG_FRAGS)
-			i = 0;
+		sk_msg_iter_var_next(i);
 	} while (1);
 	msg->sg.end = msg->sg.end - shift > msg->sg.end ?
 		      msg->sg.end - shift + MAX_MSG_FRAGS :
