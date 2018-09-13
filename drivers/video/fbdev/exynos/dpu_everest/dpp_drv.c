@@ -825,6 +825,11 @@ static long dpp_subdev_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 		break;
 
 	case DPP_GET_RESTRICTION:
+		if (!arg) {
+			dpp_err("failed to get dpp restriction\n");
+			ret = -EINVAL;
+			break;
+		}
 		memcpy(&(((struct dpp_ch_restriction *)arg)->restriction),
 				&dpp->restriction,
 				sizeof(struct dpp_restriction));
