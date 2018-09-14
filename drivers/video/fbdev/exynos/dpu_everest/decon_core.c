@@ -829,9 +829,6 @@ static int _decon_disable(struct decon_device *decon, enum decon_state state)
 	struct decon_mode_info psr;
 	int ret = 0;
 
-	if (decon->state == DECON_STATE_TUI)
-		decon_tui_protection(false);
-
 	if (IS_DECON_OFF_STATE(decon)) {
 		decon_warn("%s decon-%d already off (%s)\n",
 				__func__, decon->id, decon_state_names[decon->state]);
@@ -906,12 +903,16 @@ static int decon_disable(struct decon_device *decon)
 	enum decon_state prev_state = decon->state;
 	enum decon_state next_state = DECON_STATE_OFF;
 
-	mutex_lock(&decon->lock);
 	if (decon->state == next_state) {
 		decon_warn("decon-%d %s already %s state\n", decon->id,
 				__func__, decon_state_names[decon->state]);
 		goto out;
 	}
+
+	if (decon->state == DECON_STATE_TUI)
+		decon_tui_protection(false);
+
+	mutex_lock(&decon->lock);
 
 	DPU_EVENT_LOG(DPU_EVT_BLANK, &decon->sd, ktime_set(0, 0));
 	decon_info("decon-%d %s +\n", decon->id, __func__);
@@ -925,13 +926,14 @@ static int decon_disable(struct decon_device *decon)
 	if (ret < 0) {
 		decon_err("decon-%d failed to set %s (ret %d)\n",
 				decon->id, decon_state_names[next_state], ret);
-		goto out;
+		goto out1;
 	}
 	decon_info("decon-%d %s - (state:%s -> %s)\n", decon->id, __func__,
 			decon_state_names[prev_state], decon_state_names[decon->state]);
 
-out:
+out1:
 	mutex_unlock(&decon->lock);
+out:
 	return ret;
 }
 
