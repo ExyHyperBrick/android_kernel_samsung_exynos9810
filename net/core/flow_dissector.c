@@ -20,6 +20,7 @@
 #include <linux/mpls.h>
 #include <linux/tcp.h>
 #include <net/flow_dissector.h>
+#include <net/sock.h>
 #include <scsi/fc/fc_fcoe.h>
 #include <linux/bpf.h>
 #include <linux/bpf-netns.h>
@@ -515,9 +516,20 @@ bool __skb_flow_dissect(const struct sk_buff *skb,
 	run_array = skb ?
 		rcu_dereference(init_net.bpf.run_array[NETNS_BPF_FLOW_DISSECTOR]) :
 		NULL;
-	if (!run_array && skb)
-		run_array = rcu_dereference(
-			dev_net(skb->dev)->bpf.run_array[NETNS_BPF_FLOW_DISSECTOR]);
+	if (!run_array && skb) {
+		struct net *net = NULL;
+
+		if (skb->dev)
+			net = dev_net(skb->dev);
+		else if (skb->sk)
+			net = sock_net(skb->sk);
+		else
+			WARN_ON_ONCE(1);
+
+		if (net)
+			run_array = rcu_dereference(
+				net->bpf.run_array[NETNS_BPF_FLOW_DISSECTOR]);
+	}
 	if (run_array) {
 		/* Note that even though the const qualifier is discarded
 		 * throughout the execution of the BPF program, all changes(the
