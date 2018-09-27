@@ -2374,6 +2374,18 @@ static inline bool uclamp_is_used(void)
 }
 #endif /* CONFIG_UCLAMP_TASK */
 
+#ifdef CONFIG_SMP
+unsigned long task_util_est(struct task_struct *p);
+unsigned int uclamp_task(struct task_struct *p);
+bool uclamp_latency_sensitive(struct task_struct *p);
+bool uclamp_boosted(struct task_struct *p);
+#else
+static inline bool uclamp_latency_sensitive(struct task_struct *p)
+{
+	return false;
+}
+#endif
+
 #ifdef arch_scale_freq_capacity
 #ifndef arch_scale_freq_invariant
 #define arch_scale_freq_invariant()	(true)

@@ -3591,7 +3591,7 @@ static inline unsigned long _task_util_est(struct task_struct *p)
 	return max(ue.ewma, ue.enqueued);
 }
 
-static inline unsigned long task_util_est(struct task_struct *p)
+unsigned long task_util_est(struct task_struct *p)
 {
 #ifdef CONFIG_SCHED_WALT
 	if (likely(!walt_disabled && sysctl_sched_use_walt_task_util))
@@ -5205,7 +5205,7 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 #ifdef CONFIG_SMP
 	int task_new = flags & ENQUEUE_WAKEUP_NEW;
 #endif
-	bool prefer_idle = schedtune_prefer_idle(p) > 0;
+	bool prefer_idle = uclamp_latency_sensitive(p) > 0;
 
 	/*
 	 * The code below (indirectly) updates schedutil which looks at
@@ -6552,7 +6552,7 @@ static inline bool __task_fits(struct task_struct *p, int cpu, int util)
 {
 	unsigned long capacity = capacity_of(cpu);
 
-	util += boosted_task_util(p);
+	util += uclamp_task(p);
 
 	return (capacity * 1024) > (util * capacity_margin);
 }
@@ -7153,7 +7153,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
 			if (sysctl_sched_cstate_aware) {
 				for_each_cpu_and(i, tsk_cpus_allowed(p), sched_group_cpus(sg)) {
 					int idle_idx = idle_get_state_idx(cpu_rq(i));
-					unsigned long new_usage = boosted_task_util(p);
+					unsigned long new_usage = uclamp_task(p);
 					unsigned long capacity_orig = capacity_orig_of(i);
 
 					if (new_usage > capacity_orig || !idle_cpu(i))
@@ -7211,7 +7211,7 @@ int start_cpu(bool boosted)
 int find_best_target(struct task_struct *p, int *backup_cpu,
 				   bool boosted, bool prefer_idle)
 {
-	unsigned long min_util = boosted_task_util(p);
+	unsigned long min_util = uclamp_task(p);
 	unsigned long target_capacity = ULONG_MAX;
 	unsigned long min_wake_util = ULONG_MAX;
 	unsigned long target_max_spare_cap = 0;
@@ -7569,11 +7569,7 @@ static int wake_cap(struct task_struct *p, int cpu, int prev_cpu)
 
 static inline bool
 task_is_boosted(struct task_struct *p) {
-#ifdef CONFIG_CGROUP_SCHEDTUNE
-	return schedtune_task_boost(p) > 0;
-#else
-	return get_sysctl_sched_cfs_boost() > 0;
-#endif
+	return uclamp_boosted(p);
 }
 
  /*
@@ -7603,11 +7599,7 @@ static int select_energy_cpu_brute(struct task_struct *p, int prev_cpu,
 	schedstat_inc(this_rq()->eas_stats.secb_attempts);
 
 	boosted = task_is_boosted(p);
-#ifdef CONFIG_CGROUP_SCHEDTUNE
-	prefer_idle = schedtune_prefer_idle(p) > 0;
-#else
-	prefer_idle = 0;
-#endif
+	prefer_idle = uclamp_latency_sensitive(p);
 
 	sd = rcu_dereference(per_cpu(sd_ea, prev_cpu));
 	if (!sd) {
