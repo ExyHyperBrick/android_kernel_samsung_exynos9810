@@ -782,9 +782,14 @@ static int dpp_s_stream(struct v4l2_subdev *sd, int enable)
 static long dpp_subdev_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
 	struct dpp_device *dpp = v4l2_get_subdevdata(sd);
-	bool reset = (bool)arg;
+	bool reset;
 	unsigned long val;
 	int ret = 0;
+
+	if (arg == NULL)
+		return -1;
+	else
+		reset = (bool)arg;
 
 	switch (cmd) {
 	case DPP_WIN_CONFIG:
