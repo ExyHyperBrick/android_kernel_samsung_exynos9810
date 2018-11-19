@@ -21,7 +21,7 @@
 
 #define HTAB_CREATE_FLAG_MASK						\
 	(BPF_F_NO_PREALLOC | BPF_F_NO_COMMON_LRU | BPF_F_NUMA_NODE |	\
-	 BPF_F_ACCESS_MASK)
+	 BPF_F_ACCESS_MASK | BPF_F_ZERO_SEED)
 
 #define BATCH_OPS(_name)			\
 	.map_lookup_batch =			\
@@ -255,6 +255,7 @@ static struct bpf_map *htab_map_alloc(union bpf_attr *attr)
 	 */
 	bool percpu_lru = (attr->map_flags & BPF_F_NO_COMMON_LRU);
 	bool prealloc = !(attr->map_flags & BPF_F_NO_PREALLOC);
+	bool zero_seed = (attr->map_flags & BPF_F_ZERO_SEED);
 	struct bpf_htab *htab;
 	int err, i;
 	u64 cost;
@@ -270,7 +271,12 @@ static struct bpf_map *htab_map_alloc(union bpf_attr *attr)
 		 */
 		return ERR_PTR(-EPERM);
 
-	if (attr->map_flags & ~BPF_F_NO_PREALLOC)
+	if (zero_seed && !capable(CAP_SYS_ADMIN))
+		/* Guard against local DoS, and discourage production use. */
+		return ERR_PTR(-EPERM);
+
+	if (attr->map_flags & ~HTAB_CREATE_FLAG_MASK ||
+	    !bpf_map_flags_access_ok(attr->map_flags))
 		/* reserved bits should not be used */
 		return ERR_PTR(-EINVAL);
 
@@ -364,7 +370,11 @@ static struct bpf_map *htab_map_alloc(union bpf_attr *attr)
 	if (!htab->buckets)
 		goto free_htab;
 
-	htab->hashrnd = get_random_int();
+	if (htab->map.map_flags & BPF_F_ZERO_SEED)
+		htab->hashrnd = 0;
+	else
+		htab->hashrnd = get_random_int();
+
 	for (i = 0; i < htab->n_buckets; i++) {
 		INIT_HLIST_NULLS_HEAD(&htab->buckets[i].head, i);
 		raw_spin_lock_init(&htab->buckets[i].lock);
