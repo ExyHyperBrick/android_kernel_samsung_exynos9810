@@ -151,6 +151,7 @@ static int btf_type_size(const struct btf_type *t)
 	case BTF_KIND_RESTRICT:
 	case BTF_KIND_PTR:
 	case BTF_KIND_TYPEDEF:
+	case BTF_KIND_FUNC:
 		return base_size;
 	case BTF_KIND_INT:
 		return base_size + sizeof(__u32);
@@ -161,6 +162,8 @@ static int btf_type_size(const struct btf_type *t)
 	case BTF_KIND_STRUCT:
 	case BTF_KIND_UNION:
 		return base_size + vlen * sizeof(struct btf_member);
+	case BTF_KIND_FUNC_PROTO:
+		return base_size + vlen * sizeof(struct btf_param);
 	default:
 		pr_debug("unsupported BTF kind: %u\n",
 			 BTF_INFO_KIND(t->info));
