@@ -376,13 +376,19 @@ static int tcp_bpf_send_verdict(struct sock *sk, struct sk_psock *psock,
 	bool cork = false, enospc = msg->sg.start == msg->sg.end;
 	bool redir_ingress;
 	struct sock *sk_redir;
-	u32 tosend, origsize, sent;
+	u32 tosend, origsize, sent, delta = 0;
 	u32 eval;
 	int ret;
 
 more_data:
-	if (psock->eval == __SK_NONE)
+	if (psock->eval == __SK_NONE) {
+		delta = msg->sg.size;
 		psock->eval = sk_psock_msg_verdict(sk, psock, msg);
+		if (msg->sg.size < delta)
+			delta -= msg->sg.size;
+		else
+			delta = 0;
+	}
 
 	if (msg->cork_bytes &&
 	    msg->cork_bytes > msg->sg.size && !enospc) {
@@ -454,7 +460,7 @@ more_data:
 	default:
 		sk_msg_free(sk, msg);
 		sk_msg_apply_bytes(psock, tosend);
-		*copied -= tosend;
+		*copied -= (tosend + delta);
 		return -EACCES;
 	}
 
