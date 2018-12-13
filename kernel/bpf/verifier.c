@@ -8070,6 +8070,10 @@ next:
 	 * the state of the call instruction (with WRITTEN set), and r0 comes
 	 * from callee with its full parentage chain, anyway.
 	 */
+	for (j = 0; j <= cur->curframe; j++)
+		for (i = j < cur->curframe ? BPF_REG_6 : 0;
+		     i < BPF_REG_FP; i++)
+			cur->frame[j]->regs[i].parent = &new->frame[j]->regs[i];
 	/* clear write marks in current state: the writes we did are not writes
 	 * our child did, so they don't screen off its reads from us.
 	 * (There are no read marks in current state, because reads always mark
