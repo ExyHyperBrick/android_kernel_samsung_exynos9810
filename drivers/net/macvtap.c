@@ -759,8 +759,6 @@ static ssize_t macvtap_get_user(struct macvtap_queue *q, struct msghdr *m,
 			goto err_kfree;
 	}
 
-	skb_probe_transport_header(skb, ETH_HLEN);
-
 	/* Move network header to the right position for VLAN tagged packets */
 	if ((skb->protocol == htons(ETH_P_8021Q) ||
 	     skb->protocol == htons(ETH_P_8021AD)) &&
@@ -781,6 +779,7 @@ static ssize_t macvtap_get_user(struct macvtap_queue *q, struct msghdr *m,
 
 	if (vlan) {
 		skb->dev = vlan->dev;
+		skb_probe_transport_header(skb, ETH_HLEN);
 		dev_queue_xmit(skb);
 	} else {
 		kfree_skb(skb);
