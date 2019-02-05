@@ -200,6 +200,11 @@ static int btf_parse_type_sec(struct btf *btf)
 	return next_type == end_type ? 0 : -EINVAL;
 }
 
+__u32 btf__get_nr_types(const struct btf *btf)
+{
+	return btf->nr_types;
+}
+
 void btf__free(struct btf *btf)
 {
 	if (!btf)
