@@ -12,7 +12,8 @@
 
 #include "btf.h"
 
-#define BTF_MAX_NR_TYPES	65535U
+#define BTF_MAX_NR_TYPES	0x7fffffffU
+#define BTF_MAX_STR_OFFSET	0x7fffffffU
 
 #define pr_debug(fmt, ...)	do { } while (0)
 
@@ -129,7 +130,7 @@ static int btf_parse_str_sec(struct btf *btf)
 	const char *start = btf->nohdr_data + hdr->str_off;
 	const char *end = start + hdr->str_len;
 
-	if (!hdr->str_len || hdr->str_len - 1 > BTF_MAX_NAME_OFFSET ||
+	if (!hdr->str_len || hdr->str_len - 1 > BTF_MAX_STR_OFFSET ||
 	    start[0] || end[-1]) {
 		pr_debug("invalid BTF string section\n");
 		return -EINVAL;
