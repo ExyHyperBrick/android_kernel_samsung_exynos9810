@@ -41,6 +41,29 @@
 #define IOVA_OVFL(addr, size)	((((addr) + (size)) > 0xFFFFFFFF) ||	\
 				((addr) + (size) < (addr)))
 
+static unsigned int sysmmu_reg_set[MAX_SET_IDX][MAX_REG_IDX] = {
+	/* Default without VM */
+	{
+		/* FLPT base, TLB invalidation, Fault information */
+		0x000C,	0x0010,	0x0014,	0x0018,
+		0x0020,	0x0024,	0x0070,	0x0078,
+		/* TLB information */
+		0x8000,	0x8004,	0x8008,	0x800C,
+		/* SBB information */
+		0x8020,	0x8024,	0x8028,	0x802C,
+	},
+	/* VM */
+	{
+		/* FLPT base, TLB invalidation, Fault information */
+		0x800C,	0x8010,	0x8014,	0x8018,
+		0x8020,	0x8024,	0x1000,	0x1004,
+		/* TLB information */
+		0x3000,	0x3004,	0x3008,	0x300C,
+		/* SBB information */
+		0x3020,	0x3024,	0x3028,	0x302C,
+	},
+};
+
 static struct kmem_cache *lv2table_kmem_cache;
 
 static struct sysmmu_drvdata *sysmmu_drvdata_list;
@@ -210,14 +233,25 @@ static int sysmmu_get_hw_info(struct sysmmu_drvdata *data)
 
 	data->version = __sysmmu_get_hw_version(data);
 
+	/* Default value */
+	data->reg_set = sysmmu_reg_set[REG_IDX_DEFAULT];
+
 	/*
 	 * If CAPA1 doesn't exist, sysmmu uses TLB way dedication.
 	 * If CAPA1[31:28] is zero, sysmmu uses TLB port dedication.
 	 */
-	if (!__sysmmu_has_capa1(data))
+	if (!__sysmmu_has_capa1(data)) {
 		tlb_props->flags |= TLB_TYPE_WAY;
-	else if (__sysmmu_get_capa_type(data) == 0)
-		tlb_props->flags |= TLB_TYPE_PORT;
+	} else {
+		if (__sysmmu_get_capa_type(data) == 0)
+			tlb_props->flags |= TLB_TYPE_PORT;
+		if (__sysmmu_get_capa_vcr_enabled(data)) {
+			data->reg_set = sysmmu_reg_set[REG_IDX_VM];
+			data->has_vcr = true;
+		}
+		if (__sysmmu_get_capa_no_block_mode(data))
+			data->no_block_mode = true;
+	}
 
 	pm_runtime_put(data->sysmmu);
 

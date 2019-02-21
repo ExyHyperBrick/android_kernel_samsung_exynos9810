@@ -26,19 +26,17 @@ static inline u32 __secure_info_read(unsigned int addr)
 	return ret;
 }
 
-static inline void __sysmmu_tlb_invalidate_all(void __iomem *sfrbase)
+static inline void __sysmmu_tlb_invalidate_all(struct sysmmu_drvdata *drvdata)
 {
-	writel(0x1, sfrbase + REG_MMU_FLUSH);
+	writel(0x1, MMU_OFFSET(drvdata, IDX_ALL_INV));
 }
 
 static inline void __sysmmu_tlb_invalidate(struct sysmmu_drvdata *drvdata,
 				dma_addr_t iova, size_t size)
 {
-	void * __iomem sfrbase = drvdata->sfrbase;
-
-	__raw_writel(iova, sfrbase + REG_FLUSH_RANGE_START);
-	__raw_writel(size - 1 + iova, sfrbase + REG_FLUSH_RANGE_END);
-	writel(0x1, sfrbase + REG_MMU_FLUSH_RANGE);
+	__raw_writel(iova, MMU_OFFSET(drvdata, IDX_RANGE_INV_START));
+	__raw_writel(size - 1 + iova, MMU_OFFSET(drvdata, IDX_RANGE_INV_END));
+	writel(0x1, MMU_OFFSET(drvdata, IDX_RANGE_INV));
 	SYSMMU_EVENT_LOG_TLB_INV_RANGE(SYSMMU_DRVDATA_TO_LOG(drvdata),
 					iova, iova + size);
 }
@@ -46,11 +44,9 @@ static inline void __sysmmu_tlb_invalidate(struct sysmmu_drvdata *drvdata,
 static inline void __sysmmu_set_ptbase(struct sysmmu_drvdata *drvdata,
 					phys_addr_t pfn_pgtable)
 {
-	void * __iomem sfrbase = drvdata->sfrbase;
+	writel_relaxed(pfn_pgtable, MMU_OFFSET(drvdata, IDX_FLPT_BASE));
+	__sysmmu_tlb_invalidate_all(drvdata);
 
-	writel_relaxed(pfn_pgtable, sfrbase + REG_PT_BASE_PPN);
-
-	__sysmmu_tlb_invalidate_all(sfrbase);
 	SYSMMU_EVENT_LOG_TLB_INV_ALL(
 			SYSMMU_DRVDATA_TO_LOG(drvdata));
 }
@@ -103,15 +99,17 @@ static inline void sysmmu_tlb_compare(phys_addr_t pgtable,
 	}
 }
 
-static inline unsigned int dump_tlb_entry_port_type(void __iomem *sfrbase,
-		phys_addr_t pgtable, int idx_way, int idx_set, int idx_sub)
+static inline unsigned int dump_tlb_entry_port_type(
+			struct sysmmu_drvdata *drvdata,	phys_addr_t pgtable,
+			int idx_way, int idx_set, int idx_sub)
 {
-	if (MMU_TLB_ENTRY_VALID(__raw_readl(sfrbase + REG_CAPA1_TLB_ATTR))) {
+	if (MMU_TLB_ENTRY_VALID(
+			__raw_readl(MMU_OFFSET(drvdata, IDX_TLB_ATTR)))) {
 		u32 vpn, ppn, attr;
 
-		vpn = __raw_readl(sfrbase + REG_CAPA1_TLB_VPN);
-		ppn = __raw_readl(sfrbase + REG_CAPA1_TLB_PPN);
-		attr = __raw_readl(sfrbase + REG_CAPA1_TLB_ATTR);
+		vpn = __raw_readl(MMU_OFFSET(drvdata, IDX_TLB_VPN));
+		ppn = __raw_readl(MMU_OFFSET(drvdata, IDX_TLB_PPN));
+		attr = __raw_readl(MMU_OFFSET(drvdata, IDX_TLB_ATTR));
 
 		pr_crit("[%02d][%02d] VPN: %#010x, PPN: %#010x, ATTR: %#010x\n",
 			idx_way, idx_set, vpn, ppn, attr);
@@ -223,9 +221,9 @@ static inline void dump_sysmmu_tlb_port(struct sysmmu_drvdata *drvdata,
 			for (j = 0; j < num_set; j++) {
 				for (k = 0; k < MMU_NUM_TLB_SUBLINE; k++) {
 					__raw_writel(MMU_CAPA1_SET_TLB_READ_ENTRY(t, j, i, k),
-							sfrbase + REG_CAPA1_TLB_READ);
+						MMU_OFFSET(drvdata, IDX_TLB_READ));
 					cnt += dump_tlb_entry_port_type(
-						sfrbase, pgtable, i, j, k);
+						drvdata, pgtable, i, j, k);
 				}
 			}
 		}
@@ -235,14 +233,17 @@ static inline void dump_sysmmu_tlb_port(struct sysmmu_drvdata *drvdata,
 
 	pr_auto(ASL4, "--- SBB(Second-Level Page Table Base Address Buffer) ---\n");
 	for (i = 0, cnt = 0; i < num_sbb; i++) {
-		__raw_writel(i, sfrbase + REG_CAPA1_SBB_READ);
-		if (MMU_SBB_ENTRY_VALID(__raw_readl(sfrbase + REG_CAPA1_SBB_VPN))) {
-			sbb_vpn = __raw_readl(sfrbase + REG_CAPA1_SBB_VPN);
-			sbb_link = __raw_readl(sfrbase + REG_CAPA1_SBB_LINK);
+		__raw_writel(i, MMU_OFFSET(drvdata, IDX_SBB_READ));
+		if (MMU_SBB_ENTRY_VALID(__raw_readl(
+					MMU_OFFSET(drvdata, IDX_SBB_VPN)))) {
+			sbb_vpn = __raw_readl(
+					MMU_OFFSET(drvdata, IDX_SBB_VPN));
+			sbb_link = __raw_readl(
+					MMU_OFFSET(drvdata, IDX_SBB_LINK));
 
 			pr_auto(ASL4, "[%02d] VPN: %#010x, PPN: %#010x, ATTR: %#010x\n",
 				i, sbb_vpn, sbb_link,
-				__raw_readl(sfrbase + REG_CAPA1_SBB_ATTR));
+				__raw_readl(MMU_OFFSET(drvdata, IDX_SBB_ATTR)));
 			sysmmu_sbb_compare(sbb_vpn, sbb_link, pgtable);
 			cnt++;
 		}
@@ -301,11 +302,16 @@ static inline void dump_sysmmu_status(struct sysmmu_drvdata *drvdata,
 	pr_crit("ADDR: %pa(VA: %p), MMU_CTRL: %#010x, PT_BASE: %#010x\n",
 		&phys, sfrbase,
 		__raw_readl(sfrbase + REG_MMU_CTRL),
-		__raw_readl(sfrbase + REG_PT_BASE_PPN));
+		__raw_readl(MMU_OFFSET(drvdata, IDX_FLPT_BASE)));
 	pr_crit("VERSION %d.%d.%d, MMU_CFG: %#010x, MMU_STATUS: %#010x\n",
 		MMU_MAJ_VER(info), MMU_MIN_VER(info), MMU_REV_VER(info),
 		__raw_readl(sfrbase + REG_MMU_CFG),
 		__raw_readl(sfrbase + REG_MMU_STATUS));
+
+	if (drvdata->has_vcr)
+		pr_crit("MMU_CTRL_VM: %#010x, MMU_CFG_VM: %#010x\n",
+				__raw_readl(sfrbase + REG_MMU_CTRL_VM),
+				__raw_readl(sfrbase + REG_MMU_CFG_VM));
 
 	if (IS_TLB_WAY_TYPE(drvdata))
 		dump_sysmmu_tlb_way(drvdata);
@@ -326,10 +332,11 @@ static inline void show_secure_fault_information(struct sysmmu_drvdata *drvdata,
 	char temp_buf[SZ_128];
 #endif
 
-	pgtable = __secure_info_read(sfrbase + REG_PT_BASE_PPN);
+	pgtable = __secure_info_read(MMU_SECURE_OFFSET(drvdata, IDX_FLPT_BASE));
 	pgtable <<= PAGE_SHIFT;
 
-	info = __secure_info_read(sfrbase + REG_FAULT_TRANS_INFO);
+	info = __secure_info_read(
+			MMU_SECURE_OFFSET(drvdata, IDX_FAULT_TRANS_INFO));
 
 	of_property_read_string(drvdata->sysmmu->of_node,
 					"port-name", &port_name);
@@ -379,11 +386,15 @@ static inline void show_secure_fault_information(struct sysmmu_drvdata *drvdata,
 	pr_auto(ASL4, "ADDR: %#x, MMU_CTRL: %#010x, PT_BASE: %#010x\n",
 		sfrbase,
 		__secure_info_read(sfrbase + REG_MMU_CTRL),
-		__secure_info_read(sfrbase + REG_PT_BASE_PPN));
+		__secure_info_read(MMU_SECURE_OFFSET(drvdata, IDX_FLPT_BASE)));
 	pr_auto(ASL4, "VERSION %d.%d.%d, MMU_CFG: %#010x, MMU_STATUS: %#010x\n",
 		MMU_MAJ_VER(info), MMU_MIN_VER(info), MMU_REV_VER(info),
 		__secure_info_read(sfrbase + REG_MMU_CFG),
 		__secure_info_read(sfrbase + REG_MMU_STATUS));
+	if (drvdata->has_vcr)
+		pr_crit("MMU_CTRL_VM: %#010x, MMU_CFG_VM: %#010x\n",
+			__secure_info_read(sfrbase + REG_MMU_CTRL_VM),
+			__secure_info_read(sfrbase + REG_MMU_CFG_VM));
 
 finish:
 	pr_auto(ASL4, "----------------------------------------------------------\n");
@@ -402,10 +413,10 @@ static inline int show_fault_information(struct sysmmu_drvdata *drvdata,
 	char temp_buf[SZ_128];
 #endif
 
-	pgtable = __raw_readl(drvdata->sfrbase + REG_PT_BASE_PPN);
+	pgtable = __raw_readl(MMU_OFFSET(drvdata, IDX_FLPT_BASE));
 	pgtable <<= PAGE_SHIFT;
 
-	info = __raw_readl(drvdata->sfrbase + REG_FAULT_TRANS_INFO);
+	info = __raw_readl(MMU_OFFSET(drvdata, IDX_FAULT_TRANS_INFO));
 
 	of_property_read_string(drvdata->sysmmu->of_node,
 					"port-name", &port_name);
@@ -475,9 +486,18 @@ finish:
 
 static inline void __sysmmu_disable_nocount(struct sysmmu_drvdata *drvdata)
 {
+	u32 value = drvdata->no_block_mode ? CTRL_DISABLE : CTRL_BLOCK_DISABLE;
+
 	writel_relaxed(0, drvdata->sfrbase + REG_MMU_CFG);
-	writel_relaxed(CTRL_BLOCK_DISABLE, drvdata->sfrbase + REG_MMU_CTRL);
-	BUG_ON(readl_relaxed(drvdata->sfrbase + REG_MMU_CTRL) != CTRL_BLOCK_DISABLE);
+	writel_relaxed(value, drvdata->sfrbase + REG_MMU_CTRL);
+	BUG_ON(readl_relaxed(drvdata->sfrbase + REG_MMU_CTRL) != value);
+
+	if (drvdata->has_vcr) {
+		writel_relaxed(0, drvdata->sfrbase + REG_MMU_CFG_VM);
+		writel_relaxed(value, drvdata->sfrbase + REG_MMU_CTRL_VM);
+		BUG_ON(readl_relaxed(
+				drvdata->sfrbase + REG_MMU_CTRL_VM) != value);
+	}
 
 	clk_disable(drvdata->clk);
 
@@ -622,9 +642,10 @@ static inline void __sysmmu_set_tlb_port_type(struct sysmmu_drvdata *drvdata)
 
 static inline void __sysmmu_init_config(struct sysmmu_drvdata *drvdata)
 {
-	unsigned long cfg = 0;
+	unsigned long cfg = 0, cfg_vm = 0;
 
-	writel_relaxed(CTRL_BLOCK, drvdata->sfrbase + REG_MMU_CTRL);
+	if (!drvdata->no_block_mode)
+		writel_relaxed(CTRL_BLOCK, drvdata->sfrbase + REG_MMU_CTRL);
 
 	if (IS_TLB_WAY_TYPE(drvdata))
 		__sysmmu_set_tlb_way_type(drvdata);
@@ -635,7 +656,15 @@ static inline void __sysmmu_init_config(struct sysmmu_drvdata *drvdata)
 		cfg |= CFG_QOS_OVRRIDE | CFG_QOS(drvdata->qos);
 
 	cfg |= __raw_readl(drvdata->sfrbase + REG_MMU_CFG) & ~CFG_MASK;
-	writel_relaxed(cfg, drvdata->sfrbase + REG_MMU_CFG);
+
+	if (drvdata->has_vcr) {
+		cfg_vm = cfg & ~CFG_MASK_VM;
+		cfg &= ~CFG_MASK_GLOBAL;
+		writel_relaxed(cfg, drvdata->sfrbase + REG_MMU_CFG);
+		writel_relaxed(cfg_vm, drvdata->sfrbase + REG_MMU_CFG_VM);
+	} else {
+		writel_relaxed(cfg, drvdata->sfrbase + REG_MMU_CFG);
+	}
 }
 
 static inline void __sysmmu_enable_nocount(struct sysmmu_drvdata *drvdata)
@@ -647,6 +676,8 @@ static inline void __sysmmu_enable_nocount(struct sysmmu_drvdata *drvdata)
 	__sysmmu_set_ptbase(drvdata, drvdata->pgtable / PAGE_SIZE);
 
 	writel(CTRL_ENABLE, drvdata->sfrbase + REG_MMU_CTRL);
+	if (drvdata->has_vcr)
+		writel(CTRL_ENABLE, drvdata->sfrbase + REG_MMU_CTRL_VM);
 
 	SYSMMU_EVENT_LOG_ENABLE(SYSMMU_DRVDATA_TO_LOG(drvdata));
 }
@@ -664,9 +695,10 @@ static inline u32 __sysmmu_get_fault_address(struct sysmmu_drvdata *drvdata,
 					bool is_secure)
 {
 	if (is_secure)
-		return __secure_info_read(drvdata->securebase + REG_FAULT_ADDR);
+		return __secure_info_read(
+				MMU_SECURE_OFFSET(drvdata, IDX_FAULT_VA));
 	else
-		return __raw_readl(drvdata->sfrbase + REG_FAULT_ADDR);
+		return __raw_readl(MMU_OFFSET(drvdata, IDX_FAULT_VA));
 }
 
 static inline u32 __sysmmu_get_fault_trans_info(struct sysmmu_drvdata *drvdata,
@@ -674,9 +706,9 @@ static inline u32 __sysmmu_get_fault_trans_info(struct sysmmu_drvdata *drvdata,
 {
 	if (is_secure)
 		return __secure_info_read(
-				drvdata->securebase + REG_FAULT_TRANS_INFO);
+			MMU_SECURE_OFFSET(drvdata, IDX_FAULT_TRANS_INFO));
 	else
-		return __raw_readl(drvdata->sfrbase + REG_FAULT_TRANS_INFO);
+		return __raw_readl(MMU_OFFSET(drvdata, IDX_FAULT_TRANS_INFO));
 }
 
 static inline u32 __sysmmu_get_hw_version(struct sysmmu_drvdata *data)
@@ -692,4 +724,16 @@ static inline bool __sysmmu_has_capa1(struct sysmmu_drvdata *data)
 static inline u32 __sysmmu_get_capa_type(struct sysmmu_drvdata *data)
 {
 	return MMU_CAPA1_TYPE(__raw_readl(data->sfrbase + REG_MMU_CAPA1_V7));
+}
+
+static inline bool __sysmmu_get_capa_no_block_mode(
+					struct sysmmu_drvdata *data)
+{
+	return MMU_CAPA1_BLOCK_MODE_DISABLED(
+			__raw_readl(data->sfrbase + REG_MMU_CAPA1_V7));
+}
+static inline bool __sysmmu_get_capa_vcr_enabled(struct sysmmu_drvdata *data)
+{
+	return MMU_CAPA1_VCR_ENABLED(
+			__raw_readl(data->sfrbase + REG_MMU_CAPA1_V7));
 }

@@ -108,6 +108,8 @@ typedef u32 sysmmu_pte_t;
 #define CTRL_BLOCK_DISABLE 0x3
 
 #define CFG_MASK	0x301F1F8C	/* Bit 29-28, 20-16, 12-7, 3-2 */
+#define CFG_MASK_GLOBAL	0x300F100C	/* Bit 29-28, 20-16, 12, 3-2 */
+#define CFG_MASK_VM	0x00000F80	/* Bit 11-7 */
 #define CFG_ACGEN	(1 << 24)
 #define CFG_FLPDCACHE	(1 << 20)
 #define CFG_QOS_OVRRIDE (1 << 11)
@@ -168,6 +170,8 @@ typedef u32 sysmmu_pte_t;
 /* For SysMMU v7.1 */
 #define MMU_CAPA1_EXIST(reg)	((reg >> 11) & 0x1)
 #define MMU_CAPA1_TYPE(reg)	((reg >> 28) & 0xF)
+#define MMU_CAPA1_BLOCK_MODE_DISABLED(reg)	((reg >> 15) & 0x1)
+#define MMU_CAPA1_VCR_ENABLED(reg)		((reg >> 14) & 0x1)
 #define MMU_CAPA1_NUM_TLB(reg)	((reg >> 4) & 0xFF)
 #define MMU_CAPA1_NUM_PORT(reg)	((reg) & 0xF)
 #define MMU_TLB_INFO(n)		(0x2000 + ((n) * 0x20))
@@ -187,6 +191,12 @@ typedef u32 sysmmu_pte_t;
 #define REG_CAPA1_SBB_LINK		0x8028
 #define REG_CAPA1_SBB_ATTR		0x802C
 #define REG_SLOT_RSV(n)			(0x4000 + ((n) * 0x20))
+
+/* For v8.0 */
+#define REG_MMU_CTRL_VM			0x8000
+#define REG_MMU_CFG_VM			0x8004
+
+
 #define MMU_CAPA1_SET_TLB_READ_ENTRY(tid, set, way, line)		\
 			((set) | ((way) << 8) | ((line) << 16) | ((tid) << 20))
 #define MMU_TLB_CFG_MASK(reg)		((reg) & ((0x7 << 5) | (0x3 << 2) | (0x1 << 1)))
@@ -240,6 +250,43 @@ typedef u32 sysmmu_pte_t;
 #define SYSMMU_FAULT_UNKNOWN      5
 
 #define SYSMMU_FAULTS_NUM         (SYSMMU_FAULT_UNKNOWN + 1)
+
+enum {
+	REG_IDX_DEFAULT = 0,
+	REG_IDX_VM,
+
+	MAX_SET_IDX,
+};
+
+/*
+ * Order of each enumeration should be matched to sysmmu_reg_set[]
+ * in exynos-iommu.c file
+ */
+enum {
+	IDX_FLPT_BASE = 0,
+	IDX_ALL_INV,
+	IDX_VPN_INV,
+	IDX_RANGE_INV,
+	IDX_RANGE_INV_START,
+	IDX_RANGE_INV_END,
+	IDX_FAULT_VA,
+	IDX_FAULT_TRANS_INFO,
+	IDX_TLB_READ,
+	IDX_TLB_VPN,
+	IDX_TLB_PPN,
+	IDX_TLB_ATTR,
+	IDX_SBB_READ,
+	IDX_SBB_VPN,
+	IDX_SBB_LINK,
+	IDX_SBB_ATTR,
+
+	MAX_REG_IDX,
+};
+
+#define MMU_OFFSET(drvdata, offset_idx)			\
+		((drvdata)->sfrbase + (drvdata)->reg_set[offset_idx])
+#define MMU_SECURE_OFFSET(drvdata, offset_idx)		\
+		((drvdata)->securebase + (drvdata)->reg_set[offset_idx])
 
 /*
  * This structure exynos specific generalization of struct iommu_domain.
@@ -350,7 +397,10 @@ struct sysmmu_drvdata {
 	struct atomic_notifier_head fault_notifiers;
 	struct tlb_props tlb_props;
 	bool is_suspended;
+	bool no_block_mode;		/* Doesn't have block control field */
+	bool has_vcr;			/* SysMMU has VM control register */
 	struct exynos_iommu_event_log log;
+	int *reg_set;
 };
 
 struct exynos_vm_region {
