@@ -473,34 +473,7 @@ static inline bool is_sysmmu_active(struct sysmmu_drvdata *data)
 	return !data->is_suspended && data->activations > 0;
 }
 
-static inline void __raw_sysmmu_enable(void __iomem *sfrbase)
-{
-	writel_relaxed(CTRL_ENABLE, sfrbase + REG_MMU_CTRL);
-}
-
-#define sysmmu_unblock __raw_sysmmu_enable
-
 void dump_sysmmu_tlb_pb(void __iomem *sfrbase);
-
-static inline bool sysmmu_block(void __iomem *sfrbase)
-{
-	int i = SYSMMU_BLOCK_POLLING_COUNT;
-
-	writel_relaxed(CTRL_BLOCK, sfrbase + REG_MMU_CTRL);
-	while ((i > 0) && !(readl_relaxed(sfrbase + REG_MMU_STATUS) & 1))
-		--i;
-
-	if (!(readl_relaxed(sfrbase + REG_MMU_STATUS) & 1)) {
-		/*
-		 * TODO: dump_sysmmu_tlb_pb(sfrbase);
-		 */
-		panic("Failed to block System MMU!");
-		sysmmu_unblock(sfrbase);
-		return false;
-	}
-
-	return true;
-}
 
 static inline sysmmu_pte_t *page_entry(sysmmu_pte_t *sent, sysmmu_iova_t iova)
 {
