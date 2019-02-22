@@ -475,7 +475,7 @@ static inline bool is_sysmmu_active(struct sysmmu_drvdata *data)
 
 static inline void __raw_sysmmu_enable(void __iomem *sfrbase)
 {
-	__raw_writel(CTRL_ENABLE, sfrbase + REG_MMU_CTRL);
+	writel_relaxed(CTRL_ENABLE, sfrbase + REG_MMU_CTRL);
 }
 
 #define sysmmu_unblock __raw_sysmmu_enable
@@ -486,11 +486,11 @@ static inline bool sysmmu_block(void __iomem *sfrbase)
 {
 	int i = SYSMMU_BLOCK_POLLING_COUNT;
 
-	__raw_writel(CTRL_BLOCK, sfrbase + REG_MMU_CTRL);
-	while ((i > 0) && !(__raw_readl(sfrbase + REG_MMU_STATUS) & 1))
+	writel_relaxed(CTRL_BLOCK, sfrbase + REG_MMU_CTRL);
+	while ((i > 0) && !(readl_relaxed(sfrbase + REG_MMU_STATUS) & 1))
 		--i;
 
-	if (!(__raw_readl(sfrbase + REG_MMU_STATUS) & 1)) {
+	if (!(readl_relaxed(sfrbase + REG_MMU_STATUS) & 1)) {
 		/*
 		 * TODO: dump_sysmmu_tlb_pb(sfrbase);
 		 */
