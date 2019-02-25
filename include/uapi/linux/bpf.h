@@ -1758,6 +1758,8 @@ struct bpf_prog_info {
 	__u32 jited_line_info_cnt;
 	__u32 line_info_rec_size;
 	__u32 jited_line_info_rec_size;
+	__u64 run_time_ns;
+	__u64 run_cnt;
 } __attribute__((aligned(8)));
 
 struct bpf_map_info {
