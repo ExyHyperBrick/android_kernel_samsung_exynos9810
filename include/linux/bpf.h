@@ -18,6 +18,7 @@
 #include <linux/mm_types.h>
 #include <linux/wait.h>
 #include <linux/mutex.h>
+#include <linux/u64_stats_sync.h>
 
 struct bpf_verifier_env;
 struct bpf_verifier_log;
@@ -418,6 +419,12 @@ struct bpf_func_info_aux {
 	bool unreliable;
 };
 
+struct bpf_prog_stats {
+	u64 cnt;
+	u64 nsecs;
+	struct u64_stats_sync syncp;
+};
+
 struct bpf_prog_aux {
 	atomic64_t refcnt;
 	u32 used_map_cnt;
@@ -477,6 +484,7 @@ struct bpf_prog_aux {
 	u32 linfo_idx;
 	u32 num_exentries;
 	struct exception_table_entry *extable;
+	struct bpf_prog_stats __percpu *stats;
 	union {
 		struct work_struct work;
 		struct rcu_head	rcu;
@@ -734,6 +742,7 @@ int generic_map_delete_batch(struct bpf_map *map,
 			     union bpf_attr __user *uattr);
 
 extern int sysctl_unprivileged_bpf_disabled;
+extern int sysctl_bpf_stats_enabled;
 
 int bpf_map_new_fd(struct bpf_map *map, int flags);
 int bpf_prog_new_fd(struct bpf_prog *prog);

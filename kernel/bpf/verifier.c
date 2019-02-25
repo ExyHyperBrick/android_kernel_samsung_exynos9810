@@ -9770,7 +9770,11 @@ static int jit_subprogs(struct bpf_verifier_env *env)
 			subprog_end = env->subprog_info[i + 1].start;
 
 		len = subprog_end - subprog_start;
-		func[i] = bpf_prog_alloc(bpf_prog_size(len), GFP_USER);
+		/* BPF_PROG_RUN doesn't call subprograms directly, so the main
+		 * program's stats include their run time. Subprogram stats are
+		 * never exposed and remain unallocated.
+		 */
+		func[i] = bpf_prog_alloc_no_stats(bpf_prog_size(len), GFP_USER);
 
 		if (!func[i])
 			goto out_free;
