@@ -1746,6 +1746,9 @@ enum {
 					  BPF_ADJ_ROOM_ENCAP_L2_MASK) \
 					 << BPF_ADJ_ROOM_ENCAP_L2_SHIFT)
 
+/* BPF_FUNC_sysctl_get_name flags. */
+#define BPF_F_SYSCTL_BASE_NAME		(1ULL << 0)
+
 enum bpf_adj_room_mode {
 	BPF_ADJ_ROOM_NET,
 	BPF_ADJ_ROOM_MAC,
