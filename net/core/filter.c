@@ -60,6 +60,7 @@
 #include <net/strparser.h>
 #include <net/busy_poll.h>
 #include <net/tcp.h>
+#include <net/inet_ecn.h>
 #include <net/xfrm.h>
 #include <linux/bpf_trace.h>
 #include <linux/inetdevice.h>
@@ -4189,6 +4190,33 @@ const struct bpf_func_proto bpf_tcp_sock_proto = {
 	.arg1_type	= ARG_PTR_TO_SOCK_COMMON,
 };
 
+BPF_CALL_1(bpf_skb_ecn_set_ce, struct sk_buff *, skb)
+{
+	unsigned int iphdr_len;
+
+	if (skb->protocol == cpu_to_be16(ETH_P_IP))
+		iphdr_len = sizeof(struct iphdr);
+	else if (skb->protocol == cpu_to_be16(ETH_P_IPV6))
+		iphdr_len = sizeof(struct ipv6hdr);
+	else
+		return 0;
+
+	if (skb_headlen(skb) < iphdr_len)
+		return 0;
+
+	if (skb_cloned(skb) && !skb_clone_writable(skb, iphdr_len))
+		return 0;
+
+	return INET_ECN_set_ce(skb);
+}
+
+static const struct bpf_func_proto bpf_skb_ecn_set_ce_proto = {
+	.func		= bpf_skb_ecn_set_ce,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_CTX,
+};
+
 BPF_CALL_1(bpf_get_listener_sock, struct sock *, sk)
 {
 	sk = sk_to_full_sk(sk);
@@ -5768,6 +5796,8 @@ cg_skb_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_tcp_sock_proto;
 	case BPF_FUNC_get_listener_sock:
 		return &bpf_get_listener_sock_proto;
+	case BPF_FUNC_skb_ecn_set_ce:
+		return &bpf_skb_ecn_set_ce_proto;
 #endif
 	default:
 		return sk_filter_func_proto(func_id, prog);
