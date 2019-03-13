@@ -1020,6 +1020,14 @@ union bpf_attr {
  *		A **struct bpf_tcp_sock** pointer on success, or NULL in
  *		case of failure.
  *
+ * struct bpf_sock *bpf_get_listener_sock(struct bpf_sock *sk)
+ *	Description
+ *		Return a **struct bpf_sock** pointer in TCP_LISTEN state.
+ *		**bpf_sk_release**\ () is unnecessary and not allowed.
+ *	Return
+ *		A **struct bpf_sock** pointer on success, or NULL in
+ *		case of failure.
+ *
  * void *bpf_sk_storage_get(struct bpf_map *map, struct bpf_sock *sk, void *value, u64 flags)
  *	Description
  *		Get a bpf-local-storage from a sk.
