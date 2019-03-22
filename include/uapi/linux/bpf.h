@@ -1004,6 +1004,22 @@ union bpf_attr {
  *		For sockets with reuseport option, *struct bpf_sock*
  *		return is from reuse->socks[] using hash of the packet.
  *
+ * struct bpf_sock *bpf_skc_lookup_tcp(void *ctx, struct bpf_sock_tuple *tuple, u32 tuple_size, u32 netns, u64 flags)
+ *	Description
+ *		Look for TCP socket matching *tuple*, optionally in a child
+ *		network namespace *netns*. The return value must be checked,
+ *		and if non-NULL, released via **bpf_sk_release**\ ().
+ *
+ *		This function is identical to **bpf_sk_lookup_tcp**\ (),
+ *		except that it also returns timewait or request sockets. Use
+ *		**bpf_sk_fullsock**\ () or **bpf_tcp_sock**\ () to access
+ *		the full socket structure.
+ *
+ *		This helper is available only if the kernel was compiled with
+ *		**CONFIG_NET** configuration option.
+ *	Return
+ *		Pointer to **struct bpf_sock**, or NULL in case of failure.
+ *
  * int bpf_sk_release(struct bpf_sock *sk)
  *	Description
  *		Release the reference held by *sock*. *sock* must be a non-NULL
