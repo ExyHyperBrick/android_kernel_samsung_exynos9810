@@ -1713,6 +1713,8 @@ enum {
 };
 
 /* Mode for BPF_FUNC_skb_adjust_room helper. */
+#define BPF_F_ADJ_ROOM_FIXED_GSO	(1ULL << 0)
+
 enum bpf_adj_room_mode {
 	BPF_ADJ_ROOM_NET,
 	BPF_ADJ_ROOM_MAC,
