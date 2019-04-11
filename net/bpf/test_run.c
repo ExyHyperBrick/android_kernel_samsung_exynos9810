@@ -301,6 +301,9 @@ int bpf_prog_test_run_xdp(struct bpf_prog *prog, const union bpf_attr *kattr,
 	void *data;
 	int ret;
 
+	if (kattr->test.ctx_in || kattr->test.ctx_out)
+		return -EINVAL;
+
 	data = bpf_test_init(kattr, size, XDP_PACKET_HEADROOM + NET_IP_ALIGN, 0);
 	if (IS_ERR(data))
 		return PTR_ERR(data);
