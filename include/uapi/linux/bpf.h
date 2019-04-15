@@ -981,6 +981,7 @@ union bpf_attr {
  *     Set callback flags for sock_ops
  *     @bpf_sock_ops: pointer to bpf_sock_ops_kern struct
  *     @flags: flags value
+ *     Flags not present in @flags are cleared, so zero disables callbacks.
  *     Return: 0 for no error
  *             -EINVAL if there is no full tcp socket
  *             bits in flags that are not supported by current kernel
