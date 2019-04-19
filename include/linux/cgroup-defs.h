@@ -255,7 +255,10 @@ struct cgroup {
 	 */
 	int level;
 
-	/* Visible and dying descendant cgroups. */
+	/*
+	 * Visible and dying descendant cgroups. Reads require
+	 * cgroup_mutex or css_set_lock; writes require both locks.
+	 */
 	int nr_descendants;
 	int nr_dying_descendants;
 
