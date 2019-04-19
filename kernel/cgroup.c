@@ -4090,17 +4090,30 @@ void cgroup_file_notify(struct cgroup_file *cfile)
 }
 
 /**
- * cgroup_task_count - count the number of tasks in a cgroup.
+ * __cgroup_task_count - count tasks with css_set_lock held
  * @cgrp: the cgroup in question
  */
-static int cgroup_task_count(const struct cgroup *cgrp)
+static int __cgroup_task_count(const struct cgroup *cgrp)
 {
 	int count = 0;
 	struct cgrp_cset_link *link;
 
-	spin_lock_irq(&css_set_lock);
+	lockdep_assert_held(&css_set_lock);
 	list_for_each_entry(link, &cgrp->cset_links, cset_link)
 		count += link->cset->nr_tasks;
+	return count;
+}
+
+/**
+ * cgroup_task_count - count the number of tasks in a cgroup
+ * @cgrp: the cgroup in question
+ */
+static int cgroup_task_count(const struct cgroup *cgrp)
+{
+	int count;
+
+	spin_lock_irq(&css_set_lock);
+	count = __cgroup_task_count(cgrp);
 	spin_unlock_irq(&css_set_lock);
 	return count;
 }
