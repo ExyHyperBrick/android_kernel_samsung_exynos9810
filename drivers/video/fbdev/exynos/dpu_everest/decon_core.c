@@ -317,10 +317,7 @@ static void decon_win_config_to_regs_param
 	 struct decon_window_regs *win_regs, enum decon_idma_type idma_type,
 	 int idx)
 {
-	u8 alpha0 = 0, alpha1 = 0;
-
-	win_regs->wincon = wincon(transp_length, alpha0, alpha1,
-			win_config->plane_alpha, win_config->blending, idx);
+	win_regs->wincon = wincon(idx);
 	win_regs->start_pos = win_start_pos(win_config->dst.x, win_config->dst.y);
 	win_regs->end_pos = win_end_pos(win_config->dst.x, win_config->dst.y,
 			win_config->dst.w, win_config->dst.h);
@@ -342,8 +339,7 @@ static void decon_win_config_to_regs_param
 			win_config->dst.w, win_config->dst.h);
 }
 
-u32 wincon(u32 transp_len, u32 a0, u32 a1,
-	int plane_alpha, enum decon_blending blending, int idx)
+u32 wincon(int idx)
 {
 	u32 data = 0;
 
@@ -446,8 +442,7 @@ void decon_set_black_window(struct decon_device *decon)
 	struct decon_lcd *lcd = decon->lcd_info;
 
 	memset(&win_regs, 0, sizeof(struct decon_window_regs));
-	win_regs.wincon = wincon(0x8, 0xFF, 0xFF, 0xFF, DECON_BLENDING_NONE,
-			decon->dt.dft_win);
+	win_regs.wincon = wincon(decon->dt.dft_win);
 	win_regs.start_pos = win_start_pos(0, 0);
 	win_regs.end_pos = win_end_pos(0, 0, lcd->xres, lcd->yres);
 	decon_info("xres %d yres %d win_start_pos %x win_end_pos %x\n",
@@ -4013,8 +4008,7 @@ static int decon_initial_display(struct decon_device *decon, bool is_colormap)
 #endif
 
 	memset(&win_regs, 0, sizeof(struct decon_window_regs));
-	win_regs.wincon = wincon(0x8, 0xFF, 0xFF, 0xFF, DECON_BLENDING_NONE,
-			decon->dt.dft_win);
+	win_regs.wincon = wincon(decon->dt.dft_win);
 	win_regs.start_pos = win_start_pos(0, 0);
 	win_regs.end_pos = win_end_pos(0, 0, fbinfo->var.xres, fbinfo->var.yres);
 	decon_dbg("xres %d yres %d win_start_pos %x win_end_pos %x\n",

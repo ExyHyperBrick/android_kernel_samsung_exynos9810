@@ -831,8 +831,7 @@ static int decon_set_win_info(struct fb_info *info)
 	decon_reg_wait_for_update_timeout(decon->id, SHADOW_UPDATE_TIMEOUT);
 
 	win_no = decon->dt.dft_win;
-	win_regs.wincon |= wincon(var->transp.length, 0, 0xFF,
-			0xFF, DECON_BLENDING_NONE, win_no);
+	win_regs.wincon |= wincon(win_no);
 	win_regs.start_pos = win_start_pos(0, 0);
 	win_regs.end_pos = win_end_pos(0, 0, var->xres, var->yres);
 	win_regs.pixel_count = (var->xres * var->yres);

@@ -1164,8 +1164,7 @@ int decon_setcolreg(unsigned regno,
 			    unsigned transp, struct fb_info *info);
 int decon_mmap(struct fb_info *info, struct vm_area_struct *vma);
 
-u32 wincon(u32 transp_len, u32 a0, u32 a1, int plane_alpha,
-		enum decon_blending blending, int idx);
+u32 wincon(int idx);
 
 static inline u32 win_start_pos(int x, int y)
 {
