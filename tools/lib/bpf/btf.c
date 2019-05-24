@@ -1,21 +1,29 @@
 // SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
 /* Copyright (c) 2018 Facebook */
 
+#include <endian.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <gelf.h>
+#include <libelf.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <linux/btf.h>
 #include <linux/err.h>
 #include <linux/kernel.h>
 
 #include "btf.h"
+#include "libbpf.h"
 
 #define BTF_MAX_NR_TYPES	0x7fffffffU
 #define BTF_MAX_STR_OFFSET	0x7fffffffU
 
 #define pr_debug(fmt, ...)	do { } while (0)
+#define pr_warn(fmt, ...)	fprintf(stderr, "libbpf: " fmt, ##__VA_ARGS__)
 
 static struct btf_type btf_void;
 
@@ -255,6 +263,119 @@ struct btf *btf__new(const void *data, __u32 size)
 err_out:
 	btf__free(btf);
 	return ERR_PTR(err);
+}
+
+static bool btf_check_endianness(const GElf_Ehdr *ehdr)
+{
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+	return ehdr->e_ident[EI_DATA] == ELFDATA2LSB;
+#elif __BYTE_ORDER == __BIG_ENDIAN
+	return ehdr->e_ident[EI_DATA] == ELFDATA2MSB;
+#else
+#error "Unrecognized __BYTE_ORDER__"
+#endif
+}
+
+struct btf *btf__parse_elf(const char *path, struct btf_ext **btf_ext)
+{
+	Elf_Data *btf_data = NULL;
+	struct btf *btf = NULL;
+	Elf_Scn *scn = NULL;
+	Elf *elf = NULL;
+	GElf_Ehdr ehdr;
+	int err = 0;
+	int fd = -1;
+	int idx = 0;
+
+	if (btf_ext)
+		*btf_ext = NULL;
+
+	if (elf_version(EV_CURRENT) == EV_NONE) {
+		pr_warn("failed to initialize libelf for %s\n", path);
+		return ERR_PTR(-LIBBPF_ERRNO__LIBELF);
+	}
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
+		err = -errno;
+		pr_warn("failed to open %s: %s\n", path, strerror(errno));
+		return ERR_PTR(err);
+	}
+
+	err = -LIBBPF_ERRNO__FORMAT;
+	elf = elf_begin(fd, ELF_C_READ, NULL);
+	if (!elf) {
+		pr_warn("failed to open %s as an ELF file\n", path);
+		goto out;
+	}
+
+	if (!gelf_getehdr(elf, &ehdr)) {
+		pr_warn("failed to get ELF header from %s\n", path);
+		goto out;
+	}
+
+	if (!btf_check_endianness(&ehdr)) {
+		pr_warn("non-native ELF endianness is not supported\n");
+		goto out;
+	}
+
+	if (!elf_rawdata(elf_getscn(elf, ehdr.e_shstrndx), NULL)) {
+		pr_warn("failed to read section-name table from %s\n", path);
+		goto out;
+	}
+
+	while ((scn = elf_nextscn(elf, scn)) != NULL) {
+		GElf_Shdr sh;
+		char *name;
+
+		idx++;
+		if (gelf_getshdr(scn, &sh) != &sh) {
+			pr_warn("failed to get section %d header from %s\n",
+				idx, path);
+			goto out;
+		}
+
+		name = elf_strptr(elf, ehdr.e_shstrndx, sh.sh_name);
+		if (!name) {
+			pr_warn("failed to get section %d name from %s\n",
+				idx, path);
+			goto out;
+		}
+
+		if (strcmp(name, BTF_ELF_SEC))
+			continue;
+
+		btf_data = elf_getdata(scn, NULL);
+		if (!btf_data) {
+			pr_warn("failed to get section %d data from %s\n",
+				idx, path);
+			goto out;
+		}
+		break;
+	}
+
+	if (!btf_data) {
+		err = -ENOENT;
+		goto out;
+	}
+
+	if (btf_data->d_size > UINT32_MAX) {
+		err = -E2BIG;
+		goto out;
+	}
+
+	btf = btf__new(btf_data->d_buf, btf_data->d_size);
+	if (IS_ERR(btf))
+		err = PTR_ERR(btf);
+	else
+		err = 0;
+
+out:
+	if (elf)
+		elf_end(elf);
+	close(fd);
+
+	return err ? ERR_PTR(err) : btf;
 }
 
 const char *btf__name_by_offset(const struct btf *btf, __u32 offset)
