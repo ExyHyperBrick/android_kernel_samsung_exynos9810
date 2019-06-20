@@ -556,7 +556,10 @@ static int __init exynos_sysmmu_probe(struct platform_device *pdev)
 	}
 
 	data->clk = devm_clk_get(dev, "aclk");
-	if (IS_ERR(data->clk)) {
+	if (PTR_ERR(data->clk) == -ENOENT) {
+		dev_info(dev, "'aclk' not found. Ignoring clock gating...\n");
+		data->clk = NULL;
+	} else if (IS_ERR(data->clk)) {
 		dev_err(dev, "Failed to get clock!\n");
 		return PTR_ERR(data->clk);
 	} else  {
