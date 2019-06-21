@@ -6057,6 +6057,8 @@ static unsigned long group_max_util(struct energy_env *eenv, int cpu_idx)
 		if (unlikely(cpu == eenv->cpu[cpu_idx].cpu_id))
 			util += eenv->util_delta;
 
+		util = uclamp_rq_util_with(cpu_rq(cpu), util,
+			cpu == eenv->cpu[cpu_idx].cpu_id ? eenv->p : NULL);
 		max_util = max(max_util, util);
 
 		/*
