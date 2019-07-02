@@ -41,7 +41,7 @@
 #define IOVA_OVFL(addr, size)	((((addr) + (size)) > 0xFFFFFFFF) ||	\
 				((addr) + (size) < (addr)))
 
-static unsigned int sysmmu_reg_set[MAX_SET_IDX][MAX_REG_IDX] = {
+static const unsigned int sysmmu_reg_set[MAX_SET_IDX][MAX_REG_IDX] = {
 	/* Default without VM */
 	{
 		/* FLPT base, TLB invalidation, Fault information */

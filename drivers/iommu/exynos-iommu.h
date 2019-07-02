@@ -400,7 +400,7 @@ struct sysmmu_drvdata {
 	bool no_block_mode;		/* Doesn't have block control field */
 	bool has_vcr;			/* SysMMU has VM control register */
 	struct exynos_iommu_event_log log;
-	int *reg_set;
+	const unsigned int *reg_set;
 };
 
 struct exynos_vm_region {
