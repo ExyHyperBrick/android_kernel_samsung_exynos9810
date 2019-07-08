@@ -2267,9 +2267,7 @@ static inline bool tcp_bpf_ca_needs_ecn(struct sock *sk)
 
 static inline void tcp_bpf_rtt(struct sock *sk)
 {
-	struct tcp_sock *tp = tcp_sk(sk);
-
-	if (BPF_SOCK_OPS_TEST_FLAG(tp, BPF_SOCK_OPS_RTT_CB_FLAG))
+	if (BPF_SOCK_OPS_TEST_FLAG(tcp_sk(sk), BPF_SOCK_OPS_RTT_CB_FLAG))
 		tcp_call_bpf(sk, BPF_SOCK_OPS_RTT_CB, 0, NULL);
 }
 #endif	/* _TCP_H */
