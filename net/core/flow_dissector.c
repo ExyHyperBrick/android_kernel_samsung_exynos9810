@@ -551,6 +551,12 @@ bool __skb_flow_dissect(const struct sk_buff *skb,
 		/* Pass parameters to the BPF program */
 		cb->qdisc_cb.flow_keys = &flow_keys;
 		flow_keys.nhoff = nhoff;
+		if (flags & FLOW_DISSECTOR_F_PARSE_1ST_FRAG)
+			flow_keys.flags |= BPF_FLOW_DISSECTOR_F_PARSE_1ST_FRAG;
+		if (flags & FLOW_DISSECTOR_F_STOP_AT_FLOW_LABEL)
+			flow_keys.flags |= BPF_FLOW_DISSECTOR_F_STOP_AT_FLOW_LABEL;
+		if (flags & FLOW_DISSECTOR_F_STOP_AT_ENCAP)
+			flow_keys.flags |= BPF_FLOW_DISSECTOR_F_STOP_AT_ENCAP;
 
 		bpf_compute_data_pointers((struct sk_buff *)skb);
 		prog = READ_ONCE(run_array->items[0].prog);
