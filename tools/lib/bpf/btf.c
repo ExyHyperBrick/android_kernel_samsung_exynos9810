@@ -151,9 +151,9 @@ static int btf_parse_str_sec(struct btf *btf)
 static int btf_type_size(const struct btf_type *t)
 {
 	int base_size = sizeof(*t);
-	__u16 vlen = BTF_INFO_VLEN(t->info);
+	__u16 vlen = btf_vlen(t);
 
-	switch (BTF_INFO_KIND(t->info)) {
+	switch (btf_kind(t)) {
 	case BTF_KIND_FWD:
 	case BTF_KIND_CONST:
 	case BTF_KIND_VOLATILE:
@@ -178,8 +178,7 @@ static int btf_type_size(const struct btf_type *t)
 	case BTF_KIND_DATASEC:
 		return base_size + vlen * sizeof(struct btf_var_secinfo);
 	default:
-		pr_debug("unsupported BTF kind: %u\n",
-			 BTF_INFO_KIND(t->info));
+		pr_debug("unsupported BTF kind: %u\n", btf_kind(t));
 		return -EINVAL;
 	}
 }
