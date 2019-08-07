@@ -182,7 +182,7 @@ static struct wakelock *wakelock_lookup_add(const char *name, size_t len,
 		kfree(wl);
 		return ERR_PTR(-ENOMEM);
 	}
-	wl->ws = wakeup_source_register(wl->name);
+	wl->ws = wakeup_source_register(NULL, wl->name);
 	if (!wl->ws) {
 		kfree(wl->name);
 		kfree(wl);
