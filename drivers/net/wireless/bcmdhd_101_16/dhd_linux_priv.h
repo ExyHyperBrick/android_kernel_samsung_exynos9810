@@ -498,7 +498,7 @@ do { \
 #else
 #define dhd_wake_lock_init(wakeup_source, dev, name) \
 do { \
-	wakeup_source = wakeup_source_register(name); \
+	wakeup_source = wakeup_source_register(dev, name); \
 } while (0);
 #endif /* LINUX_VERSION >= 5.4.0 */
 #define dhd_wake_lock_destroy(wakeup_source) \
