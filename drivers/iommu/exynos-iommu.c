@@ -92,16 +92,28 @@ static struct dentry *exynos_sysmmu_debugfs_root;
 int exynos_client_add(struct device_node *np, struct exynos_iovmm *vmm_data)
 {
 	struct exynos_client *client = kzalloc(sizeof(*client), GFP_KERNEL);
+	struct exynos_client *test;
 
 	if (!client)
 		return -ENOMEM;
 
-	INIT_LIST_HEAD(&client->list);
+	spin_lock(&exynos_client_lock);
+
+	list_for_each_entry(test, &exynos_client_list, list) {
+		if (test->master_np == np) {
+			spin_unlock(&exynos_client_lock);
+			pr_err("%s is already registered to a iommu-domain\n",
+					of_node_full_name(np));
+			return -EEXIST;
+		}
+	}
+
+	list_add_tail(&client->list, &exynos_client_list);
+
+	spin_unlock(&exynos_client_lock);
+
 	client->master_np = np;
 	client->vmm_data = vmm_data;
-	spin_lock(&exynos_client_lock);
-	list_add_tail(&client->list, &exynos_client_list);
-	spin_unlock(&exynos_client_lock);
 
 	return 0;
 }
@@ -1191,25 +1203,41 @@ static int exynos_iommu_of_xlate(struct device *master,
 
 	sysmmu = data->sysmmu;
 	if (!owner) {
-		owner = kzalloc(sizeof(*owner), GFP_KERNEL);
-		if (!owner)
-			return -ENOMEM;
+		struct iommu_domain *domain = NULL;
+		struct exynos_iovmm *vmm_data = NULL;
 
-		INIT_LIST_HEAD(&owner->sysmmu_list);
-		INIT_LIST_HEAD(&owner->client);
-		master->archdata.iommu = owner;
-		owner->master = master;
-		spin_lock_init(&owner->lock);
+		spin_lock(&exynos_client_lock);
 
 		list_for_each_entry_safe(client, buf_client,
 					&exynos_client_list, list) {
 			if (client->master_np == master->of_node) {
-				owner->domain = client->vmm_data->domain;
-				owner->vmm_data = client->vmm_data;
+				domain = client->vmm_data->domain;
+				vmm_data = client->vmm_data;
 				list_del(&client->list);
 				kfree(client);
+				break;
 			}
 		}
+
+		spin_unlock(&exynos_client_lock);
+
+		if (!vmm_data) {
+			dev_err(master, "is registered to no domain-clients\n");
+			return -EINVAL;
+		}
+
+		owner = kzalloc(sizeof(*owner), GFP_KERNEL);
+		if (!owner)
+			return -ENOMEM;
+
+		owner->domain = domain;
+		owner->vmm_data = vmm_data;
+		owner->master = master;
+		INIT_LIST_HEAD(&owner->sysmmu_list);
+		INIT_LIST_HEAD(&owner->client);
+		spin_lock_init(&owner->lock);
+
+		master->archdata.iommu = owner;
 
 		/* HACK: Make relationship between group and master */
 		master->iommu_group = owner->vmm_data->group;
