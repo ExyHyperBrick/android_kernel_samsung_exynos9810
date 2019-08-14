@@ -414,6 +414,9 @@ struct bpf_stack_build_id {
 #define BPF_F_RDONLY_PROG	(1U << 7)
 #define BPF_F_WRONLY_PROG	(1U << 8)
 
+/* Clone map from listener for newly accepted socket */
+#define BPF_F_CLONE		(1U << 9)
+
 /* Enable memory-mapping BPF map */
 #define BPF_F_MMAPABLE		(1U << 10)
 
