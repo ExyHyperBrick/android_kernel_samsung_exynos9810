@@ -488,17 +488,18 @@ finish:
 
 static inline void __sysmmu_disable_nocount(struct sysmmu_drvdata *drvdata)
 {
-	u32 value = drvdata->no_block_mode ? CTRL_DISABLE : CTRL_BLOCK_DISABLE;
+	if (drvdata->no_block_mode) {
+		__sysmmu_tlb_invalidate_all(drvdata);
+	} else {
+		if (drvdata->has_vcr) {
+			writel_relaxed(0, drvdata->sfrbase + REG_MMU_CFG_VM);
+			writel_relaxed(CTRL_BLOCK_DISABLE,
+				       drvdata->sfrbase + REG_MMU_CTRL_VM);
+		}
 
-	writel_relaxed(0, drvdata->sfrbase + REG_MMU_CFG);
-	writel_relaxed(value, drvdata->sfrbase + REG_MMU_CTRL);
-	BUG_ON(readl_relaxed(drvdata->sfrbase + REG_MMU_CTRL) != value);
-
-	if (drvdata->has_vcr) {
-		writel_relaxed(0, drvdata->sfrbase + REG_MMU_CFG_VM);
-		writel_relaxed(value, drvdata->sfrbase + REG_MMU_CTRL_VM);
-		BUG_ON(readl_relaxed(
-				drvdata->sfrbase + REG_MMU_CTRL_VM) != value);
+		writel_relaxed(0, drvdata->sfrbase + REG_MMU_CFG);
+		writel_relaxed(CTRL_BLOCK_DISABLE,
+			       drvdata->sfrbase + REG_MMU_CTRL);
 	}
 
 	clk_disable(drvdata->clk);
@@ -658,8 +659,6 @@ static inline void __sysmmu_init_config(struct sysmmu_drvdata *drvdata)
 
 	if (drvdata->qos != DEFAULT_QOS_VALUE)
 		cfg |= CFG_QOS_OVRRIDE | CFG_QOS(drvdata->qos);
-
-	cfg |= readl_relaxed(drvdata->sfrbase + REG_MMU_CFG) & ~CFG_MASK;
 
 	if (drvdata->has_vcr) {
 		cfg_vm = cfg & ~CFG_MASK_VM;
