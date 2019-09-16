@@ -193,13 +193,13 @@ static struct sock *udp6_lib_lookup2(struct net *net,
 				      daddr, hnum, dif, sdif, exact_dif);
 		if (score > badness) {
 			reuseport = sk->sk_reuseport;
-			if (reuseport) {
+			if (reuseport && sk->sk_state != TCP_ESTABLISHED) {
 				hash = udp6_ehashfn(net, daddr, hnum,
 						    saddr, sport);
 
 				result = reuseport_select_sock(sk, hash, skb,
 							sizeof(struct udphdr));
-				if (result)
+				if (result && !reuseport_has_conns(sk, false))
 					return result;
 				matches = 1;
 			}
@@ -271,14 +271,14 @@ begin:
 				      sdif, exact_dif);
 		if (score > badness) {
 			reuseport = sk->sk_reuseport;
-			if (reuseport) {
+			if (reuseport && sk->sk_state != TCP_ESTABLISHED) {
 				hash = udp6_ehashfn(net, daddr, hnum,
 						    saddr, sport);
 				result = reuseport_select_sock(sk, hash, skb,
 							sizeof(struct udphdr));
 				if (unlikely(IS_ERR(result)))
 					return NULL;
-				if (result)
+				if (result && !reuseport_has_conns(sk, false))
 					return result;
 				matches = 1;
 			}
