@@ -283,11 +283,32 @@ struct sock *reuseport_select_sock(struct sock *sk,
 		smp_rmb();
 
 		if (!prog || !skb) {
-			sk2 = reuse->socks[reciprocal_scale(hash, socks)];
+			int i, j;
+
+			i = j = reciprocal_scale(hash, socks);
+			while (reuse->socks[i]->sk_state == TCP_ESTABLISHED) {
+				i++;
+				if (i >= reuse->num_socks)
+					i = 0;
+				if (i == j)
+					goto out;
+			}
+			sk2 = reuse->socks[i];
 		} else if (prog->type == BPF_PROG_TYPE_SK_REUSEPORT) {
 			sk2 = bpf_run_sk_reuseport(reuse, sk, prog, skb, hash);
-			if (!sk2)
-				sk2 = reuse->socks[reciprocal_scale(hash, socks)];
+			if (!sk2) {
+				int i, j;
+
+				i = j = reciprocal_scale(hash, socks);
+				while (reuse->socks[i]->sk_state == TCP_ESTABLISHED) {
+					i++;
+					if (i >= reuse->num_socks)
+						i = 0;
+					if (i == j)
+						goto out;
+				}
+				sk2 = reuse->socks[i];
+			}
 		} else {
 			sk2 = run_bpf_filter(reuse, socks, prog, skb, hdr_len);
 		}

@@ -30,6 +30,7 @@
 #include <net/transp_v6.h>
 #include <net/ip6_route.h>
 #include <net/tcp_states.h>
+#include <net/sock_reuseport.h>
 #include <net/dsfield.h>
 
 #include <linux/errqueue.h>
@@ -266,6 +267,7 @@ ipv4_connected:
 		goto out;
 	}
 
+	reuseport_has_conns(sk, true);
 	sk->sk_state = TCP_ESTABLISHED;
 	sk_set_txhash(sk);
 out:
