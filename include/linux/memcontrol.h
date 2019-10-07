@@ -301,10 +301,14 @@ static inline void mem_cgroup_events(struct mem_cgroup *memcg,
 	cgroup_file_notify(&memcg->events_file);
 }
 
-static inline unsigned long mem_cgroup_protection(struct mem_cgroup *memcg)
+static inline unsigned long mem_cgroup_protection(struct mem_cgroup *memcg,
+						  bool in_low_reclaim)
 {
 	if (mem_cgroup_disabled())
 		return 0;
+
+	if (in_low_reclaim)
+		return READ_ONCE(memcg->memory.emin);
 
 	return max(READ_ONCE(memcg->memory.emin),
 		   READ_ONCE(memcg->memory.elow));
@@ -609,7 +613,8 @@ static inline void mem_cgroup_events(struct mem_cgroup *memcg,
 {
 }
 
-static inline unsigned long mem_cgroup_protection(struct mem_cgroup *memcg)
+static inline unsigned long mem_cgroup_protection(struct mem_cgroup *memcg,
+						  bool in_low_reclaim)
 {
 	return 0;
 }
