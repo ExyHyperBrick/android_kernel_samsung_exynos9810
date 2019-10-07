@@ -301,6 +301,15 @@ static inline void mem_cgroup_events(struct mem_cgroup *memcg,
 	cgroup_file_notify(&memcg->events_file);
 }
 
+static inline unsigned long mem_cgroup_protection(struct mem_cgroup *memcg)
+{
+	if (mem_cgroup_disabled())
+		return 0;
+
+	return max(READ_ONCE(memcg->memory.emin),
+		   READ_ONCE(memcg->memory.elow));
+}
+
 enum mem_cgroup_protection mem_cgroup_protected(struct mem_cgroup *root,
 						struct mem_cgroup *memcg);
 
@@ -470,6 +479,8 @@ void mem_cgroup_handle_over_high(void);
 
 unsigned long mem_cgroup_get_max(struct mem_cgroup *memcg);
 
+unsigned long mem_cgroup_size(struct mem_cgroup *memcg);
+
 void mem_cgroup_print_oom_info(struct mem_cgroup *memcg,
 				struct task_struct *p);
 
@@ -598,6 +609,11 @@ static inline void mem_cgroup_events(struct mem_cgroup *memcg,
 {
 }
 
+static inline unsigned long mem_cgroup_protection(struct mem_cgroup *memcg)
+{
+	return 0;
+}
+
 static inline enum mem_cgroup_protection mem_cgroup_protected(
 	struct mem_cgroup *root, struct mem_cgroup *memcg)
 {
@@ -717,6 +733,11 @@ mem_cgroup_node_nr_lru_pages(struct mem_cgroup *memcg,
 }
 
 static inline unsigned long mem_cgroup_get_max(struct mem_cgroup *memcg)
+{
+	return 0;
+}
+
+static inline unsigned long mem_cgroup_size(struct mem_cgroup *memcg)
 {
 	return 0;
 }
