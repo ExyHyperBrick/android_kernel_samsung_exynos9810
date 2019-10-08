@@ -105,19 +105,46 @@ int skb_flow_dissector_bpf_prog_attach(const union bpf_attr *attr,
 {
 	struct bpf_prog *attached;
 	struct net *net;
+	int ret = 0;
 
 	net = current->nsproxy->net_ns;
 	mutex_lock(&flow_dissector_mutex);
+
+	if (net == &init_net) {
+		/* BPF flow dissector in the root namespace overrides
+		 * any per-net-namespace one. When attaching to root,
+		 * make sure we don't have any BPF program attached
+		 * to the non-root namespaces.
+		 */
+		struct net *ns;
+
+		for_each_net(ns) {
+			if (rcu_access_pointer(ns->flow_dissector_prog)) {
+				ret = -EEXIST;
+				goto out;
+			}
+		}
+	} else {
+		/* Make sure root flow dissector is not attached
+		 * when attaching to the non-root namespace.
+		 */
+		if (rcu_access_pointer(init_net.flow_dissector_prog)) {
+			ret = -EEXIST;
+			goto out;
+		}
+	}
+
 	attached = rcu_dereference_protected(net->flow_dissector_prog,
 					     lockdep_is_held(&flow_dissector_mutex));
 	if (attached) {
 		/* Only one BPF program can be attached at a time */
-		mutex_unlock(&flow_dissector_mutex);
-		return -EEXIST;
+		ret = -EEXIST;
+		goto out;
 	}
 	rcu_assign_pointer(net->flow_dissector_prog, prog);
+out:
 	mutex_unlock(&flow_dissector_mutex);
-	return 0;
+	return ret;
 }
 
 int skb_flow_dissector_bpf_prog_detach(const union bpf_attr *attr)
@@ -559,8 +586,9 @@ bool __skb_flow_dissect(const struct sk_buff *skb,
 					      target_container);
 
 	rcu_read_lock();
-	attached = skb ? rcu_dereference(dev_net(skb->dev)->flow_dissector_prog)
-		       : NULL;
+	attached = skb ? rcu_dereference(init_net.flow_dissector_prog) : NULL;
+	if (!attached && skb)
+		attached = rcu_dereference(dev_net(skb->dev)->flow_dissector_prog);
 	if (attached) {
 		/* Note that even though the const qualifier is discarded
 		 * throughout the execution of the BPF program, all changes(the
