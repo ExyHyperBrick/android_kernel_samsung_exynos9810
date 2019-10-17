@@ -1,0 +1,14 @@
+What:		/sys/kernel/btf
+Date:		Aug 2019
+KernelVersion:	5.5
+Contact:	bpf@vger.kernel.org
+Description:
+		Contains BTF type information and related data for the kernel.
+
+What:		/sys/kernel/btf/vmlinux
+Date:		Aug 2019
+KernelVersion:	5.5
+Contact:	bpf@vger.kernel.org
+Description:
+		Read-only binary attribute exposing the kernel's own BTF type
+		information with a description of internal kernel types.
