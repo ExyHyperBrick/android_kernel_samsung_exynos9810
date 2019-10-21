@@ -489,6 +489,7 @@ finish:
 static inline void __sysmmu_disable_nocount(struct sysmmu_drvdata *drvdata)
 {
 	if (drvdata->no_block_mode) {
+		writel_relaxed(0, MMU_OFFSET(drvdata, IDX_FLPT_BASE));
 		__sysmmu_tlb_invalidate_all(drvdata);
 	} else {
 		if (drvdata->has_vcr) {
