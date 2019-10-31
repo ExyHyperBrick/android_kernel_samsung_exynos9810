@@ -104,6 +104,7 @@ int exynos_client_add(struct device_node *np, struct exynos_iovmm *vmm_data)
 			spin_unlock(&exynos_client_lock);
 			pr_err("%s is already registered to a iommu-domain\n",
 					of_node_full_name(np));
+			kfree(client);
 			return -EEXIST;
 		}
 	}
