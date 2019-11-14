@@ -2,6 +2,8 @@
 /* Copyright (c) 2018 Facebook */
 
 #include <uapi/linux/btf.h>
+#include <uapi/linux/bpf.h>
+#include <uapi/linux/bpf_perf_event.h>
 #include <uapi/linux/types.h>
 #include <linux/seq_file.h>
 #include <linux/compiler.h>
@@ -18,6 +20,11 @@
 #include <linux/btf.h>
 #include <linux/btf_ids.h>
 #include <linux/bsearch.h>
+#include <linux/filter.h>
+#include <linux/skmsg.h>
+#include <linux/perf_event.h>
+#include <net/sock.h>
+#include <net/xdp.h>
 
 /* BTF (BPF Type Format) is the meta data format which describes
  * the data types of BPF program/map.  Hence, it basically focus
@@ -3294,13 +3301,100 @@ errout:
 
 extern char __weak __start_BTF[];
 extern char __weak __stop_BTF[];
+extern struct btf *btf_vmlinux;
+
+#define BPF_MAP_TYPE(_id, _ops)
+#define BPF_LINK_TYPE(_id, _name)
+static union {
+	struct bpf_ctx_convert {
+#define BPF_PROG_TYPE(_id, _name, prog_ctx_type, kern_ctx_type) \
+		prog_ctx_type _id##_prog; \
+		kern_ctx_type _id##_kern;
+#include <linux/bpf_types.h>
+#undef BPF_PROG_TYPE
+	} *__t;
+	/* 't' is written once under lock. Read many times. */
+	const struct btf_type *t;
+} bpf_ctx_convert;
+
+enum {
+#define BPF_PROG_TYPE(_id, _name, prog_ctx_type, kern_ctx_type) \
+	__ctx_convert##_id,
+#include <linux/bpf_types.h>
+#undef BPF_PROG_TYPE
+};
+
+static u8 bpf_ctx_convert_map[] = {
+#define BPF_PROG_TYPE(_id, _name, prog_ctx_type, kern_ctx_type) \
+	[_id] = __ctx_convert##_id,
+#include <linux/bpf_types.h>
+#undef BPF_PROG_TYPE
+};
+#undef BPF_MAP_TYPE
+#undef BPF_LINK_TYPE
+
+static const struct btf_member *
+btf_get_prog_ctx_type(struct bpf_verifier_log *log, struct btf *btf,
+		      const struct btf_type *t,
+		      enum bpf_prog_type prog_type)
+{
+	const struct btf_type *conv_struct;
+	const struct btf_type *ctx_struct;
+	const struct btf_member *ctx_type;
+	const char *tname, *ctx_tname;
+
+	conv_struct = bpf_ctx_convert.t;
+	if (!conv_struct) {
+		bpf_log(log, "btf_vmlinux is malformed\n");
+		return NULL;
+	}
+
+	t = btf_type_by_id(btf, t->type);
+	while (btf_type_is_modifier(t))
+		t = btf_type_by_id(btf, t->type);
+	if (!btf_type_is_struct(t)) {
+		/* Only pointer to struct is supported for now.
+		 * That means that BPF_PROG_TYPE_TRACEPOINT with BTF
+		 * is not supported yet.
+		 * BPF_PROG_TYPE_RAW_TRACEPOINT is fine.
+		 */
+		bpf_log(log, "BPF program ctx type is not a struct\n");
+		return NULL;
+	}
+
+	tname = btf_name_by_offset(btf, t->name_off);
+	if (!tname) {
+		bpf_log(log, "BPF program ctx struct doesn't have a name\n");
+		return NULL;
+	}
+
+	/* prog_type is valid BPF program type. No bounds check is needed. */
+	ctx_type = btf_type_member(conv_struct) +
+		   bpf_ctx_convert_map[prog_type] * 2;
+	/* ctx_struct is the program-side context type in vmlinux. */
+	ctx_struct = btf_type_by_id(btf_vmlinux, ctx_type->type);
+	if (!ctx_struct)
+		return NULL;
+
+	ctx_tname = btf_name_by_offset(btf_vmlinux, ctx_struct->name_off);
+	if (!ctx_tname) {
+		bpf_log(log, "Please fix kernel include/linux/bpf_types.h\n");
+		return NULL;
+	}
+
+	/* Comparing the context type name is sufficient here. */
+	if (strcmp(ctx_tname, tname))
+		return NULL;
+
+	return ctx_type;
+}
 
 struct btf *btf_parse_vmlinux(void)
 {
 	struct btf_verifier_env *env = NULL;
 	struct bpf_verifier_log *log;
 	struct btf *btf = NULL;
-	int err;
+	int err, i;
 
 	env = kzalloc(sizeof(*env), GFP_KERNEL | __GFP_NOWARN);
 	if (!env)
@@ -3333,6 +3427,26 @@ struct btf *btf_parse_vmlinux(void)
 	if (err)
 		goto errout;
 
+	/* Find struct bpf_ctx_convert for later context type checking. */
+	for (i = 1; i <= btf->nr_types; i++) {
+		const struct btf_type *t;
+		const char *tname;
+
+		t = btf_type_by_id(btf, i);
+		if (!__btf_type_is_struct(t))
+			continue;
+		tname = __btf_name_by_offset(btf, t->name_off);
+		if (!strcmp(tname, "bpf_ctx_convert")) {
+			/* btf_parse_vmlinux() runs under bpf_verifier_lock. */
+			bpf_ctx_convert.t = t;
+			break;
+		}
+	}
+	if (i > btf->nr_types) {
+		err = -ENOENT;
+		goto errout;
+	}
+
 	btf_verifier_env_free(env);
 	refcount_set(&btf->refcnt, 1);
 	return btf;
@@ -3345,8 +3459,6 @@ errout:
 	}
 	return ERR_PTR(err);
 }
-
-extern struct btf *btf_vmlinux;
 
 bool btf_ctx_access(int off, int size, enum bpf_access_type type,
 		    const struct bpf_prog *prog,

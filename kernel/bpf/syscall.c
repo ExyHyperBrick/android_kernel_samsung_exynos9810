@@ -53,7 +53,7 @@ int sysctl_unprivileged_bpf_disabled __read_mostly =
 	IS_BUILTIN(CONFIG_BPF_UNPRIV_DEFAULT_OFF) ? 2 : 0;
 
 static const struct bpf_map_ops * const bpf_map_types[] = {
-#define BPF_PROG_TYPE(_id, _ops)
+#define BPF_PROG_TYPE(_id, _name, prog_ctx_type, kern_ctx_type)
 #define BPF_MAP_TYPE(_id, _ops) \
 	[_id] = &_ops,
 #define BPF_LINK_TYPE(_id, _name)
@@ -1507,7 +1507,7 @@ err_put:
 }
 
 static const struct bpf_prog_ops * const bpf_prog_types[] = {
-#define BPF_PROG_TYPE(_id, _name) \
+#define BPF_PROG_TYPE(_id, _name, prog_ctx_type, kern_ctx_type) \
 	[_id] = & _name ## _prog_ops,
 #define BPF_MAP_TYPE(_id, _ops)
 #define BPF_LINK_TYPE(_id, _name)
@@ -2120,7 +2120,7 @@ static int bpf_link_release(struct inode *inode, struct file *filp)
 	return 0;
 }
 
-#define BPF_PROG_TYPE(_id, _name)
+#define BPF_PROG_TYPE(_id, _name, prog_ctx_type, kern_ctx_type)
 #define BPF_MAP_TYPE(_id, _ops)
 #define BPF_LINK_TYPE(_id, _name) [_id] = #_name,
 static const char * const bpf_link_type_strs[] = {
