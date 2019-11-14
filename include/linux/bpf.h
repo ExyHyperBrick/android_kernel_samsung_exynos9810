@@ -18,6 +18,7 @@
 #include <linux/mm_types.h>
 #include <linux/wait.h>
 #include <linux/mutex.h>
+#include <linux/refcount.h>
 #include <linux/u64_stats_sync.h>
 
 struct bpf_verifier_env;
@@ -425,6 +426,78 @@ struct bpf_prog_stats {
 	struct u64_stats_sync syncp;
 } __aligned(2 * sizeof(u64));
 
+struct btf_func_model {
+	u8 ret_size;
+	u8 nr_args;
+	u8 arg_size[MAX_BPF_FUNC_ARGS];
+};
+
+/* Restore arguments before returning from trampoline to let the original
+ * function continue executing.
+ */
+#define BPF_TRAMP_F_RESTORE_REGS	BIT(0)
+/* Call the original function after fentry programs and before fexit
+ * programs.
+ */
+#define BPF_TRAMP_F_CALL_ORIG		BIT(1)
+/* Skip the current frame and return to the parent. */
+#define BPF_TRAMP_F_SKIP_FRAME		BIT(2)
+
+int arch_prepare_bpf_trampoline(void *image, struct btf_func_model *m,
+				u32 flags, struct bpf_prog **fentry_progs,
+				int fentry_cnt, struct bpf_prog **fexit_progs,
+				int fexit_cnt, void *orig_call);
+u64 notrace __bpf_prog_enter(void);
+void notrace __bpf_prog_exit(struct bpf_prog *prog, u64 start);
+
+enum bpf_tramp_prog_type {
+	BPF_TRAMP_FENTRY,
+	BPF_TRAMP_FEXIT,
+	BPF_TRAMP_MAX
+};
+
+struct bpf_trampoline {
+	struct hlist_node hlist;
+	/* Serializes access to the mutable trampoline fields. */
+	struct mutex mutex;
+	refcount_t refcnt;
+	u64 key;
+	struct {
+		struct btf_func_model model;
+		void *addr;
+	} func;
+	struct hlist_head progs_hlist[BPF_TRAMP_MAX];
+	int progs_cnt[BPF_TRAMP_MAX];
+	void *image;
+	u64 selector;
+};
+
+#ifdef CONFIG_BPF_JIT
+struct bpf_trampoline *bpf_trampoline_lookup(u64 key);
+int bpf_trampoline_link_prog(struct bpf_prog *prog);
+int bpf_trampoline_unlink_prog(struct bpf_prog *prog);
+void bpf_trampoline_put(struct bpf_trampoline *tr);
+#else
+static inline struct bpf_trampoline *bpf_trampoline_lookup(u64 key)
+{
+	return NULL;
+}
+
+static inline int bpf_trampoline_link_prog(struct bpf_prog *prog)
+{
+	return -ENOTSUPP;
+}
+
+static inline int bpf_trampoline_unlink_prog(struct bpf_prog *prog)
+{
+	return -ENOTSUPP;
+}
+
+static inline void bpf_trampoline_put(struct bpf_trampoline *tr)
+{
+}
+#endif
+
 struct bpf_prog_aux {
 	atomic64_t refcnt;
 	u32 used_map_cnt;
@@ -438,6 +511,9 @@ struct bpf_prog_aux {
 	bool verifier_zext; /* Zero extensions have been inserted by verifier. */
 	bool attach_btf_trace; /* true if attaching to BTF-enabled raw tp */
 	bool func_proto_unreliable;
+	enum bpf_tramp_prog_type trampoline_prog_type;
+	struct bpf_trampoline *trampoline;
+	struct hlist_node tramp_hlist;
 	/* BTF_KIND_FUNC_PROTO for valid attach_btf_id */
 	const struct btf_type *attach_func_proto;
 	/* function name for valid attach_btf_id */
@@ -588,6 +664,9 @@ int btf_check_func_arg_match(struct bpf_verifier_env *env, int subprog,
 			     struct bpf_reg_state *regs);
 int btf_prepare_func_args(struct bpf_verifier_env *env, int subprog,
 			  struct bpf_reg_state *regs);
+int btf_distill_func_proto(struct bpf_verifier_log *log, struct btf *btf,
+			   const struct btf_type *func_proto,
+			   const char *func_name, struct btf_func_model *m);
 
 /* an array of programs to be executed under rcu_lock.
  *
