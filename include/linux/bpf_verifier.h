@@ -378,6 +378,7 @@ void bpf_verifier_vlog(struct bpf_verifier_log *log, const char *fmt,
 #define BPF_MAX_SUBPROGS 256
 
 struct bpf_subprog_info {
+	/* 'start' must be first or find_subprog() will not work. */
 	u32 start; /* insn idx of function entry point */
 	u32 linfo_idx; /* The idx to the main_prog->aux->linfo */
 	u16 stack_depth; /* max. stack depth used by this function */

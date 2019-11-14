@@ -413,6 +413,10 @@ enum bpf_cgroup_storage_type {
  */
 #define MAX_BPF_FUNC_ARGS 12
 
+struct bpf_func_info_aux {
+	bool unreliable;
+};
+
 struct bpf_prog_aux {
 	atomic64_t refcnt;
 	u32 used_map_cnt;
@@ -425,6 +429,7 @@ struct bpf_prog_aux {
 	u32 attach_btf_id; /* in-kernel BTF type id to attach to */
 	bool verifier_zext; /* Zero extensions have been inserted by verifier. */
 	bool attach_btf_trace; /* true if attaching to BTF-enabled raw tp */
+	bool func_proto_unreliable;
 	/* BTF_KIND_FUNC_PROTO for valid attach_btf_id */
 	const struct btf_type *attach_func_proto;
 	/* function name for valid attach_btf_id */
@@ -446,6 +451,7 @@ struct bpf_prog_aux {
 	struct bpf_prog_offload *offload;
 	struct btf *btf;
 	struct bpf_func_info *func_info;
+	struct bpf_func_info_aux *func_info_aux;
 	/* bpf_line_info loaded from userspace.  linfo->insn_off
 	 * has the xlated insn offset.
 	 * Both the main and sub prog share the same linfo.
@@ -568,6 +574,7 @@ bool btf_struct_ids_match(struct bpf_verifier_log *log,
 			  int off, u32 id, u32 need_type_id);
 struct btf_id_set;
 bool btf_id_set_contains(struct btf_id_set *set, u32 id);
+int btf_check_func_arg_match(struct bpf_verifier_env *env, int subprog);
 
 /* an array of programs to be executed under rcu_lock.
  *
