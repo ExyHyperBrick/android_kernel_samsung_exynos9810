@@ -12,6 +12,7 @@
 struct btf;
 struct btf_member;
 struct btf_type;
+struct bpf_prog;
 union bpf_attr;
 
 extern const struct file_operations btf_fops;
@@ -125,6 +126,7 @@ const struct btf_type *btf_type_skip_modifiers(const struct btf *btf,
 					       u32 id, u32 *res_id);
 const char *btf_name_by_offset(const struct btf *btf, u32 offset);
 struct btf *btf_parse_vmlinux(void);
+struct btf *bpf_prog_get_target_btf(const struct bpf_prog *prog);
 #else
 static inline const struct btf_type *btf_type_by_id(const struct btf *btf,
 						    u32 type_id)
