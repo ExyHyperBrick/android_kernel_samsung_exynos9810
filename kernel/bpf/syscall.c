@@ -2263,6 +2263,91 @@ struct bpf_link *bpf_link_get_from_fd(u32 ufd)
 	return link;
 }
 
+struct bpf_tracing_link {
+	struct bpf_link link;
+	enum bpf_attach_type attach_type;
+};
+
+static void bpf_tracing_link_release(struct bpf_link *link)
+{
+	WARN_ON_ONCE(bpf_trampoline_unlink_prog(link->prog));
+}
+
+static void bpf_tracing_link_dealloc(struct bpf_link *link)
+{
+	struct bpf_tracing_link *tr_link =
+		container_of(link, struct bpf_tracing_link, link);
+
+	kfree(tr_link);
+}
+
+static void bpf_tracing_link_show_fdinfo(const struct bpf_link *link,
+					 struct seq_file *seq)
+{
+	struct bpf_tracing_link *tr_link =
+		container_of(link, struct bpf_tracing_link, link);
+
+	seq_printf(seq, "attach_type:\t%d\n", tr_link->attach_type);
+}
+
+static int bpf_tracing_link_fill_link_info(const struct bpf_link *link,
+					   struct bpf_link_info *info)
+{
+	struct bpf_tracing_link *tr_link =
+		container_of(link, struct bpf_tracing_link, link);
+
+	info->tracing.attach_type = tr_link->attach_type;
+	return 0;
+}
+
+static const struct bpf_link_ops bpf_tracing_link_lops = {
+	.release = bpf_tracing_link_release,
+	.dealloc = bpf_tracing_link_dealloc,
+	.show_fdinfo = bpf_tracing_link_show_fdinfo,
+	.fill_link_info = bpf_tracing_link_fill_link_info,
+};
+
+static int bpf_tracing_prog_attach(struct bpf_prog *prog)
+{
+	struct bpf_link_primer link_primer;
+	struct bpf_tracing_link *link;
+	int err;
+
+	if (prog->expected_attach_type != BPF_TRACE_FENTRY &&
+	    prog->expected_attach_type != BPF_TRACE_FEXIT) {
+		err = -EINVAL;
+		goto out_put_prog;
+	}
+
+	link = kzalloc(sizeof(*link), GFP_USER);
+	if (!link) {
+		err = -ENOMEM;
+		goto out_put_prog;
+	}
+
+	bpf_link_init(&link->link, BPF_LINK_TYPE_TRACING,
+		      &bpf_tracing_link_lops, prog);
+	link->attach_type = prog->expected_attach_type;
+
+	err = bpf_link_prime(&link->link, &link_primer);
+	if (err) {
+		kfree(link);
+		goto out_put_prog;
+	}
+
+	err = bpf_trampoline_link_prog(prog);
+	if (err) {
+		bpf_link_cleanup(&link_primer);
+		goto out_put_prog;
+	}
+
+	return bpf_link_settle(&link_primer);
+
+out_put_prog:
+	bpf_prog_put(prog);
+	return err;
+}
+
 struct bpf_raw_tp_link {
 	struct bpf_link link;
 	struct bpf_raw_event_map *btp;
@@ -2363,11 +2448,16 @@ static int bpf_raw_tracepoint_open(const union bpf_attr *attr)
 
 	if (prog->type == BPF_PROG_TYPE_TRACING) {
 		if (attr->raw_tracepoint.name) {
+			/* The attach point for this category of programs should
+			 * be specified through btf_id during program load.
+			 */
 			err = -EINVAL;
 			goto out_put_prog;
 		}
-		/* raw_tp name is taken from type name instead */
-		tp_name = prog->aux->attach_func_name;
+		if (prog->expected_attach_type == BPF_TRACE_RAW_TP)
+			tp_name = prog->aux->attach_func_name;
+		else
+			return bpf_tracing_prog_attach(prog);
 	} else {
 		if (strncpy_from_user(buf,
 				      u64_to_user_ptr(attr->raw_tracepoint.name),
