@@ -4402,7 +4402,7 @@ static int set_callee_state(struct bpf_verifier_env *env,
 static int check_func_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
 			   int *insn_idx)
 {
-	int subprog, target_insn;
+	int subprog, target_insn, err;
 
 	target_insn = *insn_idx + insn->imm + 1;
 	subprog = find_subprog(env, target_insn);
@@ -4412,7 +4412,12 @@ static int check_func_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
 		return -EFAULT;
 	}
 
-	return __check_func_call(env, insn_idx, subprog, set_callee_state);
+	err = __check_func_call(env, insn_idx, subprog, set_callee_state);
+	if (err)
+		return err;
+
+	/* Helper callbacks have their own argument contract. */
+	return btf_check_func_arg_match(env, subprog);
 }
 
 int map_set_for_each_callback_args(struct bpf_verifier_env *env,
@@ -7662,11 +7667,12 @@ static int check_btf_func(struct bpf_verifier_env *env,
 	u32 i, nfuncs, urec_size, min_size, prev_offset;
 	u32 krec_size = sizeof(struct bpf_func_info);
 	struct bpf_func_info *krecord;
+	struct bpf_func_info_aux *info_aux = NULL;
 	const struct btf_type *type;
 	struct bpf_prog *prog;
 	const struct btf *btf;
 	void __user *urecord;
-	int ret = 0;
+	int ret = -ENOMEM;
 	nfuncs = attr->func_info_cnt;
 
 	if (!nfuncs)
@@ -7694,6 +7700,10 @@ static int check_btf_func(struct bpf_verifier_env *env,
 	krecord = kvcalloc(nfuncs, krec_size, GFP_KERNEL | __GFP_NOWARN);
 	if (!krecord)
 		return -ENOMEM;
+	info_aux = kcalloc(nfuncs, sizeof(*info_aux),
+			   GFP_KERNEL | __GFP_NOWARN);
+	if (!info_aux)
+		goto err_free;
 
 	for (i = 0; i < nfuncs; i++) {
 		ret = bpf_check_uarg_tail_zero(urecord, krec_size, urec_size);
@@ -7752,10 +7762,12 @@ static int check_btf_func(struct bpf_verifier_env *env,
 
 	prog->aux->func_info = krecord;
 	prog->aux->func_info_cnt = nfuncs;
+	prog->aux->func_info_aux = info_aux;
 	return 0;
 
 err_free:
 	kvfree(krecord);
+	kfree(info_aux);
 	return ret;
 }
 
@@ -8651,6 +8663,9 @@ static int do_check(struct bpf_verifier_env *env)
 			BPF_MAIN_FUNC /* callsite */,
 			0 /* frameno */,
 			0 /* subprogno, zero == main subprog */);
+
+	if (btf_check_func_arg_match(env, 0))
+		return -EINVAL;
 
 	for (;;) {
 		struct bpf_insn *insn;
