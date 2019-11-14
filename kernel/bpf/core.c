@@ -2388,6 +2388,13 @@ int __weak skb_copy_bits(const struct sk_buff *skb, int offset, void *to,
 	return -EFAULT;
 }
 
+int __weak
+bpf_arch_text_poke(void *ip, enum bpf_text_poke_type t,
+		   void *old_addr, void *new_addr)
+{
+	return -ENOTSUPP;
+}
+
 /* All definitions of tracepoints related to BPF. */
 #define CREATE_TRACE_POINTS
 #include <linux/bpf_trace.h>
