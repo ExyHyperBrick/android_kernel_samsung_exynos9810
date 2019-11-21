@@ -97,6 +97,12 @@ static struct hlist_head *dev_map_create_hash(unsigned int entries,
 	return hash;
 }
 
+static inline struct hlist_head *dev_map_index_hash(struct bpf_dtab *dtab,
+						    int idx)
+{
+	return &dtab->dev_index_head[idx & (dtab->n_buckets - 1)];
+}
+
 static u64 dev_map_bitmap_size(const union bpf_attr *attr)
 {
 	return BITS_TO_LONGS((u64) attr->max_entries) * sizeof(unsigned long);
@@ -130,10 +136,6 @@ static struct bpf_map *dev_map_alloc(union bpf_attr *attr)
 	/* make sure page count doesn't overflow */
 	cost = (u64) dtab->map.max_entries * sizeof(struct bpf_dtab_netdev *);
 	cost += dev_map_bitmap_size(attr) * num_possible_cpus();
-	if (cost >= U32_MAX - PAGE_SIZE)
-		goto free_dtab;
-
-	dtab->map.pages = round_up(cost, PAGE_SIZE) >> PAGE_SHIFT;
 
 	if (attr->map_type == BPF_MAP_TYPE_DEVMAP_HASH) {
 		dtab->n_buckets = roundup_pow_of_two(dtab->map.max_entries);
@@ -142,8 +144,13 @@ static struct bpf_map *dev_map_alloc(union bpf_attr *attr)
 			err = -EINVAL;
 			goto free_dtab;
 		}
-		cost += sizeof(struct hlist_head) * dtab->n_buckets;
+		cost += (u64) sizeof(struct hlist_head) * dtab->n_buckets;
 	}
+
+	if (cost >= U32_MAX - PAGE_SIZE)
+		goto free_dtab;
+
+	dtab->map.pages = round_up(cost, PAGE_SIZE) >> PAGE_SHIFT;
 
 	/* if map size is larger than memlock limit, reject it early */
 	err = bpf_map_precharge_memlock(dtab->map.pages);
@@ -159,7 +166,7 @@ static struct bpf_map *dev_map_alloc(union bpf_attr *attr)
 	if (!dtab->flush_needed)
 		goto free_dtab;
 
-	dtab->netdev_map = bpf_map_area_alloc(dtab->map.max_entries *
+	dtab->netdev_map = bpf_map_area_alloc((u64) dtab->map.max_entries *
 					      sizeof(struct bpf_dtab_netdev *),
 					      dtab->map.numa_node);
 	if (!dtab->netdev_map)
@@ -172,12 +179,6 @@ static struct bpf_map *dev_map_alloc(union bpf_attr *attr)
 			goto free_map_area;
 
 		spin_lock_init(&dtab->index_lock);
-	} else {
-		dtab->netdev_map = bpf_map_area_alloc((u64) dtab->map.max_entries *
-						      sizeof(struct bpf_dtab_netdev *),
-						      dtab->map.numa_node);
-		if (!dtab->netdev_map)
-			goto free_dtab;
 	}
 
 	spin_lock(&dev_map_lock);
@@ -189,7 +190,7 @@ free_map_area:
 	bpf_map_area_free(dtab->netdev_map);
 free_dtab:
 	free_percpu(dtab->flush_needed);
-	kfree(dtab->dev_index_head);
+	bpf_map_area_free(dtab->dev_index_head);
 	kfree(dtab);
 	return ERR_PTR(err);
 }
@@ -228,20 +229,37 @@ static void dev_map_free(struct bpf_map *map)
 			cond_resched();
 	}
 
-	for (i = 0; i < dtab->map.max_entries; i++) {
-		struct bpf_dtab_netdev *dev;
+	if (dtab->map.map_type == BPF_MAP_TYPE_DEVMAP_HASH) {
+		for (i = 0; i < dtab->n_buckets; i++) {
+			struct bpf_dtab_netdev *dev;
+			struct hlist_head *head;
+			struct hlist_node *next;
 
-		dev = dtab->netdev_map[i];
-		if (!dev)
-			continue;
+			head = dev_map_index_hash(dtab, i);
 
-		dev_put(dev->dev);
-		kfree(dev);
+			hlist_for_each_entry_safe(dev, next, head, index_hlist) {
+				hlist_del_rcu(&dev->index_hlist);
+				dev_put(dev->dev);
+				kfree(dev);
+			}
+		}
+
+		bpf_map_area_free(dtab->dev_index_head);
+	} else {
+		for (i = 0; i < dtab->map.max_entries; i++) {
+			struct bpf_dtab_netdev *dev;
+
+			dev = dtab->netdev_map[i];
+			if (!dev)
+				continue;
+
+			dev_put(dev->dev);
+			kfree(dev);
+		}
 	}
 
 	free_percpu(dtab->flush_needed);
 	bpf_map_area_free(dtab->netdev_map);
-	kfree(dtab->dev_index_head);
 	kfree(dtab);
 }
 
@@ -260,12 +278,6 @@ static int dev_map_get_next_key(struct bpf_map *map, void *key, void *next_key)
 		return -ENOENT;
 	*next = index + 1;
 	return 0;
-}
-
-static inline struct hlist_head *dev_map_index_hash(struct bpf_dtab *dtab,
-						    int idx)
-{
-	return &dtab->dev_index_head[idx & (dtab->n_buckets - 1)];
 }
 
 static struct bpf_dtab_netdev *__dev_map_hash_lookup_elem_dtab(struct bpf_map *map, u32 key)
