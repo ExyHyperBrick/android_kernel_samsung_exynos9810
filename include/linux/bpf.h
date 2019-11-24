@@ -1226,9 +1226,8 @@ static inline u32 bpf_tcp_sock_convert_ctx_access(enum bpf_access_type type,
 #endif /* CONFIG_INET */
 
 enum bpf_text_poke_type {
-	BPF_MOD_NOP_TO_CALL,
-	BPF_MOD_CALL_TO_CALL,
-	BPF_MOD_CALL_TO_NOP,
+	BPF_MOD_CALL,
+	BPF_MOD_JUMP,
 };
 
 int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type t,
