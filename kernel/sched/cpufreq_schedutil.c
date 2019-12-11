@@ -362,7 +362,7 @@ static void sugov_update_single(struct update_util_data *hook, u64 time,
 	} else {
 		sugov_get_util(&util, &max, time);
 		sugov_iowait_boost(sg_cpu, &util, &max);
-		util = uclamp_util_with(this_rq(), util, NULL);
+		util = uclamp_rq_util_with(this_rq(), util, NULL);
 		next_f = get_next_freq(sg_policy, util, max);
 		/*
 		 * Do not reduce the frequency if the CPU has not been idle
@@ -411,7 +411,7 @@ static unsigned int sugov_next_freq_shared(struct sugov_cpu *sg_cpu, u64 time)
 		j_max = j_sg_cpu->max;
 #ifdef CONFIG_UCLAMP_TASK
 		sugov_iowait_boost(j_sg_cpu, &j_util, &j_max);
-		j_util = uclamp_util_with(cpu_rq(j), j_util, NULL);
+		j_util = uclamp_rq_util_with(cpu_rq(j), j_util, NULL);
 #endif
 		if (j_util * max >= j_max * util) {
 			util = j_util;
