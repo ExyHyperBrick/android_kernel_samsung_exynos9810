@@ -7291,12 +7291,18 @@ int find_best_target(struct task_struct *p, int *backup_cpu,
 			 * However, if the task prefers idle cpu and that
 			 * cpu is idle, skip this check.
 			 */
+#ifdef CONFIG_UCLAMP_TASK
+			spare_cap = capacity_orig - min(capacity_orig, new_util);
+#endif
 			new_util = max(min_util, new_util);
+			new_util = uclamp_rq_util_with(cpu_rq(i), new_util, p);
 			if (!(prefer_idle && idle_cpu(i))
 				&& new_util > capacity_orig)
 				continue;
 
+#ifndef CONFIG_UCLAMP_TASK
 			spare_cap = capacity_orig - new_util;
+#endif
 
 			if (idle_cpu(i))
 				idle_idx = idle_get_state_idx(cpu_rq(i));
@@ -7566,7 +7572,11 @@ static int wake_cap(struct task_struct *p, int cpu, int prev_cpu)
 	/* Bring task utilization in sync with prev_cpu */
 	sync_entity_load_avg(&p->se);
 
+#ifdef CONFIG_UCLAMP_TASK
+	return min_cap * 1024 < uclamp_task(p) * capacity_margin;
+#else
 	return min_cap * 1024 < task_util_est(p) * capacity_margin;
+#endif
 }
 
 static inline bool
