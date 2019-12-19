@@ -110,3 +110,6 @@ SCHED_FEAT(EXYNOS_MS, true)
 SCHED_FEAT(EXYNOS_MS, false)
 #endif
 
+
+/* Preserve Android's opt-in policy for boosting all real-time tasks. */
+SCHED_FEAT(SUGOV_RT_MAX_FREQ, false)
