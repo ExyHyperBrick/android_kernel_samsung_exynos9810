@@ -247,6 +247,11 @@ static inline void sk_psock_queue_msg(struct sk_psock *psock,
 	list_add_tail(&msg->list, &psock->ingress_msg);
 }
 
+static inline bool sk_psock_queue_empty(const struct sk_psock *psock)
+{
+	return psock ? list_empty(&psock->ingress_msg) : true;
+}
+
 static inline void sk_psock_report_error(struct sk_psock *psock, int err)
 {
 	struct sock *sk = psock->sk;
