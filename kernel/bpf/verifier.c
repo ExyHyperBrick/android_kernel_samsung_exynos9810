@@ -1332,10 +1332,6 @@ static void init_reg_state(struct bpf_verifier_env *env,
 	regs[BPF_REG_FP].type = PTR_TO_STACK;
 	mark_reg_known_zero(env, regs, BPF_REG_FP);
 	regs[BPF_REG_FP].frameno = state->frameno;
-
-	/* 1st arg to a function */
-	regs[BPF_REG_1].type = PTR_TO_CTX;
-	mark_reg_known_zero(env, regs, BPF_REG_1);
 }
 
 #define BPF_MAIN_FUNC (-1)
@@ -2950,6 +2946,12 @@ static int check_ptr_off_reg(struct bpf_verifier_env *env,
 	return 0;
 }
 
+int check_ctx_reg(struct bpf_verifier_env *env,
+		  const struct bpf_reg_state *reg, int regno)
+{
+	return check_ptr_off_reg(env, reg, regno);
+}
+
 static int check_tp_buffer_access(struct bpf_verifier_env *env,
 				  const struct bpf_reg_state *reg,
 				  int regno, int off, int size)
@@ -4315,13 +4317,25 @@ typedef int (*set_callee_state_fn)(struct bpf_verifier_env *env,
 				   struct bpf_func_state *callee,
 				   int insn_idx);
 
+static void clear_caller_saved_regs(struct bpf_verifier_env *env,
+				    struct bpf_reg_state *regs)
+{
+	int i;
+
+	/* Registers R0 through R5 are clobbered after a call. */
+	for (i = 0; i < CALLER_SAVED_REGS; i++) {
+		mark_reg_not_init(env, regs, caller_saved[i]);
+		check_reg_arg(env, caller_saved[i], DST_OP_NO_MARK);
+	}
+}
+
 static int __check_func_call(struct bpf_verifier_env *env, int *insn_idx,
 			     int subprog,
 			     set_callee_state_fn set_callee_state_cb)
 {
 	struct bpf_verifier_state *state = env->cur_state;
 	struct bpf_func_state *caller, *callee;
-	int i, err;
+	int err;
 
 	if (state->curframe + 1 >= MAX_CALL_FRAMES) {
 		verbose(env, "the call stack of %d frames is too deep\n",
@@ -4360,11 +4374,7 @@ static int __check_func_call(struct bpf_verifier_env *env, int *insn_idx,
 	if (err)
 		goto err_out;
 
-	/* after the call registers r0 - r5 were scratched */
-	for (i = 0; i < CALLER_SAVED_REGS; i++) {
-		mark_reg_not_init(env, caller->regs, caller_saved[i]);
-		check_reg_arg(env, caller_saved[i], DST_OP_NO_MARK);
-	}
+	clear_caller_saved_regs(env, caller->regs);
 	/* only increment it after check_reg_arg() finished */
 	state->curframe++;
 	/* and go analyze first insn of the callee */
@@ -4402,6 +4412,9 @@ static int set_callee_state(struct bpf_verifier_env *env,
 static int check_func_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
 			   int *insn_idx)
 {
+	struct bpf_func_info_aux *func_info_aux;
+	struct bpf_func_state *caller = cur_func(env);
+	bool is_global = false;
 	int subprog, target_insn, err;
 
 	target_insn = *insn_idx + insn->imm + 1;
@@ -4412,12 +4425,39 @@ static int check_func_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
 		return -EFAULT;
 	}
 
-	err = __check_func_call(env, insn_idx, subprog, set_callee_state);
-	if (err)
-		return err;
+	func_info_aux = env->prog->aux->func_info_aux;
+	if (func_info_aux)
+		is_global = func_info_aux[subprog].linkage == BTF_FUNC_GLOBAL;
 
-	/* Helper callbacks have their own argument contract. */
-	return btf_check_func_arg_match(env, subprog);
+	err = btf_check_func_arg_match(env, subprog, caller->regs);
+	if (err == -EFAULT)
+		return err;
+	if (is_global) {
+		if (env->cur_state->curframe + 1 >= MAX_CALL_FRAMES) {
+			verbose(env,
+				"the call stack of %d frames is too deep\n",
+				env->cur_state->curframe);
+			return -E2BIG;
+		}
+		if (err) {
+			verbose(env,
+				"Caller passes invalid args into func#%d\n",
+				subprog);
+			return err;
+		}
+		if (env->log.level & BPF_LOG_LEVEL)
+			verbose(env,
+				"Func#%d is global and valid. Skipping.\n",
+				subprog);
+
+		clear_caller_saved_regs(env, caller->regs);
+		/* Every supported global function returns a scalar. */
+		mark_reg_unknown(env, caller->regs, BPF_REG_0);
+		return 0;
+	}
+
+	/* Helper callbacks bypass this wrapper and keep their own contract. */
+	return __check_func_call(env, insn_idx, subprog, set_callee_state);
 }
 
 int map_set_for_each_callback_args(struct bpf_verifier_env *env,
@@ -7365,6 +7405,12 @@ static int check_return_code(struct bpf_verifier_env *env)
 	struct bpf_reg_state *reg;
 	struct tnum range = tnum_range(0, 1);
 
+	/* Global subprograms may return any scalar value. The generic exit
+	 * checks have already rejected unreadable and pointer-valued R0.
+	 */
+	if (cur_func(env)->subprogno)
+		return 0;
+
 	switch (env->prog->type) {
 	case BPF_PROG_TYPE_CGROUP_SOCK_ADDR:
 		if (env->prog->expected_attach_type == BPF_CGROUP_UDP4_RECVMSG ||
@@ -7749,12 +7795,13 @@ static int check_btf_func(struct bpf_verifier_env *env,
 
 		/* check type_id */
 		type = btf_type_by_id(btf, krecord[i].type_id);
-		if (!type || BTF_INFO_KIND(type->info) != BTF_KIND_FUNC) {
+		if (!type || !btf_type_is_func(type)) {
 			verbose(env, "invalid type id %d in func info",
 				krecord[i].type_id);
 			ret = -EINVAL;
 			goto err_free;
 		}
+		info_aux[i].linkage = BTF_INFO_VLEN(type->info);
 
 		prev_offset = krecord[i].insn_offset;
 		urecord += urec_size;
@@ -8637,35 +8684,12 @@ static bool reg_type_mismatch(enum bpf_reg_type src, enum bpf_reg_type prev)
 
 static int do_check(struct bpf_verifier_env *env)
 {
-	struct bpf_verifier_state *state;
+	struct bpf_verifier_state *state = env->cur_state;
 	struct bpf_insn *insns = env->prog->insnsi;
 	struct bpf_reg_state *regs;
 	int insn_cnt = env->prog->len;
 	bool do_print_state = false;
 	int prev_insn_idx = -1;
-
-	env->prev_linfo = NULL;
-
-	state = kzalloc(sizeof(struct bpf_verifier_state), GFP_KERNEL);
-	if (!state)
-		return -ENOMEM;
-
-	state->speculative = false;
-	state->curframe = 0;
-	state->branches = 1;
-	state->frame[0] = kzalloc(sizeof(struct bpf_func_state), GFP_KERNEL);
-	if (!state->frame[0]) {
-		kfree(state);
-		return -ENOMEM;
-	}
-	env->cur_state = state;
-	init_func_state(env, state->frame[0],
-			BPF_MAIN_FUNC /* callsite */,
-			0 /* frameno */,
-			0 /* subprogno, zero == main subprog */);
-
-	if (btf_check_func_arg_match(env, 0))
-		return -EINVAL;
 
 	for (;;) {
 		struct bpf_insn *insn;
@@ -8742,7 +8766,7 @@ static int do_check(struct bpf_verifier_env *env)
 		}
 
 		regs = cur_regs(env);
-		env->insn_aux_data[env->insn_idx].seen = true;
+		env->insn_aux_data[env->insn_idx].seen = env->pass_cnt;
 		prev_insn_idx = env->insn_idx;
 
 		if (class == BPF_ALU || class == BPF_ALU64) {
@@ -8979,7 +9003,8 @@ process_bpf_exit:
 					return err;
 
 				env->insn_idx++;
-				env->insn_aux_data[env->insn_idx].seen = true;
+				env->insn_aux_data[env->insn_idx].seen =
+					env->pass_cnt;
 			} else {
 				verbose(env, "invalid BPF_LD mode\n");
 				return -EINVAL;
@@ -8992,7 +9017,6 @@ process_bpf_exit:
 		env->insn_idx++;
 	}
 
-	env->prog->aux->stack_depth = env->subprog_info[0].stack_depth;
 	return 0;
 }
 
@@ -9357,7 +9381,7 @@ static int adjust_insn_aux_data(struct bpf_verifier_env *env,
 {
 	struct bpf_insn_aux_data *new_data, *old_data = env->insn_aux_data;
 	struct bpf_insn *insn = new_prog->insnsi;
-	bool old_seen = old_data[off].seen;
+	u32 old_seen = old_data[off].seen;
 	u32 prog_len;
 	int i;
 
@@ -10155,6 +10179,7 @@ static void free_states(struct bpf_verifier_env *env)
 		kfree(sl);
 		sl = sln;
 	}
+	env->free_list = NULL;
 
 	if (!env->explored_states)
 		return;
@@ -10168,9 +10193,127 @@ static void free_states(struct bpf_verifier_env *env)
 			kfree(sl);
 			sl = sln;
 		}
+		env->explored_states[i] = NULL;
+	}
+}
+
+/* Each independent global-function pass reuses insn_aux_data. If a pass
+ * fails, discard temporary access state only for instructions that pass
+ * touched while preserving fields initialized before verification.
+ */
+static void sanitize_insn_aux_data(struct bpf_verifier_env *env)
+{
+	struct bpf_insn_aux_data *aux;
+	struct bpf_insn *insn = env->prog->insnsi;
+	int i, class;
+
+	for (i = 0; i < env->prog->len; i++) {
+		class = BPF_CLASS(insn[i].code);
+		if (class != BPF_LDX && class != BPF_STX)
+			continue;
+		aux = &env->insn_aux_data[i];
+		if (aux->seen != env->pass_cnt)
+			continue;
+		memset(aux, 0, offsetof(typeof(*aux), orig_idx));
+	}
+}
+
+static int do_check_common(struct bpf_verifier_env *env, int subprog)
+{
+	struct bpf_verifier_state *state;
+	struct bpf_reg_state *regs;
+	int ret, i;
+
+	env->prev_linfo = NULL;
+	env->pass_cnt++;
+
+	state = kzalloc(sizeof(*state), GFP_KERNEL);
+	if (!state)
+		return -ENOMEM;
+	state->curframe = 0;
+	state->speculative = false;
+	state->branches = 1;
+	state->frame[0] = kzalloc(sizeof(*state->frame[0]), GFP_KERNEL);
+	if (!state->frame[0]) {
+		kfree(state);
+		return -ENOMEM;
+	}
+	env->cur_state = state;
+	init_func_state(env, state->frame[0],
+			BPF_MAIN_FUNC /* callsite */,
+			0 /* frameno */,
+			subprog);
+
+	regs = state->frame[state->curframe]->regs;
+	if (subprog) {
+		ret = btf_prepare_func_args(env, subprog, regs);
+		if (ret)
+			goto out;
+		for (i = BPF_REG_1; i <= BPF_REG_5; i++) {
+			if (regs[i].type == PTR_TO_CTX)
+				mark_reg_known_zero(env, regs, i);
+			else if (regs[i].type == SCALAR_VALUE)
+				mark_reg_unknown(env, regs, i);
+		}
+	} else {
+		/* The first argument to the main program is its context. */
+		regs[BPF_REG_1].type = PTR_TO_CTX;
+		mark_reg_known_zero(env, regs, BPF_REG_1);
+		ret = btf_check_func_arg_match(env, subprog, regs);
+		if (ret == -EFAULT)
+			/* Main-program BTF mismatches remain accepted for
+			 * compatibility, but internal verifier errors do not.
+			 */
+			goto out;
 	}
 
-	kfree(env->explored_states);
+	ret = do_check(env);
+out:
+	free_verifier_state(env->cur_state, true);
+	env->cur_state = NULL;
+	while (!pop_stack(env, NULL, NULL))
+		;
+	free_states(env);
+	if (ret)
+		sanitize_insn_aux_data(env);
+	return ret;
+}
+
+/* Verify global functions independently from their BTF prototypes. */
+static int do_check_subprogs(struct bpf_verifier_env *env)
+{
+	struct bpf_prog_aux *aux = env->prog->aux;
+	int i, ret;
+
+	if (!aux->func_info)
+		return 0;
+
+	for (i = 1; i < env->subprog_cnt; i++) {
+		if (aux->func_info_aux[i].linkage != BTF_FUNC_GLOBAL)
+			continue;
+		env->insn_idx = env->subprog_info[i].start;
+		WARN_ON_ONCE(env->insn_idx == 0);
+		ret = do_check_common(env, i);
+		if (ret)
+			return ret;
+		if (env->log.level & BPF_LOG_LEVEL)
+			verbose(env,
+				"Func#%d is safe for any args that match its prototype\n",
+				i);
+	}
+	return 0;
+}
+
+static int do_check_main(struct bpf_verifier_env *env)
+{
+	int ret;
+
+	env->insn_idx = 0;
+	ret = do_check_common(env, 0);
+	if (!ret)
+		env->prog->aux->stack_depth =
+			env->subprog_info[0].stack_depth;
+	return ret;
 }
 
 static void print_verification_stats(struct bpf_verifier_env *env)
@@ -10356,15 +10499,16 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr,
 	if (ret < 0)
 		goto skip_full_check;
 
-	ret = do_check(env);
-	if (env->cur_state) {
-		free_verifier_state(env->cur_state, true);
-		env->cur_state = NULL;
-	}
+	ret = do_check_subprogs(env);
+	if (!ret)
+		ret = do_check_main(env);
 
 skip_full_check:
-	while (!pop_stack(env, NULL, NULL));
+	while (!pop_stack(env, NULL, NULL))
+		;
 	free_states(env);
+	kfree(env->explored_states);
+	env->explored_states = NULL;
 
 	if (ret == 0)
 		sanitize_dead_code(env);
@@ -10481,15 +10625,16 @@ int bpf_analyzer(struct bpf_prog *prog, const struct bpf_ext_analyzer_ops *ops,
 
 	env->allow_ptr_leaks = capable(CAP_SYS_ADMIN);
 
-	ret = do_check(env);
-	if (env->cur_state) {
-		free_verifier_state(env->cur_state, true);
-		env->cur_state = NULL;
-	}
+	ret = do_check_subprogs(env);
+	if (!ret)
+		ret = do_check_main(env);
 
 skip_full_check:
-	while (!pop_stack(env, NULL, NULL));
+	while (!pop_stack(env, NULL, NULL))
+		;
 	free_states(env);
+	kfree(env->explored_states);
+	env->explored_states = NULL;
 
 	mutex_unlock(&bpf_verifier_lock);
 	vfree(env->insn_aux_data);
