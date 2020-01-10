@@ -414,6 +414,7 @@ enum bpf_cgroup_storage_type {
 #define MAX_BPF_FUNC_ARGS 12
 
 struct bpf_func_info_aux {
+	u16 linkage;
 	bool unreliable;
 };
 
@@ -574,7 +575,11 @@ bool btf_struct_ids_match(struct bpf_verifier_log *log,
 			  int off, u32 id, u32 need_type_id);
 struct btf_id_set;
 bool btf_id_set_contains(struct btf_id_set *set, u32 id);
-int btf_check_func_arg_match(struct bpf_verifier_env *env, int subprog);
+struct bpf_reg_state;
+int btf_check_func_arg_match(struct bpf_verifier_env *env, int subprog,
+			     struct bpf_reg_state *regs);
+int btf_prepare_func_args(struct bpf_verifier_env *env, int subprog,
+			  struct bpf_reg_state *regs);
 
 /* an array of programs to be executed under rcu_lock.
  *
