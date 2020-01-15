@@ -864,6 +864,7 @@ struct send_signal_irq_work {
 	struct irq_work irq_work;
 	struct task_struct *task;
 	u32 sig;
+	bool group;
 };
 
 static DEFINE_PER_CPU(struct send_signal_irq_work, send_signal_work);
@@ -873,10 +874,13 @@ static void do_bpf_send_signal(struct irq_work *entry)
 	struct send_signal_irq_work *work;
 
 	work = container_of(entry, struct send_signal_irq_work, irq_work);
-	group_send_sig_info(work->sig, SEND_SIG_PRIV, work->task);
+	if (work->group)
+		group_send_sig_info(work->sig, SEND_SIG_PRIV, work->task);
+	else
+		send_sig_info(work->sig, SEND_SIG_PRIV, work->task);
 }
 
-BPF_CALL_1(bpf_send_signal, u32, sig)
+static int bpf_send_signal_common(u32 sig, bool group)
 {
 	struct send_signal_irq_work *work;
 
@@ -895,15 +899,35 @@ BPF_CALL_1(bpf_send_signal, u32, sig)
 
 		work->task = current;
 		work->sig = sig;
+		work->group = group;
 		irq_work_queue(&work->irq_work);
 		return 0;
 	}
 
-	return group_send_sig_info(sig, SEND_SIG_PRIV, current);
+	return group ?
+	       group_send_sig_info(sig, SEND_SIG_PRIV, current) :
+	       send_sig_info(sig, SEND_SIG_PRIV, current);
+}
+
+BPF_CALL_1(bpf_send_signal, u32, sig)
+{
+	return bpf_send_signal_common(sig, true);
 }
 
 static const struct bpf_func_proto bpf_send_signal_proto = {
 	.func		= bpf_send_signal,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_ANYTHING,
+};
+
+BPF_CALL_1(bpf_send_signal_thread, u32, sig)
+{
+	return bpf_send_signal_common(sig, false);
+}
+
+static const struct bpf_func_proto bpf_send_signal_thread_proto = {
+	.func		= bpf_send_signal_thread,
 	.gpl_only	= false,
 	.ret_type	= RET_INTEGER,
 	.arg1_type	= ARG_ANYTHING,
@@ -993,6 +1017,8 @@ tracing_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_snprintf_btf_proto;
 	case BPF_FUNC_send_signal:
 		return &bpf_send_signal_proto;
+	case BPF_FUNC_send_signal_thread:
+		return &bpf_send_signal_thread_proto;
 	case BPF_FUNC_snprintf:
 		return &bpf_snprintf_proto;
 	case BPF_FUNC_get_func_ip:
