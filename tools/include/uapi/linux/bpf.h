@@ -154,6 +154,7 @@ enum bpf_prog_type {
 	BPF_PROG_TYPE_CGROUP_DEVICE,
 	BPF_PROG_TYPE_SK_REUSEPORT = 21,
 	BPF_PROG_TYPE_TRACING = 26,
+	BPF_PROG_TYPE_EXT = 28,
 };
 
 enum bpf_attach_type {
