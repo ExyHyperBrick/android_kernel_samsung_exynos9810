@@ -53,6 +53,11 @@ BPF_PROG_TYPE(BPF_PROG_TYPE_CGROUP_SOCKOPT, cg_sockopt,
 BPF_PROG_TYPE(BPF_PROG_TYPE_FLOW_DISSECTOR, flow_dissector,
 	      struct __sk_buff, struct sk_buff)
 
+#ifdef CONFIG_BPF_JIT
+BPF_PROG_TYPE(BPF_PROG_TYPE_EXT, bpf_extension,
+	      void *, void *)
+#endif
+
 #ifdef CONFIG_INET
 BPF_PROG_TYPE(BPF_PROG_TYPE_SK_REUSEPORT, sk_reuseport,
 	      struct sk_reuseport_md, struct sk_reuseport_kern)

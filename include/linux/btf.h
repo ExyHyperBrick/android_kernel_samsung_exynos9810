@@ -96,6 +96,11 @@ static inline u16 btf_type_vlen(const struct btf_type *t)
 	return BTF_INFO_VLEN(t->info);
 }
 
+static inline u16 btf_func_linkage(const struct btf_type *t)
+{
+	return BTF_INFO_VLEN(t->info);
+}
+
 static inline bool btf_type_is_var(const struct btf_type *t)
 {
 	return BTF_INFO_KIND(t->info) == BTF_KIND_VAR;
