@@ -640,3 +640,13 @@ int tcp_bpf_update_proto(struct sock *sk, struct sk_psock *psock,
 	return 0;
 }
 EXPORT_SYMBOL_GPL(tcp_bpf_update_proto);
+
+/* Restore protocol callbacks inherited from a sockmap listener. */
+void tcp_bpf_clone(const struct sock *sk, struct sock *newsk)
+{
+	int family = sk->sk_family == AF_INET6 ? TCP_BPF_IPV6 : TCP_BPF_IPV4;
+	struct proto *prot = READ_ONCE(newsk->sk_prot);
+
+	if (prot == &tcp_bpf_prots[family][TCP_BPF_BASE])
+		WRITE_ONCE(newsk->sk_prot, sk->sk_prot_creator);
+}
