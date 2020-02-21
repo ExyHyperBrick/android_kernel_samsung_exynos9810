@@ -454,7 +454,8 @@ out_free:
 static bool sock_map_op_okay(const struct bpf_sock_ops_kern *ops)
 {
 	return ops->op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB ||
-	       ops->op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB;
+	       ops->op == BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB ||
+	       ops->op == BPF_SOCK_OPS_TCP_LISTEN_CB;
 }
 
 static bool sk_is_tcp(const struct sock *sk)
@@ -467,6 +468,14 @@ static bool sock_map_redirect_allowed(const struct sock *sk)
 {
 	if (sk_is_tcp(sk))
 		return sk->sk_state != TCP_LISTEN;
+	return sk->sk_state == TCP_ESTABLISHED;
+}
+
+static bool sock_map_sk_state_allowed(const struct sock *sk)
+{
+	if (sk_is_tcp(sk))
+		return (1 << sk->sk_state) &
+		       (TCPF_ESTABLISHED | TCPF_LISTEN);
 	return sk->sk_state == TCP_ESTABLISHED;
 }
 
@@ -495,7 +504,7 @@ int sock_map_update_elem_sys(struct bpf_map *map, void *key, void *value,
 		goto out;
 	}
 	if (!sock_map_sk_is_suitable(sk) ||
-	    sk->sk_state != TCP_ESTABLISHED) {
+	    !sock_map_sk_state_allowed(sk)) {
 		ret = -EOPNOTSUPP;
 		goto out;
 	}
@@ -524,7 +533,7 @@ static int sock_map_update_elem(struct bpf_map *map, void *key, void *value,
 
 	local_bh_disable();
 	bh_lock_sock(sk);
-	if (sk->sk_state != TCP_ESTABLISHED)
+	if (!sock_map_sk_state_allowed(sk))
 		ret = -EOPNOTSUPP;
 	else if (map->map_type == BPF_MAP_TYPE_SOCKMAP)
 		ret = sock_map_update_common(map, *(u32 *)key, sk, flags);
