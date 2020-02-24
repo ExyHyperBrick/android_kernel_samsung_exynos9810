@@ -568,6 +568,24 @@ struct sk_filter {
 	(*(filter)->bpf_func)(ctx, (filter)->insnsi); \
 })
 
+/*
+ * Use in preemptible and therefore migratable context to make sure the
+ * execution of the BPF program runs on one CPU.
+ *
+ * This 4.9 tree predates migrate_disable(), so preemption is disabled to
+ * prevent migration for the complete program invocation.
+ */
+static inline u32 bpf_prog_run_pin_on_cpu(const struct bpf_prog *prog,
+					  const void *ctx)
+{
+	u32 ret;
+
+	preempt_disable();
+	ret = BPF_PROG_RUN(prog, ctx);
+	preempt_enable();
+	return ret;
+}
+
 #define BPF_SKB_CB_LEN QDISC_CB_PRIV_LEN
 
 struct bpf_skb_data_end {
