@@ -544,7 +544,7 @@ bool __skb_flow_dissect(const struct sk_buff *skb,
 		flow_keys.nhoff = nhoff;
 
 		bpf_compute_data_pointers((struct sk_buff *)skb);
-		result = BPF_PROG_RUN(attached, skb);
+		result = bpf_prog_run_pin_on_cpu(attached, skb);
 
 		/* Restore state */
 		memcpy(cb, &cb_saved, sizeof(cb_saved));
