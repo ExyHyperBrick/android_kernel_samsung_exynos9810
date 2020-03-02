@@ -54,6 +54,8 @@ source "drivers/lightnvm/Kconfig"
 
 source "drivers/input/Kconfig"
 
+source "drivers/gpu/trace/Kconfig"
+
 source "drivers/char/Kconfig"
 
 source "drivers/i2c/Kconfig"
