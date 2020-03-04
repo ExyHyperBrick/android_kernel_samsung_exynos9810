@@ -889,7 +889,7 @@ static int bpf_send_signal_common(u32 sig, bool group)
 	if (unlikely(uaccess_kernel()))
 		return -EPERM;
 
-	if (in_nmi()) {
+	if (irqs_disabled()) {
 		if (unlikely(!valid_signal(sig)))
 			return -EINVAL;
 
