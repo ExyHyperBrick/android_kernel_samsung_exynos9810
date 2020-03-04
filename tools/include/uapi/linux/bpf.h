@@ -2428,4 +2428,9 @@ enum bpf_task_fd_type {
 	BPF_FD_TYPE_URETPROBE,
 };
 
+struct bpf_pidns_info {
+	__u32 pid;
+	__u32 tgid;
+};
+
 #endif /* _UAPI__LINUX_BPF_H__ */
