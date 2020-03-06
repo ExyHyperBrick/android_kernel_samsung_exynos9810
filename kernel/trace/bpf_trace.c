@@ -1164,6 +1164,7 @@ static const struct bpf_func_proto bpf_perf_event_output_proto_raw_tp = {
 };
 
 extern const struct bpf_func_proto bpf_skb_output_proto;
+extern const struct bpf_func_proto bpf_xdp_output_proto;
 
 BPF_CALL_3(bpf_get_stackid_raw_tp, struct bpf_raw_tracepoint_args *, args,
 	struct bpf_map *, map, u64, flags)
@@ -1240,6 +1241,8 @@ tracing_prog_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 #ifdef CONFIG_NET
 	case BPF_FUNC_skb_output:
 		return &bpf_skb_output_proto;
+	case BPF_FUNC_xdp_output:
+		return &bpf_xdp_output_proto;
 	case BPF_FUNC_skc_to_tcp6_sock:
 		return &bpf_skc_to_tcp6_sock_proto;
 	case BPF_FUNC_skc_to_tcp_sock:
