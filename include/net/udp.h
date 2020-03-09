@@ -353,6 +353,13 @@ int udpv4_offload_init(void);
 void udp_init(void);
 
 void udp_encap_enable(void);
+
+#ifdef CONFIG_BPF_SYSCALL
+struct sk_psock;
+int udp_bpf_update_proto(struct sock *sk, struct sk_psock *psock,
+			 bool restore);
+#endif
+
 #if IS_ENABLED(CONFIG_IPV6)
 void udpv6_encap_enable(void);
 #endif
