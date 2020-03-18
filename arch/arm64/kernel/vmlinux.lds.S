@@ -297,7 +297,6 @@ SECTIONS
 #endif
 #endif
 
-	BTF
 	_end = .;
 
 	STABS_DEBUG

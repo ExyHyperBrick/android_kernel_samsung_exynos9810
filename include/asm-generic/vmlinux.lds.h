@@ -445,10 +445,12 @@
 		VMLINUX_SYMBOL(__start___modver) = .;			\
 		*(__modver)						\
 		VMLINUX_SYMBOL(__stop___modver) = .;			\
-		. = ALIGN((align));					\
-		VMLINUX_SYMBOL(__end_rodata) = .;			\
 	}								\
-	. = ALIGN((align));
+									\
+	BTF								\
+									\
+	. = ALIGN((align));						\
+	VMLINUX_SYMBOL(__end_rodata) = .;
 
 /* RODATA & RO_DATA provided for backward compatibility.
  * All archs are supposed to use RO_DATA() */
