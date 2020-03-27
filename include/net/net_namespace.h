@@ -56,6 +56,7 @@ struct net {
 
 	u32			hash_mix;
 	atomic64_t		cookie_gen;
+	atomic64_t		net_cookie; /* written once */
 
 	struct list_head	list;		/* list of network namespaces */
 	struct list_head	cleanup_list;	/* namespaces on death row */
@@ -226,6 +227,8 @@ static inline int check_net(const struct net *net)
 
 void net_drop_ns(void *);
 
+u64 net_gen_cookie(struct net *net);
+
 #else
 
 static inline struct net *get_net(struct net *net)
@@ -251,6 +254,11 @@ int net_eq(const struct net *net1, const struct net *net2)
 static inline int check_net(const struct net *net)
 {
 	return 1;
+}
+
+static inline u64 net_gen_cookie(struct net *net)
+{
+	return 0;
 }
 
 #define net_drop_ns NULL
