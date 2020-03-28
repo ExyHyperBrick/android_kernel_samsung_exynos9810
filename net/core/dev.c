@@ -7087,9 +7087,11 @@ static int dev_xdp_install(struct net_device *dev, bpf_op_t bpf_op,
  *
  *	Set or clear a bpf program for a device
  */
-int dev_change_xdp_fd(struct net_device *dev, int fd, u32 flags)
+int dev_change_xdp_fd(struct net_device *dev, int fd, int expected_fd,
+		      u32 flags)
 {
 	const struct net_device_ops *ops = dev->netdev_ops;
+	u32 prog_id = 0, expected_id = 0;
 	struct bpf_prog *prog = NULL;
 	bpf_op_t bpf_op, bpf_chk;
 	int err;
@@ -7104,11 +7106,25 @@ int dev_change_xdp_fd(struct net_device *dev, int fd, u32 flags)
 	if (bpf_op == bpf_chk)
 		bpf_chk = generic_xdp_install;
 
+	__dev_xdp_attached(dev, bpf_op, &prog_id);
+	if (flags & XDP_FLAGS_REPLACE) {
+		if (expected_fd >= 0) {
+			prog = bpf_prog_get_type(expected_fd, BPF_PROG_TYPE_XDP);
+			if (IS_ERR(prog))
+				return PTR_ERR(prog);
+			expected_id = prog->aux->id;
+			bpf_prog_put(prog);
+			prog = NULL;
+		}
+
+		if (prog_id != expected_id)
+			return -EEXIST;
+	}
+
 	if (fd >= 0) {
 		if (bpf_chk && __dev_xdp_attached(dev, bpf_chk, NULL))
 			return -EEXIST;
-		if ((flags & XDP_FLAGS_UPDATE_IF_NOEXIST) &&
-		    __dev_xdp_attached(dev, bpf_op, NULL))
+		if ((flags & XDP_FLAGS_UPDATE_IF_NOEXIST) && prog_id)
 			return -EBUSY;
 
 		prog = bpf_prog_get_type(fd, BPF_PROG_TYPE_XDP);
