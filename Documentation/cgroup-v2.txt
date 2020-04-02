@@ -144,6 +144,24 @@ and experimenting easier, the kernel parameter cgroup_no_v1= allows
 disabling controllers in v1 and make them always available in v2.
 
 
+cgroup v2 supports the following mount option:
+
+  memory_recursiveprot
+
+        Recursively apply memory.min and memory.low protection to
+        entire subtrees, without requiring explicit downward
+        propagation into leaf cgroups.  This allows protecting entire
+        subtrees from one another, while retaining free competition
+        within those subtrees.  This should have been the default
+        behavior but is a mount option to avoid regressing setups
+        relying on the original semantics (e.g. specifying bogusly
+        high 'bypass' protection values at higher tree levels).
+
+        The option can be changed through remount from the initial
+        cgroup namespace.  Mounts in other cgroup namespaces cannot
+        change the global setting.
+
+
 2-2. Organizing Processes
 
 Initially, only the root cgroup exists to which all processes belong.
