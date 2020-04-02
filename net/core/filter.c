@@ -6119,8 +6119,10 @@ bpf_sk_base_func_proto(enum bpf_func_id func_id)
 		return bpf_base_func_proto(func_id);
 	}
 
-	/* CAP_PERFMON is restored by the later capability tranche. */
-	return capable(CAP_SYS_ADMIN) ? func : NULL;
+	if (!perfmon_capable())
+		return NULL;
+
+	return func;
 }
 
 const struct bpf_func_proto bpf_sk_storage_get_cg_sock_proto __weak;
