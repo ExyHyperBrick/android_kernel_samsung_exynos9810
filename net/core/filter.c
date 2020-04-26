@@ -168,17 +168,6 @@ BPF_CALL_3(__skb_get_nlattr_nest, struct sk_buff *, skb, u32, a, u32, x)
 	return 0;
 }
 
-BPF_CALL_0(__get_raw_cpu_id)
-{
-	return raw_smp_processor_id();
-}
-
-static const struct bpf_func_proto bpf_get_raw_smp_processor_id_proto = {
-	.func		= __get_raw_cpu_id,
-	.gpl_only	= false,
-	.ret_type	= RET_INTEGER,
-};
-
 static u32 convert_skb_access(int skb_field, int dst_reg, int src_reg,
 			      struct bpf_insn *insn_buf)
 {
@@ -333,7 +322,7 @@ static bool convert_bpf_extensions(struct sock_filter *fp,
 			*insn = BPF_EMIT_CALL(__skb_get_nlattr_nest);
 			break;
 		case SKF_AD_OFF + SKF_AD_CPU:
-			*insn = BPF_EMIT_CALL(__get_raw_cpu_id);
+			*insn = BPF_EMIT_CALL(bpf_get_raw_cpu_id);
 			break;
 		case SKF_AD_OFF + SKF_AD_RANDOM:
 			*insn = BPF_EMIT_CALL(bpf_user_rnd_u32);
@@ -4629,112 +4618,12 @@ static const struct bpf_func_proto bpf_bind_proto = {
 	.arg3_type	= ARG_CONST_SIZE,
 };
 
-BPF_CALL_5(bpf_event_output_data, void *, ctx, struct bpf_map *, map,
-	   u64, flags, void *, data, u64, size)
-{
-	if (unlikely(flags & ~(BPF_F_INDEX_MASK)))
-		return -EINVAL;
-
-	return bpf_event_output(map, flags, data, size, NULL, 0, NULL);
-}
-
-const struct bpf_func_proto bpf_event_output_data_proto = {
-	.func		= bpf_event_output_data,
-	.gpl_only	= true,
-	.ret_type	= RET_INTEGER,
-	.arg1_type	= ARG_PTR_TO_CTX,
-	.arg2_type	= ARG_CONST_MAP_PTR,
-	.arg3_type	= ARG_ANYTHING,
-	.arg4_type	= ARG_PTR_TO_MEM,
-	.arg5_type	= ARG_CONST_SIZE_OR_ZERO,
-};
-
 extern const struct bpf_func_proto bpf_get_current_task_proto __weak;
 extern const struct bpf_func_proto bpf_probe_read_user_proto __weak;
 extern const struct bpf_func_proto bpf_probe_read_user_str_proto __weak;
 extern const struct bpf_func_proto bpf_probe_read_kernel_proto __weak;
 extern const struct bpf_func_proto bpf_probe_read_kernel_str_proto __weak;
 
-static const struct bpf_func_proto *
-bpf_base_func_proto(enum bpf_func_id func_id)
-{
-	switch (func_id) {
-	case BPF_FUNC_map_lookup_elem:
-		return &bpf_map_lookup_elem_proto;
-	case BPF_FUNC_map_update_elem:
-		return &bpf_map_update_elem_proto;
-	case BPF_FUNC_map_delete_elem:
-		return &bpf_map_delete_elem_proto;
-	case BPF_FUNC_map_push_elem:
-		return &bpf_map_push_elem_proto;
-	case BPF_FUNC_map_pop_elem:
-		return &bpf_map_pop_elem_proto;
-	case BPF_FUNC_map_peek_elem:
-		return &bpf_map_peek_elem_proto;
-	case BPF_FUNC_get_prandom_u32:
-		return &bpf_get_prandom_u32_proto;
-	case BPF_FUNC_get_smp_processor_id:
-		return &bpf_get_raw_smp_processor_id_proto;
-	case BPF_FUNC_get_numa_node_id:
-		return &bpf_get_numa_node_id_proto;
-	case BPF_FUNC_tail_call:
-		return &bpf_tail_call_proto;
-	case BPF_FUNC_ktime_get_ns:
-		return &bpf_ktime_get_ns_proto;
-	case BPF_FUNC_ktime_get_boot_ns:
-		return &bpf_ktime_get_boot_ns_proto;
-	case BPF_FUNC_ringbuf_output:
-		return &bpf_ringbuf_output_proto;
-	case BPF_FUNC_ringbuf_reserve:
-		return &bpf_ringbuf_reserve_proto;
-	case BPF_FUNC_ringbuf_submit:
-		return &bpf_ringbuf_submit_proto;
-	case BPF_FUNC_ringbuf_discard:
-		return &bpf_ringbuf_discard_proto;
-	case BPF_FUNC_ringbuf_query:
-		return &bpf_ringbuf_query_proto;
-	case BPF_FUNC_for_each_map_elem:
-		return &bpf_for_each_map_elem_proto;
-	case BPF_FUNC_per_cpu_ptr:
-		return &bpf_per_cpu_ptr_proto;
-	case BPF_FUNC_this_cpu_ptr:
-		return &bpf_this_cpu_ptr_proto;
-	case BPF_FUNC_jiffies64:
-		return &bpf_jiffies64_proto;
-	default:
-		break;
-	}
-	if (!capable(CAP_SYS_ADMIN))
-		return NULL;
-	switch (func_id) {
-	case BPF_FUNC_spin_lock:
-		return &bpf_spin_lock_proto;
-	case BPF_FUNC_spin_unlock:
-		return &bpf_spin_unlock_proto;
-	case BPF_FUNC_trace_printk:
-		return bpf_get_trace_printk_proto();
-	case BPF_FUNC_snprintf_btf:
-		return &bpf_snprintf_btf_proto;
-	case BPF_FUNC_snprintf:
-		return &bpf_snprintf_proto;
-	case BPF_FUNC_get_socket_cookie:
-		return &bpf_get_socket_cookie_proto;
-	case BPF_FUNC_get_socket_uid:
-		return &bpf_get_socket_uid_proto;
-	case BPF_FUNC_get_current_task:
-		return &bpf_get_current_task_proto;
-	case BPF_FUNC_probe_read_user:
-		return &bpf_probe_read_user_proto;
-	case BPF_FUNC_probe_read_kernel:
-		return &bpf_probe_read_kernel_proto;
-	case BPF_FUNC_probe_read_user_str:
-		return &bpf_probe_read_user_str_proto;
-	case BPF_FUNC_probe_read_kernel_str:
-		return &bpf_probe_read_kernel_str_proto;
-	default:
-		return NULL;
-	}
-}
 
 static const struct bpf_func_proto *
 bpf_sk_base_func_proto(enum bpf_func_id func_id)
@@ -4742,6 +4631,10 @@ bpf_sk_base_func_proto(enum bpf_func_id func_id)
 	const struct bpf_func_proto *func;
 
 	switch (func_id) {
+	case BPF_FUNC_get_socket_cookie:
+		return &bpf_get_socket_cookie_proto;
+	case BPF_FUNC_get_socket_uid:
+		return &bpf_get_socket_uid_proto;
 	case BPF_FUNC_skc_to_tcp_sock:
 		func = &bpf_skc_to_tcp_sock_proto;
 		break;
@@ -4787,7 +4680,7 @@ sock_filter_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 	case BPF_FUNC_get_current_comm:
 		return &bpf_get_current_comm_proto;
 	default:
-		return bpf_base_func_proto(func_id);
+		return bpf_sk_base_func_proto(func_id);
 	}
 }
 
@@ -6994,7 +6887,7 @@ sk_reuseport_func_proto(enum bpf_func_id func_id,
 	case BPF_FUNC_skb_load_bytes_relative:
 		return &sk_reuseport_load_bytes_relative_proto;
 	default:
-		return bpf_base_func_proto(func_id);
+		return bpf_sk_base_func_proto(func_id);
 	}
 }
 
