@@ -4629,6 +4629,26 @@ static const struct bpf_func_proto bpf_bind_proto = {
 	.arg3_type	= ARG_CONST_SIZE,
 };
 
+BPF_CALL_5(bpf_event_output_data, void *, ctx, struct bpf_map *, map,
+	   u64, flags, void *, data, u64, size)
+{
+	if (unlikely(flags & ~(BPF_F_INDEX_MASK)))
+		return -EINVAL;
+
+	return bpf_event_output(map, flags, data, size, NULL, 0, NULL);
+}
+
+const struct bpf_func_proto bpf_event_output_data_proto = {
+	.func		= bpf_event_output_data,
+	.gpl_only	= true,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_CTX,
+	.arg2_type	= ARG_CONST_MAP_PTR,
+	.arg3_type	= ARG_ANYTHING,
+	.arg4_type	= ARG_PTR_TO_MEM,
+	.arg5_type	= ARG_CONST_SIZE_OR_ZERO,
+};
+
 extern const struct bpf_func_proto bpf_get_current_task_proto __weak;
 extern const struct bpf_func_proto bpf_probe_read_user_proto __weak;
 extern const struct bpf_func_proto bpf_probe_read_user_str_proto __weak;
