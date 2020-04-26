@@ -1345,6 +1345,7 @@ extern const struct bpf_func_proto bpf_msg_redirect_map_proto;
 extern const struct bpf_func_proto bpf_sk_redirect_hash_proto;
 extern const struct bpf_func_proto bpf_sk_redirect_map_proto;
 extern const struct bpf_func_proto bpf_get_local_storage_proto;
+extern const struct bpf_func_proto bpf_event_output_data_proto;
 extern const struct bpf_func_proto bpf_tcp_sock_proto;
 
 extern const struct bpf_func_proto bpf_ringbuf_output_proto;
