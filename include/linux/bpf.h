@@ -910,6 +910,8 @@ extern const struct bpf_verifier_ops bpf_offload_verifier_ops;
 extern const struct bpf_prog_ops bpf_offload_prog_ops;
 
 struct bpf_prog *bpf_prog_get(u32 ufd);
+const struct bpf_func_proto *
+bpf_base_func_proto(enum bpf_func_id func_id);
 struct bpf_prog *bpf_prog_get_type(u32 ufd, enum bpf_prog_type type);
 void bpf_prog_add(struct bpf_prog *prog, int i);
 void bpf_prog_inc(struct bpf_prog *prog);
@@ -1137,6 +1139,12 @@ static inline int bpf_map_attr_numa_node(const union bpf_attr *attr)
 static inline struct bpf_prog *bpf_prog_get(u32 ufd)
 {
 	return ERR_PTR(-EOPNOTSUPP);
+}
+
+static inline const struct bpf_func_proto *
+bpf_base_func_proto(enum bpf_func_id func_id)
+{
+	return NULL;
 }
 
 static inline struct bpf_prog *bpf_prog_get_type(u32 ufd,
@@ -1368,6 +1376,7 @@ extern const struct bpf_func_proto bpf_sk_getsockopt_proto;
 /* Shared helpers among cBPF and eBPF. */
 void bpf_user_rnd_init_once(void);
 u64 bpf_user_rnd_u32(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5);
+u64 bpf_get_raw_cpu_id(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5);
 
 #if defined(CONFIG_NET)
 bool bpf_sock_common_is_valid_access(int off, int size,
