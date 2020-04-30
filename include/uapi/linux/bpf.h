@@ -855,15 +855,27 @@ union bpf_attr {
  *     @skb: pointer to skb
  *     @hash: hash to set
  *
- * int bpf_setsockopt(bpf_socket, level, optname, optval, optlen)
+ * int bpf_setsockopt(void *bpf_socket, level, optname, optval, optlen)
  *     Calls setsockopt. Not all opts are available, only those with
  *     integer optvals plus TCP_CONGESTION.
- *     Supported levels: SOL_SOCKET and IPROTO_TCP
- *     @bpf_socket: pointer to bpf_socket
- *     @level: SOL_SOCKET or IPROTO_TCP
+ *     Supported levels: SOL_SOCKET and IPPROTO_TCP
+ *     @bpf_socket: pointer to struct bpf_sock_ops for socket operations
+ *       programs, or struct bpf_sock_addr for connect programs
+ *     @level: SOL_SOCKET or IPPROTO_TCP
  *     @optname: option name
  *     @optval: pointer to option value
- *     @optlen: length of optval in byes
+ *     @optlen: length of optval in bytes
+ *     Return: 0 or negative error
+ *
+ * int bpf_getsockopt(void *bpf_socket, level, optname, optval, optlen)
+ *     Calls getsockopt. Not all opts are available.
+ *     Supported levels: IPPROTO_TCP
+ *     @bpf_socket: pointer to struct bpf_sock_ops for socket operations
+ *       programs, or struct bpf_sock_addr for connect programs
+ *     @level: IPPROTO_TCP
+ *     @optname: option name
+ *     @optval: pointer to option value
+ *     @optlen: length of optval in bytes
  *     Return: 0 or negative error
  *
  * int bpf_skb_adjust_room(skb, len_diff, mode, flags)
