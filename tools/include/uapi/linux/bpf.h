@@ -115,6 +115,7 @@ enum bpf_cmd {
 	BPF_LINK_UPDATE = 29,
 	BPF_LINK_GET_FD_BY_ID = 30,
 	BPF_LINK_GET_NEXT_ID = 31,
+	BPF_ENABLE_STATS = 32,
 	BPF_ITER_CREATE = 33,
 };
 
@@ -265,6 +266,12 @@ enum bpf_link_type {
  */
 #define BPF_F_NO_COMMON_LRU	(1U << 1)
 
+/* type for BPF_ENABLE_STATS */
+enum bpf_stats_type {
+	/* enabled run_time_ns and run_cnt */
+	BPF_STATS_RUN_TIME = 0,
+};
+
 #define BPF_OBJ_NAME_LEN 16U
 
 union bpf_attr {
@@ -412,6 +419,10 @@ union bpf_attr {
 		__u32		link_fd;
 		__u32		flags;
 	} iter_create;
+
+	struct { /* struct used by BPF_ENABLE_STATS command */
+		__u32		type;
+	} enable_stats;
 } __attribute__((aligned(8)));
 
 /* BPF helper function descriptions:
