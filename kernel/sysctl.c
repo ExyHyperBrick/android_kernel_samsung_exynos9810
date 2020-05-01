@@ -257,21 +257,24 @@ static int bpf_unpriv_handler(struct ctl_table *table, int write,
 static int bpf_stats_handler(struct ctl_table *table, int write,
 			     void *buffer, size_t *lenp, loff_t *ppos)
 {
-	int ret, bpf_stats = *(int *)table->data;
+	int bpf_stats = sysctl_bpf_stats_enabled;
 	struct ctl_table tmp = *table;
+	int ret;
 
 	if (write && !capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
+	mutex_lock(&bpf_stats_enabled_mutex);
 	tmp.data = &bpf_stats;
 	ret = proc_dointvec_minmax(&tmp, write, buffer, lenp, ppos);
-	if (write && !ret) {
-		*(int *)table->data = bpf_stats;
+	if (write && !ret && bpf_stats != sysctl_bpf_stats_enabled) {
 		if (bpf_stats)
-			static_branch_enable(&bpf_stats_enabled_key);
+			static_key_slow_inc(&bpf_stats_enabled_key.key);
 		else
-			static_branch_disable(&bpf_stats_enabled_key);
+			static_key_slow_dec(&bpf_stats_enabled_key.key);
+		sysctl_bpf_stats_enabled = bpf_stats;
 	}
+	mutex_unlock(&bpf_stats_enabled_mutex);
 	return ret;
 }
 #endif
