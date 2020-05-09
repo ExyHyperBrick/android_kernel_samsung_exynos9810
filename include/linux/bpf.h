@@ -790,6 +790,7 @@ DECLARE_PER_CPU(int, bpf_prog_active);
 
 extern const struct file_operations bpf_map_fops;
 extern const struct file_operations bpf_prog_fops;
+extern const struct file_operations bpf_iter_fops;
 extern const struct bpf_verifier_ops bpf_offload_verifier_ops;
 extern const struct bpf_prog_ops bpf_offload_prog_ops;
 
@@ -893,6 +894,7 @@ void bpf_iter_unreg_target(const char *target);
 bool bpf_iter_prog_supported(struct bpf_prog *prog);
 int bpf_iter_link_attach(const union bpf_attr *attr, struct bpf_prog *prog);
 int bpf_iter_new_fd(struct bpf_link *link);
+bool bpf_link_is_iter(struct bpf_link *link);
 
 int map_set_for_each_callback_args(struct bpf_verifier_env *env,
 				   struct bpf_func_state *caller,
