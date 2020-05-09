@@ -29,6 +29,7 @@ struct bpf_map;
 struct bpf_func_state;
 struct sock;
 struct seq_file;
+struct seq_operations;
 struct btf;
 struct btf_type;
 struct exception_table_entry;
@@ -873,6 +874,20 @@ struct bpf_link *bpf_link_get_from_fd(u32 ufd);
 
 int bpf_obj_pin_user(u32 ufd, const char __user *pathname);
 int bpf_obj_get_user(const char __user *pathname, int flags);
+
+typedef int (*bpf_iter_init_seq_priv_t)(void *private_data);
+typedef void (*bpf_iter_fini_seq_priv_t)(void *private_data);
+
+struct bpf_iter_reg {
+	const char *target;
+	const struct seq_operations *seq_ops;
+	bpf_iter_init_seq_priv_t init_seq_private;
+	bpf_iter_fini_seq_priv_t fini_seq_private;
+	u32 seq_priv_size;
+};
+
+int bpf_iter_reg_target(struct bpf_iter_reg *reg_info);
+void bpf_iter_unreg_target(const char *target);
 
 int map_set_for_each_callback_args(struct bpf_verifier_env *env,
 				   struct bpf_func_state *caller,
