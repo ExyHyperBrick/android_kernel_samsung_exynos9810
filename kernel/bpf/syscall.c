@@ -2523,8 +2523,6 @@ out_put_prog:
 	return err;
 }
 
-#ifdef CONFIG_CGROUP_BPF
-
 static enum bpf_prog_type
 attach_type_to_prog_type(enum bpf_attach_type attach_type)
 {
@@ -2562,10 +2560,14 @@ attach_type_to_prog_type(enum bpf_attach_type attach_type)
 	case BPF_CGROUP_GETSOCKOPT:
 	case BPF_CGROUP_SETSOCKOPT:
 		return BPF_PROG_TYPE_CGROUP_SOCKOPT;
+	case BPF_TRACE_ITER:
+		return BPF_PROG_TYPE_TRACING;
 	default:
 		return BPF_PROG_TYPE_UNSPEC;
 	}
 }
+
+#ifdef CONFIG_CGROUP_BPF
 
 #define BPF_PROG_ATTACH_LAST_FIELD replace_bpf_fd
 
@@ -3503,7 +3505,16 @@ err_put:
 	return err;
 }
 
-#ifdef CONFIG_CGROUP_BPF
+static int tracing_bpf_link_attach(const union bpf_attr *attr,
+				   struct bpf_prog *prog)
+{
+	if (attr->link_create.attach_type == BPF_TRACE_ITER &&
+	    prog->expected_attach_type == BPF_TRACE_ITER)
+		return bpf_iter_link_attach(attr, prog);
+
+	return -EINVAL;
+}
+
 #define BPF_LINK_CREATE_LAST_FIELD link_create.flags
 
 static int link_create(const union bpf_attr *attr)
@@ -3531,6 +3542,7 @@ static int link_create(const union bpf_attr *attr)
 		goto err_out;
 
 	switch (ptype) {
+#ifdef CONFIG_CGROUP_BPF
 	case BPF_PROG_TYPE_CGROUP_SKB:
 	case BPF_PROG_TYPE_CGROUP_SOCK:
 	case BPF_PROG_TYPE_CGROUP_SOCK_ADDR:
@@ -3539,6 +3551,10 @@ static int link_create(const union bpf_attr *attr)
 	case BPF_PROG_TYPE_CGROUP_SYSCTL:
 	case BPF_PROG_TYPE_CGROUP_SOCKOPT:
 		ret = cgroup_bpf_link_attach(attr, prog);
+		break;
+#endif
+	case BPF_PROG_TYPE_TRACING:
+		ret = tracing_bpf_link_attach(attr, prog);
 		break;
 	default:
 		ret = -EINVAL;
@@ -3549,7 +3565,6 @@ err_out:
 		bpf_prog_put(prog);
 	return ret;
 }
-#endif
 
 #define BPF_LINK_UPDATE_LAST_FIELD link_update.old_prog_fd
 
@@ -3708,10 +3723,10 @@ SYSCALL_DEFINE3(bpf, int, cmd, union bpf_attr __user *, uattr, unsigned int, siz
 	case BPF_PROG_QUERY:
 		err = bpf_prog_query(&attr, uattr);
 		break;
+#endif
 	case BPF_LINK_CREATE:
 		err = link_create(&attr);
 		break;
-#endif
 	case BPF_PROG_TEST_RUN:
 		err = bpf_prog_test_run(&attr, uattr);
 		break;
