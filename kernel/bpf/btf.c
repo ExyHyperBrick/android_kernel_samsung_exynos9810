@@ -576,6 +576,22 @@ const struct btf_type *btf_type_by_id(const struct btf *btf, u32 type_id)
 	return btf->types[type_id];
 }
 
+static const struct btf_type *
+btf_type_skip_modifiers(const struct btf *btf, u32 id, u32 *res_id)
+{
+	const struct btf_type *t = btf_type_by_id(btf, id);
+
+	while (t && btf_type_is_modifier(t)) {
+		id = t->type;
+		t = btf_type_by_id(btf, id);
+	}
+
+	if (res_id)
+		*res_id = id;
+
+	return t;
+}
+
 /*
  * Regular int is not a bit field and it must be either
  * u8/u16/u32/u64.
@@ -3423,6 +3439,7 @@ int btf_struct_access(struct bpf_verifier_log *log,
 	const struct btf_type *mtype, *elem_type = NULL;
 	const struct btf_member *member;
 	const char *tname, *mname;
+	u32 vlen;
 
 again:
 	tname = __btf_name_by_offset(btf_vmlinux, t->name_off);
@@ -3431,7 +3448,43 @@ again:
 		return -EINVAL;
 	}
 
+	vlen = btf_type_vlen(t);
 	if (off + size > t->size) {
+		/* If the last element is a variable size array, we may
+		 * need to relax the rule.
+		 */
+		struct btf_array *array_elem;
+
+		if (vlen == 0)
+			goto error;
+
+		member = btf_type_member(t) + vlen - 1;
+		mtype = btf_type_skip_modifiers(btf_vmlinux, member->type,
+						NULL);
+		if (!btf_type_is_array(mtype))
+			goto error;
+
+		array_elem = (struct btf_array *)(mtype + 1);
+		if (array_elem->nelems != 0)
+			goto error;
+
+		moff = btf_member_bit_offset(t, member) / 8;
+		if (off < moff)
+			goto error;
+
+		/* Only allow structure for now, can be relaxed for
+		 * other types later.
+		 */
+		elem_type = btf_type_skip_modifiers(btf_vmlinux,
+						    array_elem->type, NULL);
+		if (!btf_type_is_struct(elem_type))
+			goto error;
+
+		off = (off - moff) % elem_type->size;
+		return btf_struct_access(log, elem_type, off, size, atype,
+					 next_btf_id);
+
+error:
 		bpf_log(log, "access beyond struct %s at off %u size %u\n",
 			tname, off, size);
 		return -EACCES;
