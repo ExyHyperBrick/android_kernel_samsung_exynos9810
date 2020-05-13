@@ -517,10 +517,10 @@ bpf_sk_storage_diag_alloc(const struct nlattr *nla_stgs)
 	u32 nr_maps = 0;
 	int rem, err;
 
-	/* bpf_local_storage_map is currently limited to CAP_SYS_ADMIN as
+	/* bpf_local_storage_map requires CAP_BPF, as
 	 * the map_alloc_check() side also does.
 	 */
-	if (!capable(CAP_SYS_ADMIN))
+	if (!bpf_capable())
 		return ERR_PTR(-EPERM);
 
 	nla_for_each_nested(nla, nla_stgs, rem) {

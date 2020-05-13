@@ -458,6 +458,9 @@ struct bpf_verifier_env {
 	u32 id_gen;			/* used to generate unique reg IDs */
 	bool explore_alu_limits;
 	bool allow_ptr_leaks;
+	bool bpf_capable;
+	bool bypass_spec_v1;
+	bool bypass_spec_v4;
 	bool allow_uninit_stack;
 	bool allow_ptr_to_map_access;
 	bool seen_direct_write;

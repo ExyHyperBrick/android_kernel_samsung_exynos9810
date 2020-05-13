@@ -553,7 +553,7 @@ static struct bpf_map *bpf_struct_ops_map_alloc(union bpf_attr *attr)
 	u32 pages;
 	int err;
 
-	if (!capable(CAP_SYS_ADMIN))
+	if (!bpf_capable())
 		return ERR_PTR(-EPERM);
 
 	st_ops = bpf_struct_ops_find_value(attr->btf_vmlinux_value_type_id);

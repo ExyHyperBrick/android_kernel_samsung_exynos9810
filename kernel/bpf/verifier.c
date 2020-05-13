@@ -1353,8 +1353,7 @@ static void __mark_reg_unknown(const struct bpf_verifier_env *env,
 	reg->type = SCALAR_VALUE;
 	reg->var_off = tnum_unknown;
 	reg->frameno = 0;
-	reg->precise = env->subprog_cnt > 1 || !env->allow_ptr_leaks ?
-		       true : false;
+	reg->precise = env->subprog_cnt > 1 || !env->bpf_capable;
 	__mark_reg_unbounded(reg);
 }
 
@@ -1716,9 +1715,9 @@ static int check_subprogs(struct bpf_verifier_env *env)
 	/* determine subprog starts. The end is one before the next starts */
 	for (i = 0; i < insn_cnt; i++) {
 		if (bpf_pseudo_func(insn + i)) {
-			if (!env->allow_ptr_leaks) {
+			if (!env->bpf_capable) {
 				verbose(env,
-					"function pointers are allowed for root only\n");
+					"function pointers require CAP_BPF or CAP_SYS_ADMIN\n");
 				return -EPERM;
 			}
 			if (bpf_prog_is_dev_bound(env->prog->aux)) {
@@ -1736,9 +1735,9 @@ static int check_subprogs(struct bpf_verifier_env *env)
 		if (insn[i].src_reg != BPF_PSEUDO_CALL &&
 		    insn[i].src_reg != BPF_PSEUDO_KFUNC_CALL)
 			continue;
-		if (!env->allow_ptr_leaks) {
+		if (!env->bpf_capable) {
 			verbose(env,
-				"loading/calling other bpf or kernel functions are allowed for root only\n");
+				"BPF and kernel function calls require CAP_BPF or CAP_SYS_ADMIN\n");
 			return -EPERM;
 		}
 		if (bpf_prog_is_dev_bound(env->prog->aux)) {
@@ -2311,8 +2310,7 @@ static int __mark_chain_precision(struct bpf_verifier_env *env, int regno,
 	bool new_marks = false;
 	int i, err;
 
-	if (!env->allow_ptr_leaks)
-		/* backtracking is root only for now */
+	if (!env->bpf_capable)
 		return 0;
 
 	func = st->frame[st->curframe];
@@ -2583,7 +2581,7 @@ static int check_stack_write_fixed_off(struct bpf_verifier_env *env,
 	cur = env->cur_state->frame[env->cur_state->curframe];
 	if (value_regno >= 0)
 		reg = &cur->regs[value_regno];
-	if (!env->allow_ptr_leaks) {
+	if (!env->bypass_spec_v4) {
 		bool sanitize = reg && is_spillable_regtype(reg->type);
 
 		for (i = 0; i < size; i++) {
@@ -2601,7 +2599,7 @@ static int check_stack_write_fixed_off(struct bpf_verifier_env *env,
 	}
 
 	if (reg && !(off % BPF_REG_SIZE) && register_is_bounded(reg) &&
-	    !register_is_null(reg) && env->allow_ptr_leaks) {
+	    !register_is_null(reg) && env->bpf_capable) {
 		if (dst_reg != BPF_REG_FP) {
 			/* The backtracking logic can only recognize explicit
 			 * stack slot address like [fp - 8]. Other spill of
@@ -2932,10 +2930,8 @@ static int check_stack_read(struct bpf_verifier_env *env,
 			tn_buf, off, size);
 		return -EACCES;
 	}
-	/* This tree uses allow_ptr_leaks as its unprivileged Spectre-v1
-	 * boundary. Variable stack offsets do not have matching ALU masking.
-	 */
-	if (!env->allow_ptr_leaks && var_off) {
+	/* Variable stack offsets lack Spectre-v1 ALU masking. */
+	if (!env->bypass_spec_v1 && var_off) {
 		char tn_buf[48];
 
 		tnum_strn(tn_buf, sizeof(tn_buf), reg->var_off);
@@ -4314,7 +4310,7 @@ static int check_stack_range_initialized(
 		min_off = reg->var_off.value + off;
 		max_off = min_off;
 	} else {
-		if (!env->allow_ptr_leaks) {
+		if (!env->bypass_spec_v1) {
 			char tn_buf[48];
 
 			tnum_strn(tn_buf, sizeof(tn_buf), reg->var_off);
@@ -6019,10 +6015,10 @@ record_func_map(struct bpf_verifier_env *env, struct bpf_call_arg_meta *meta,
 
 	if (!BPF_MAP_PTR(aux->map_state))
 		bpf_map_ptr_store(aux, meta->map_ptr,
-				  meta->map_ptr->unpriv_array);
+				  !meta->map_ptr->bypass_spec_v1);
 	else if (BPF_MAP_PTR(aux->map_state) != meta->map_ptr)
 		bpf_map_ptr_store(aux, BPF_MAP_PTR_POISON,
-				  meta->map_ptr->unpriv_array);
+				  !meta->map_ptr->bypass_spec_v1);
 	return 0;
 }
 
@@ -6613,7 +6609,7 @@ static int retrieve_ptr_limit(const struct bpf_reg_state *ptr_reg,
 static bool can_skip_alu_sanitation(const struct bpf_verifier_env *env,
 				    const struct bpf_insn *insn)
 {
-	return env->allow_ptr_leaks || BPF_SRC(insn->code) == BPF_K;
+	return env->bypass_spec_v1 || BPF_SRC(insn->code) == BPF_K;
 }
 
 static int update_alu_sanitation_state(struct bpf_insn_aux_data *aux,
@@ -6859,7 +6855,7 @@ static int sanitize_check_bounds(struct bpf_verifier_env *env,
 	/* For unprivileged we require that resulting offset must be in bounds
 	 * in order to be able to sanitize access later on.
 	 */
-	if (env->allow_ptr_leaks)
+	if (env->bypass_spec_v1)
 		return 0;
 
 	switch (dst_reg->type) {
@@ -9012,7 +9008,7 @@ static int check_cond_jmp_op(struct bpf_verifier_env *env,
 		 * the fall-through branch for simulation under speculative
 		 * execution.
 		 */
-		if (!env->allow_ptr_leaks &&
+		if (!env->bypass_spec_v1 &&
 		    !sanitize_speculative_path(env, insn, *insn_idx + 1,
 					       *insn_idx))
 			return -EFAULT;
@@ -9023,7 +9019,7 @@ static int check_cond_jmp_op(struct bpf_verifier_env *env,
 		 * program will go. If needed, push the goto branch for
 		 * simulation under speculative execution.
 		 */
-		if (!env->allow_ptr_leaks &&
+		if (!env->bypass_spec_v1 &&
 		    !sanitize_speculative_path(env, insn,
 					       *insn_idx + insn->off + 1,
 					       *insn_idx))
@@ -9491,7 +9487,7 @@ static int push_insn(int t, int w, int e, struct bpf_verifier_env *env,
 		insn_stack[env->cfg.cur_stack++] = w;
 		return 1;
 	} else if ((insn_state[w] & 0xF0) == DISCOVERED) {
-		if (loop_ok && env->allow_ptr_leaks)
+		if (loop_ok && env->bpf_capable)
 			return 0;
 		verbose(env, "back-edge from insn %d to %d\n", t, w);
 		return -EINVAL;
@@ -10675,7 +10671,7 @@ next:
 	if (env->max_states_per_insn < states_cnt)
 		env->max_states_per_insn = states_cnt;
 
-	if (!env->allow_ptr_leaks && states_cnt > BPF_COMPLEXITY_LIMIT_STATES)
+	if (!env->bpf_capable && states_cnt > BPF_COMPLEXITY_LIMIT_STATES)
 		return push_jmp_history(env, cur);
 
 	if (!add_new_state)
@@ -13151,7 +13147,7 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr, bpfptr_t uattr)
 	env->prog = *prog;
 	env->ops = bpf_verifier_ops[env->prog->type];
 	env->fd_array = make_bpfptr(attr->fd_array, uattr.is_kernel);
-	is_priv = capable(CAP_SYS_ADMIN);
+	is_priv = bpf_capable();
 
 	bpf_get_btf_vmlinux();
 
@@ -13186,8 +13182,11 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr, bpfptr_t uattr)
 	if (attr->prog_flags & BPF_F_ANY_ALIGNMENT)
 		env->strict_alignment = false;
 
-	env->allow_ptr_leaks = is_priv;
-	env->allow_uninit_stack = is_priv;
+	env->allow_ptr_leaks = bpf_allow_ptr_leaks();
+	env->bypass_spec_v1 = bpf_bypass_spec_v1();
+	env->bypass_spec_v4 = bpf_bypass_spec_v4();
+	env->bpf_capable = bpf_capable();
+	env->allow_uninit_stack = bpf_allow_uninit_stack();
 	env->allow_ptr_to_map_access = bpf_allow_ptr_to_map_access();
 
 	if (is_priv)
@@ -13377,10 +13376,6 @@ int bpf_analyzer(struct bpf_prog *prog, const struct bpf_ext_analyzer_ops *ops,
 	ret = check_cfg(env);
 	if (ret < 0)
 		goto skip_full_check;
-
-	env->allow_ptr_leaks = capable(CAP_SYS_ADMIN);
-	env->allow_uninit_stack = env->allow_ptr_leaks;
-	env->allow_ptr_to_map_access = bpf_allow_ptr_to_map_access();
 
 	ret = do_check_subprogs(env);
 	if (!ret)

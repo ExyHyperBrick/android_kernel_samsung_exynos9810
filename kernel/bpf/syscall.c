@@ -1624,7 +1624,7 @@ static int map_freeze(const union bpf_attr *attr)
 		err = -EBUSY;
 		goto err_put;
 	}
-	if (!capable(CAP_SYS_ADMIN)) {
+	if (!bpf_capable()) {
 		err = -EPERM;
 		goto err_put;
 	}
@@ -2096,8 +2096,60 @@ static int bpf_prog_attach_check_attach_type(const struct bpf_prog *prog,
 	case BPF_PROG_TYPE_CGROUP_SOCKOPT:
 	case BPF_PROG_TYPE_SK_LOOKUP:
 		return attach_type == prog->expected_attach_type ? 0 : -EINVAL;
+	case BPF_PROG_TYPE_CGROUP_SKB:
+		/* Check unprivileged programs at attach time. */
+		return capable(CAP_NET_ADMIN) ? 0 : -EPERM;
 	default:
 		return 0;
+	}
+}
+
+static bool is_net_admin_prog_type(enum bpf_prog_type prog_type)
+{
+	switch (prog_type) {
+	case BPF_PROG_TYPE_SCHED_CLS:
+	case BPF_PROG_TYPE_SCHED_ACT:
+	case BPF_PROG_TYPE_XDP:
+	case BPF_PROG_TYPE_LWT_IN:
+	case BPF_PROG_TYPE_LWT_OUT:
+	case BPF_PROG_TYPE_LWT_XMIT:
+	case BPF_PROG_TYPE_LWT_SEG6LOCAL:
+	case BPF_PROG_TYPE_SK_SKB:
+	case BPF_PROG_TYPE_SK_MSG:
+	case BPF_PROG_TYPE_LIRC_MODE2:
+	case BPF_PROG_TYPE_FLOW_DISSECTOR:
+	case BPF_PROG_TYPE_CGROUP_DEVICE:
+	case BPF_PROG_TYPE_CGROUP_SOCK:
+	case BPF_PROG_TYPE_CGROUP_SOCK_ADDR:
+	case BPF_PROG_TYPE_CGROUP_SOCKOPT:
+	case BPF_PROG_TYPE_CGROUP_SYSCTL:
+	case BPF_PROG_TYPE_SOCK_OPS:
+	case BPF_PROG_TYPE_EXT: /* extends any prog */
+		return true;
+	case BPF_PROG_TYPE_CGROUP_SKB:
+		/* always unpriv */
+	case BPF_PROG_TYPE_SK_REUSEPORT:
+		/* equivalent to SOCKET_FILTER. need CAP_BPF only */
+	default:
+		return false;
+	}
+}
+
+static bool is_perfmon_prog_type(enum bpf_prog_type prog_type)
+{
+	switch (prog_type) {
+	case BPF_PROG_TYPE_KPROBE:
+	case BPF_PROG_TYPE_TRACEPOINT:
+	case BPF_PROG_TYPE_PERF_EVENT:
+	case BPF_PROG_TYPE_RAW_TRACEPOINT:
+	case BPF_PROG_TYPE_RAW_TRACEPOINT_WRITABLE:
+	case BPF_PROG_TYPE_TRACING:
+	case BPF_PROG_TYPE_LSM:
+	case BPF_PROG_TYPE_STRUCT_OPS: /* has access to struct sock */
+	case BPF_PROG_TYPE_EXT: /* extends any prog */
+		return true;
+	default:
+		return false;
 	}
 }
 
@@ -2124,7 +2176,7 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
 		return -EINVAL;
 	if (!IS_ENABLED(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS) &&
 	    (attr->prog_flags & BPF_F_ANY_ALIGNMENT) &&
-	    !capable(CAP_SYS_ADMIN))
+	    !bpf_capable())
 		return -EPERM;
 
 	/* copy eBPF program license from user space */
@@ -2138,11 +2190,17 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
 	is_gpl = license_is_gpl_compatible(license);
 
 	if (attr->insn_cnt == 0 ||
-	    attr->insn_cnt > (capable(CAP_SYS_ADMIN) ? BPF_COMPLEXITY_LIMIT_INSNS : BPF_MAXINSNS))
+	    attr->insn_cnt > (bpf_capable() ?
+			      BPF_COMPLEXITY_LIMIT_INSNS : BPF_MAXINSNS))
 		return -E2BIG;
 	if (type != BPF_PROG_TYPE_SOCKET_FILTER &&
 	    type != BPF_PROG_TYPE_CGROUP_SKB &&
-	    !capable(CAP_SYS_ADMIN))
+	    !bpf_capable())
+		return -EPERM;
+
+	if (is_net_admin_prog_type(type) && !capable(CAP_NET_ADMIN))
+		return -EPERM;
+	if (is_perfmon_prog_type(type) && !perfmon_capable())
 		return -EPERM;
 
 	/* This field can contain either a BPF program or kernel BTF fd. */
@@ -2993,9 +3051,6 @@ static int bpf_prog_attach(const union bpf_attr *attr)
 #endif
 	int ret;
 
-	if (!capable(CAP_NET_ADMIN))
-		return -EPERM;
-
 	if (CHECK_ATTR(BPF_PROG_ATTACH))
 		return -EINVAL;
 
@@ -3010,9 +3065,10 @@ static int bpf_prog_attach(const union bpf_attr *attr)
 	if (IS_ERR(prog))
 		return PTR_ERR(prog);
 
-	if (bpf_prog_attach_check_attach_type(prog, attr->attach_type)) {
+	ret = bpf_prog_attach_check_attach_type(prog, attr->attach_type);
+	if (ret) {
 		bpf_prog_put(prog);
-		return -EINVAL;
+		return ret;
 	}
 	if (ptype == BPF_PROG_TYPE_LIRC_MODE2) {
 		ret = lirc_prog_attach(attr, prog);
@@ -3080,9 +3136,6 @@ static int bpf_prog_detach(const union bpf_attr *attr)
 	struct cgroup *cgrp;
 	int ret;
 #endif
-
-	if (!capable(CAP_NET_ADMIN))
-		return -EPERM;
 
 	if (CHECK_ATTR(BPF_PROG_DETACH))
 		return -EINVAL;
@@ -3199,8 +3252,6 @@ static int bpf_prog_test_run(const union bpf_attr *attr,
 	struct bpf_prog *prog;
 	int ret = -ENOTSUPP;
 
-	if (!capable(CAP_SYS_ADMIN))
-		return -EPERM;
 	if (CHECK_ATTR(BPF_PROG_TEST_RUN))
 		return -EINVAL;
 
@@ -3528,7 +3579,7 @@ static int bpf_prog_get_info_by_fd(struct file *file, struct bpf_prog *prog,
 	info.run_cnt = stats.cnt;
 	info.recursion_misses = stats.misses;
 
-	if (!capable(CAP_SYS_ADMIN)) {
+	if (!bpf_capable()) {
 		info.jited_prog_len = 0;
 		info.xlated_prog_len = 0;
 		info.nr_jited_ksyms = 0;
@@ -3855,7 +3906,7 @@ static int bpf_btf_load(const union bpf_attr *attr, bpfptr_t uattr)
 	if (CHECK_ATTR(BPF_BTF_LOAD))
 		return -EINVAL;
 
-	if (!capable(CAP_SYS_ADMIN))
+	if (!bpf_capable())
 		return -EPERM;
 
 	return btf_new_fd(attr, uattr);
@@ -4075,8 +4126,6 @@ static int link_create(const union bpf_attr *attr, bpfptr_t uattr)
 	struct bpf_prog *prog;
 	int ret;
 
-	if (!capable(CAP_NET_ADMIN))
-		return -EPERM;
 	if (CHECK_ATTR(BPF_LINK_CREATE))
 		return -EINVAL;
 
@@ -4168,8 +4217,6 @@ static int link_update(const union bpf_attr *attr)
 	u32 flags;
 	int ret;
 
-	if (!capable(CAP_NET_ADMIN))
-		return -EPERM;
 	if (CHECK_ATTR(BPF_LINK_UPDATE))
 		return -EINVAL;
 
@@ -4424,7 +4471,7 @@ static int __sys_bpf(int cmd, bpfptr_t uattr, unsigned int size)
 	union bpf_attr attr;
 	int err;
 
-	if (sysctl_unprivileged_bpf_disabled && !capable(CAP_SYS_ADMIN))
+	if (sysctl_unprivileged_bpf_disabled && !bpf_capable())
 		return -EPERM;
 
 	err = bpf_check_uarg_tail_zero(uattr, sizeof(attr), size);

@@ -173,7 +173,7 @@ struct bpf_map {
 	struct btf *btf;
 	char name[BPF_OBJ_NAME_LEN];
 	u32 pages;
-	bool unpriv_array;
+	bool bypass_spec_v1;
 	bool frozen; /* write-once; write-protected by freeze_mutex */
 
 	/* The 3rd and 4th cacheline with misc members to avoid false sharing
@@ -1321,6 +1321,26 @@ extern int sysctl_bpf_stats_enabled;
 extern struct mutex bpf_stats_enabled_mutex;
 
 static inline bool bpf_allow_ptr_to_map_access(void)
+{
+	return perfmon_capable();
+}
+
+static inline bool bpf_allow_uninit_stack(void)
+{
+	return perfmon_capable();
+}
+
+static inline bool bpf_allow_ptr_leaks(void)
+{
+	return perfmon_capable();
+}
+
+static inline bool bpf_bypass_spec_v1(void)
+{
+	return perfmon_capable();
+}
+
+static inline bool bpf_bypass_spec_v4(void)
 {
 	return perfmon_capable();
 }
