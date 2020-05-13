@@ -505,6 +505,12 @@ static inline void bpf_trampoline_put(struct bpf_trampoline *tr)
 }
 #endif
 
+/* reg_type info for ctx arguments */
+struct bpf_ctx_arg_aux {
+	u32 offset;
+	enum bpf_reg_type reg_type;
+};
+
 struct bpf_prog_aux {
 	atomic64_t refcnt;
 	u32 used_map_cnt;
@@ -515,6 +521,8 @@ struct bpf_prog_aux {
 	u32 func_cnt; /* used by non-func prog as the number of func progs */
 	u32 func_idx; /* 0 for non-func prog, the index in func array for func prog */
 	u32 attach_btf_id; /* in-kernel BTF type id to attach to */
+	u32 ctx_arg_info_size;
+	const struct bpf_ctx_arg_aux *ctx_arg_info;
 	struct bpf_prog *linked_prog;
 	bool verifier_zext; /* Zero extensions have been inserted by verifier. */
 	bool attach_btf_trace; /* true if attaching to BTF-enabled raw tp */
@@ -885,12 +893,15 @@ int bpf_obj_get_user(const char __user *pathname, int flags);
 typedef int (*bpf_iter_init_seq_priv_t)(void *private_data);
 typedef void (*bpf_iter_fini_seq_priv_t)(void *private_data);
 
+#define BPF_ITER_CTX_ARG_MAX 2
 struct bpf_iter_reg {
 	const char *target;
 	const struct seq_operations *seq_ops;
 	bpf_iter_init_seq_priv_t init_seq_private;
 	bpf_iter_fini_seq_priv_t fini_seq_private;
 	u32 seq_priv_size;
+	u32 ctx_arg_info_size;
+	struct bpf_ctx_arg_aux ctx_arg_info[BPF_ITER_CTX_ARG_MAX];
 };
 
 struct bpf_iter_meta {
