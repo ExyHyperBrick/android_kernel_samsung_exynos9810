@@ -754,7 +754,7 @@ BPF_CALL_1(bpf_get_current_ancestor_cgroup_id, int, ancestor_level)
 	ancestor = cgroup_ancestor(cgrp, ancestor_level);
 	if (!ancestor)
 		return 0;
-	return ancestor->kn->id.id;
+	return cgroup_id(ancestor);
 }
 
 const struct bpf_func_proto bpf_get_current_ancestor_cgroup_id_proto = {
