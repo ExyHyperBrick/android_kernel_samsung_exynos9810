@@ -65,6 +65,17 @@ Symbols/Function Pointers:
 	'f' specifiers perform this resolution and then provide the same
 	functionality as the 'S' and 's' specifiers.
 
+Probed Pointers from BPF / tracing:
+
+	%pks	kernel string
+	%pus	user string
+
+	The 'k' and 'u' specifiers are used for printing prior probed memory
+	from either kernel memory (k) or user memory (u). The following 's'
+	specifier prints a string. For direct use in regular vsnprintf(), the
+	annotation is ignored. When used by BPF or tracing, it selects a
+	nofault kernel or user access.
+
 Kernel Pointers:
 
 	%pK	01234567 or 0123456789abcdef
