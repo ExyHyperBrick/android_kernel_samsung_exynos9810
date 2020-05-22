@@ -147,12 +147,10 @@ out:
 	return ret;
 }
 
-int skb_flow_dissector_bpf_prog_detach(const union bpf_attr *attr)
+static int flow_dissector_bpf_prog_detach(struct net *net)
 {
 	struct bpf_prog *attached;
-	struct net *net;
 
-	net = current->nsproxy->net_ns;
 	mutex_lock(&flow_dissector_mutex);
 	attached = rcu_dereference_protected(net->flow_dissector_prog,
 					     lockdep_is_held(&flow_dissector_mutex));
@@ -160,11 +158,29 @@ int skb_flow_dissector_bpf_prog_detach(const union bpf_attr *attr)
 		mutex_unlock(&flow_dissector_mutex);
 		return -ENOENT;
 	}
-	bpf_prog_put(attached);
 	RCU_INIT_POINTER(net->flow_dissector_prog, NULL);
+	bpf_prog_put(attached);
 	mutex_unlock(&flow_dissector_mutex);
 	return 0;
 }
+
+int skb_flow_dissector_bpf_prog_detach(const union bpf_attr *attr)
+{
+	return flow_dissector_bpf_prog_detach(current->nsproxy->net_ns);
+}
+
+static void __net_exit flow_dissector_pernet_exit(struct net *net)
+{
+	/* The 4.9 pernet subsystem invokes .exit only after devices and
+	 * sockets have left the namespace.
+	 */
+	if (rcu_access_pointer(net->flow_dissector_prog))
+		flow_dissector_bpf_prog_detach(net);
+}
+
+static struct pernet_operations flow_dissector_pernet_ops __net_initdata = {
+	.exit = flow_dissector_pernet_exit,
+};
 
 /**
  * skb_flow_get_be16 - extract be16 entity
@@ -1394,7 +1410,7 @@ static int __init init_default_flow_dissectors(void)
 	skb_flow_dissector_init(&flow_keys_buf_dissector,
 				flow_keys_buf_dissector_keys,
 				ARRAY_SIZE(flow_keys_buf_dissector_keys));
-	return 0;
+	return register_pernet_subsys(&flow_dissector_pernet_ops);
 }
 
 core_initcall(init_default_flow_dissectors);
