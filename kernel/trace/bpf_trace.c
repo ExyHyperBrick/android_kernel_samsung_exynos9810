@@ -525,8 +525,8 @@ BPF_CALL_5(bpf_seq_printf, struct seq_file *, m, char *, fmt, u32, fmt_size,
 
 			buf = bufs->buf[memcpy_cnt];
 			unsafe_ptr = (void *)(long)args[fmt_cnt];
-			err = strncpy_from_unsafe(buf, unsafe_ptr,
-						  MAX_SEQ_PRINTF_STR_LEN);
+			err = strncpy_from_unsafe_strict(
+				buf, unsafe_ptr, MAX_SEQ_PRINTF_STR_LEN);
 			if (err < 0)
 				buf[0] = '\0';
 			params[fmt_cnt] = (u64)(long)buf;
