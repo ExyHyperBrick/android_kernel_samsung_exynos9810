@@ -39,12 +39,17 @@ struct xdp_rxq_info {
 	u32 reg_state;
 } ____cacheline_aligned; /* perf critical, avoid false-sharing */
 
+struct xdp_txq_info {
+	struct net_device *dev;
+};
+
 struct xdp_buff {
 	void *data;
 	void *data_end;
 	void *data_meta;
 	void *data_hard_start;
 	struct xdp_rxq_info *rxq;
+	struct xdp_txq_info *txq;
 };
 
 int xdp_rxq_info_reg(struct xdp_rxq_info *xdp_rxq,

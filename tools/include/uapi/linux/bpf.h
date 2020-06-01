@@ -1846,6 +1846,7 @@ struct xdp_md {
 	__u32 data_meta;
 	__u32 ingress_ifindex;
 	__u32 rx_queue_index;
+	__u32 egress_ifindex;
 };
 
 /* CPUMAP map-value layout. New members must be appended. */
