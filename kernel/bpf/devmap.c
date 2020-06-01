@@ -660,11 +660,13 @@ static int dev_map_hash_update_elem(struct bpf_map *map, void *key, void *value,
 static bool dev_map_run_prog(struct bpf_dtab_netdev *dst,
 			     struct xdp_buff *xdp)
 {
+	struct xdp_txq_info txq = { .dev = dst->dev };
 	u32 act;
 
 	if (!dst->xdp_prog)
 		return true;
 
+	xdp->txq = &txq;
 	act = bpf_prog_run_xdp(dst->xdp_prog, xdp);
 	switch (act) {
 	case XDP_PASS:
