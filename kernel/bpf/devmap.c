@@ -59,12 +59,18 @@
 #define DEV_CREATE_FLAG_MASK \
 	(BPF_F_NUMA_NODE | BPF_F_RDONLY | BPF_F_WRONLY)
 
+/* DEVMAP values */
+struct bpf_devmap_val {
+	u32 ifindex;
+};
+
 struct bpf_dtab_netdev {
 	struct net_device *dev;
 	struct hlist_node index_hlist;
 	struct bpf_dtab *dtab;
 	unsigned int bit;
 	struct rcu_head rcu;
+	struct bpf_devmap_val val;
 };
 
 struct bpf_dtab {
@@ -402,16 +408,23 @@ struct net_device  *__dev_map_lookup_elem(struct bpf_map *map, u32 key)
 
 static void *dev_map_lookup_elem(struct bpf_map *map, void *key)
 {
-	struct net_device *dev = __dev_map_lookup_elem(map, *(u32 *)key);
+	struct bpf_dtab *dtab = container_of(map, struct bpf_dtab, map);
+	struct bpf_dtab_netdev *dev;
+	u32 index = *(u32 *)key;
 
-	return dev ? &dev->ifindex : NULL;
+	if (index >= map->max_entries)
+		return NULL;
+
+	dev = READ_ONCE(dtab->netdev_map[index]);
+	return dev ? &dev->val : NULL;
 }
 
 static void *dev_map_hash_lookup_elem(struct bpf_map *map, void *key)
 {
-	struct net_device *dev = __dev_map_hash_lookup_elem(map, *(u32 *)key);
+	struct bpf_dtab_netdev *dev;
 
-	return dev ? &dev->ifindex : NULL;
+	dev = __dev_map_hash_lookup_elem_dtab(map, *(u32 *)key);
+	return dev ? &dev->val : NULL;
 }
 
 static void dev_map_flush_old(struct bpf_dtab_netdev *dev)
@@ -487,7 +500,7 @@ static int dev_map_hash_delete_elem(struct bpf_map *map, void *key)
 
 static struct bpf_dtab_netdev *__dev_map_alloc_node(struct net *net,
 						    struct bpf_dtab *dtab,
-						    u32 ifindex,
+						    struct bpf_devmap_val *val,
 						    unsigned int idx)
 {
 	gfp_t gfp = GFP_ATOMIC | __GFP_NOWARN;
@@ -497,7 +510,7 @@ static struct bpf_dtab_netdev *__dev_map_alloc_node(struct net *net,
 	if (!dev)
 		return ERR_PTR(-ENOMEM);
 
-	dev->dev = dev_get_by_index(net, ifindex);
+	dev->dev = dev_get_by_index(net, val->ifindex);
 	if (!dev->dev) {
 		kfree(dev);
 		return ERR_PTR(-EINVAL);
@@ -505,6 +518,7 @@ static struct bpf_dtab_netdev *__dev_map_alloc_node(struct net *net,
 
 	dev->bit = idx;
 	dev->dtab = dtab;
+	dev->val.ifindex = val->ifindex;
 
 	return dev;
 }
@@ -515,8 +529,8 @@ static int dev_map_update_elem(struct bpf_map *map, void *key, void *value,
 	struct bpf_dtab *dtab = container_of(map, struct bpf_dtab, map);
 	struct net *net = current->nsproxy->net_ns;
 	struct bpf_dtab_netdev *dev, *old_dev;
+	struct bpf_devmap_val val = { };
 	u32 i = *(u32 *)key;
-	u32 ifindex = *(u32 *)value;
 
 	if (unlikely(map_flags > BPF_EXIST))
 		return -EINVAL;
@@ -525,10 +539,12 @@ static int dev_map_update_elem(struct bpf_map *map, void *key, void *value,
 	if (unlikely(map_flags == BPF_NOEXIST))
 		return -EEXIST;
 
-	if (!ifindex) {
+	memcpy(&val, value, map->value_size);
+
+	if (!val.ifindex) {
 		dev = NULL;
 	} else {
-		dev = __dev_map_alloc_node(net, dtab, ifindex, i);
+		dev = __dev_map_alloc_node(net, dtab, &val, i);
 		if (IS_ERR(dev))
 			return PTR_ERR(dev);
 	}
@@ -550,18 +566,20 @@ static int __dev_map_hash_update_elem(struct net *net, struct bpf_map *map,
 {
 	struct bpf_dtab *dtab = container_of(map, struct bpf_dtab, map);
 	struct bpf_dtab_netdev *dev, *old_dev;
-	u32 ifindex = *(u32 *)value;
+	struct bpf_devmap_val val = { };
 	u32 idx = *(u32 *)key;
 	unsigned long flags;
 
-	if (unlikely(map_flags > BPF_EXIST || !ifindex))
+	memcpy(&val, value, map->value_size);
+
+	if (unlikely(map_flags > BPF_EXIST || !val.ifindex))
 		return -EINVAL;
 
 	old_dev = __dev_map_hash_lookup_elem_dtab(map, idx);
 	if (old_dev && (map_flags & BPF_NOEXIST))
 		return -EEXIST;
 
-	dev = __dev_map_alloc_node(net, dtab, ifindex, idx);
+	dev = __dev_map_alloc_node(net, dtab, &val, idx);
 	if (IS_ERR(dev))
 		return PTR_ERR(dev);
 
