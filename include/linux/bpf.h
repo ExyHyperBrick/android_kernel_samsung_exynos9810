@@ -1122,14 +1122,17 @@ struct bpf_prog *bpf_prog_get_type_path(const char *name, enum bpf_prog_type typ
 int array_map_alloc_check(union bpf_attr *attr);
 
 /* Map specifics */
+struct xdp_buff;
 struct net_device  *__dev_map_lookup_elem(struct bpf_map *map, u32 key);
 struct net_device  *__dev_map_hash_lookup_elem(struct bpf_map *map, u32 key);
 void __dev_map_insert_ctx(struct bpf_map *map, u32 index);
 void __dev_map_flush(struct bpf_map *map);
+int dev_map_enqueue(struct bpf_map *map, u32 key, struct xdp_buff *xdp,
+		    struct net_device *dev_rx);
+bool dev_map_can_have_prog(struct bpf_map *map);
 struct bpf_cpu_map_entry *__cpu_map_lookup_elem(struct bpf_map *map, u32 key);
 void __cpu_map_insert_ctx(struct bpf_map *map, u32 index);
 void __cpu_map_flush(struct bpf_map *map);
-struct xdp_buff;
 int cpu_map_enqueue(struct bpf_cpu_map_entry *rcpu, struct xdp_buff *xdp,
 		    struct net_device *dev_rx);
 
@@ -1217,6 +1220,19 @@ static inline void __dev_map_insert_ctx(struct bpf_map *map, u32 index)
 
 static inline void __dev_map_flush(struct bpf_map *map)
 {
+}
+
+struct xdp_buff;
+static inline int dev_map_enqueue(struct bpf_map *map, u32 key,
+				  struct xdp_buff *xdp,
+				  struct net_device *dev_rx)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline bool dev_map_can_have_prog(struct bpf_map *map)
+{
+	return false;
 }
 
 static inline

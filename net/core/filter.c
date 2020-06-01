@@ -3160,15 +3160,9 @@ static int __bpf_tx_xdp_map(struct net_device *dev_rx, void *fwd,
 
 	if (map->map_type == BPF_MAP_TYPE_DEVMAP ||
 	    map->map_type == BPF_MAP_TYPE_DEVMAP_HASH) {
-		struct net_device *dev = fwd;
-
-		if (!dev->netdev_ops->ndo_xdp_xmit)
-			return -EOPNOTSUPP;
-
-		err = dev->netdev_ops->ndo_xdp_xmit(dev, xdp);
+		err = dev_map_enqueue(map, index, xdp, dev_rx);
 		if (err)
 			return err;
-		__dev_map_insert_ctx(map, index);
 	} else if (map->map_type == BPF_MAP_TYPE_CPUMAP) {
 		struct bpf_cpu_map_entry *rcpu = fwd;
 
