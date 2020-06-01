@@ -224,6 +224,7 @@ enum bpf_link_type {
 	BPF_LINK_TYPE_TRACING = 2,
 	BPF_LINK_TYPE_CGROUP = 3,
 	BPF_LINK_TYPE_ITER = 4,
+	BPF_LINK_TYPE_NETNS = 5,
 	BPF_LINK_TYPE_PERF_EVENT = 7,
 
 	MAX_BPF_LINK_TYPE,
@@ -1935,6 +1936,10 @@ struct bpf_link_info {
 			__u64 cgroup_id;
 			__u32 attach_type;
 		} cgroup;
+		struct {
+			__u32 netns_ino;
+			__u32 attach_type;
+		} netns;
 		struct {
 			__aligned_u64 target_name;
 			__u32 target_name_len;
