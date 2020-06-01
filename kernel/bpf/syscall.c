@@ -3709,6 +3709,9 @@ static int link_create(const union bpf_attr *attr)
 	case BPF_PROG_TYPE_TRACING:
 		ret = tracing_bpf_link_attach(attr, prog);
 		break;
+	case BPF_PROG_TYPE_FLOW_DISSECTOR:
+		ret = netns_bpf_link_create(attr, prog);
+		break;
 #ifdef CONFIG_PERF_EVENTS
 	case BPF_PROG_TYPE_PERF_EVENT:
 	case BPF_PROG_TYPE_TRACEPOINT:
