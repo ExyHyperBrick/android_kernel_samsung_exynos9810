@@ -31,6 +31,7 @@
 #include <uapi/linux/btf.h>
 #include <linux/btf.h>
 #include <linux/poll.h>
+#include <linux/bpf-netns.h>
 
 #define BPF_OBJ_FLAG_MASK   (BPF_F_RDONLY | BPF_F_WRONLY)
 
@@ -2695,7 +2696,7 @@ static int bpf_prog_attach(const union bpf_attr *attr)
 		goto out_put_prog;
 	}
 	if (ptype == BPF_PROG_TYPE_FLOW_DISSECTOR) {
-		ret = skb_flow_dissector_bpf_prog_attach(attr, prog);
+		ret = netns_bpf_prog_attach(attr, prog);
 		if (!ret)
 			return 0;
 		goto out_put_prog;
@@ -2753,7 +2754,7 @@ static int bpf_prog_detach(const union bpf_attr *attr)
 	case BPF_PROG_TYPE_SK_SKB:
 		return sock_map_get_from_fd(attr, NULL);
 	case BPF_PROG_TYPE_FLOW_DISSECTOR:
-		return skb_flow_dissector_bpf_prog_detach(attr);
+		return netns_bpf_prog_detach(attr);
 	case BPF_PROG_TYPE_CGROUP_DEVICE:
 	case BPF_PROG_TYPE_CGROUP_SKB:
 	case BPF_PROG_TYPE_CGROUP_SOCK:
@@ -2798,7 +2799,7 @@ static int bpf_prog_query(const union bpf_attr *attr,
 
 	switch (attr->query.attach_type) {
 	case BPF_FLOW_DISSECTOR:
-		return skb_flow_dissector_prog_query(attr, uattr);
+		return netns_bpf_prog_query(attr, uattr);
 	case BPF_CGROUP_INET_INGRESS:
 	case BPF_CGROUP_INET_EGRESS:
 	case BPF_CGROUP_INET_SOCK_CREATE:
