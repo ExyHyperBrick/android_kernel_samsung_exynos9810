@@ -100,15 +100,10 @@ int skb_flow_dissector_prog_query(const union bpf_attr *attr,
 	return 0;
 }
 
-int skb_flow_dissector_bpf_prog_attach(const union bpf_attr *attr,
-				       struct bpf_prog *prog)
+static int flow_dissector_bpf_prog_attach(struct net *net,
+					  struct bpf_prog *prog)
 {
 	struct bpf_prog *attached;
-	struct net *net;
-	int ret = 0;
-
-	net = current->nsproxy->net_ns;
-	mutex_lock(&flow_dissector_mutex);
 
 	if (net == &init_net) {
 		/* BPF flow dissector in the root namespace overrides
@@ -119,31 +114,40 @@ int skb_flow_dissector_bpf_prog_attach(const union bpf_attr *attr,
 		struct net *ns;
 
 		for_each_net(ns) {
-			if (rcu_access_pointer(ns->flow_dissector_prog)) {
-				ret = -EEXIST;
-				goto out;
-			}
+			if (ns == &init_net)
+				continue;
+			if (rcu_access_pointer(ns->flow_dissector_prog))
+				return -EEXIST;
 		}
 	} else {
 		/* Make sure root flow dissector is not attached
 		 * when attaching to the non-root namespace.
 		 */
-		if (rcu_access_pointer(init_net.flow_dissector_prog)) {
-			ret = -EEXIST;
-			goto out;
-		}
+		if (rcu_access_pointer(init_net.flow_dissector_prog))
+			return -EEXIST;
 	}
 
 	attached = rcu_dereference_protected(net->flow_dissector_prog,
 					     lockdep_is_held(&flow_dissector_mutex));
-	if (attached) {
-		/* Only one BPF program can be attached at a time */
-		ret = -EEXIST;
-		goto out;
-	}
+	if (attached == prog)
+		/* The same program cannot be attached twice. */
+		return -EINVAL;
+
 	rcu_assign_pointer(net->flow_dissector_prog, prog);
-out:
+	if (attached)
+		bpf_prog_put(attached);
+	return 0;
+}
+
+int skb_flow_dissector_bpf_prog_attach(const union bpf_attr *attr,
+				       struct bpf_prog *prog)
+{
+	int ret;
+
+	mutex_lock(&flow_dissector_mutex);
+	ret = flow_dissector_bpf_prog_attach(current->nsproxy->net_ns, prog);
 	mutex_unlock(&flow_dissector_mutex);
+
 	return ret;
 }
 
