@@ -1712,6 +1712,14 @@ enum {
 	BPF_SK_LOOKUP_F_NO_REUSEPORT	= (1ULL << 1),
 };
 
+/* BPF_FUNC_csum_level level values. */
+enum {
+	BPF_CSUM_LEVEL_QUERY,
+	BPF_CSUM_LEVEL_INC,
+	BPF_CSUM_LEVEL_DEC,
+	BPF_CSUM_LEVEL_RESET,
+};
+
 /* Mode for BPF_FUNC_skb_adjust_room helper. */
 #define BPF_F_ADJ_ROOM_FIXED_GSO	(1ULL << 0)
 #define BPF_ADJ_ROOM_ENCAP_L2_MASK	0xff
