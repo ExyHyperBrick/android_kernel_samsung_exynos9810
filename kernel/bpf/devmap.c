@@ -666,6 +666,7 @@ static bool dev_map_run_prog(struct bpf_dtab_netdev *dst,
 	if (!dst->xdp_prog)
 		return true;
 
+	xdp_set_data_meta_invalid(xdp);
 	xdp->txq = &txq;
 	act = bpf_prog_run_xdp(dst->xdp_prog, xdp);
 	switch (act) {
