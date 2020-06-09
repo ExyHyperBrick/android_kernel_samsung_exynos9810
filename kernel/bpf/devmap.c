@@ -60,15 +60,6 @@
 #define DEV_CREATE_FLAG_MASK \
 	(BPF_F_NUMA_NODE | BPF_F_RDONLY | BPF_F_WRONLY)
 
-/* DEVMAP values */
-struct bpf_devmap_val {
-	u32 ifindex;
-	union {
-		int fd;
-		u32 id;
-	} bpf_prog;
-};
-
 struct bpf_dtab_netdev {
 	struct net_device *dev;
 	struct hlist_node index_hlist;
@@ -540,7 +531,7 @@ static struct bpf_dtab_netdev *__dev_map_alloc_node(struct net *net,
 	if (!dev->dev)
 		goto err_free;
 
-	if (val->bpf_prog.fd >= 0) {
+	if (val->bpf_prog.fd > 0) {
 		prog = bpf_prog_get_type(val->bpf_prog.fd, BPF_PROG_TYPE_XDP);
 		if (IS_ERR(prog))
 			goto err_put_dev;
@@ -571,7 +562,7 @@ static int dev_map_update_elem(struct bpf_map *map, void *key, void *value,
 	struct bpf_dtab *dtab = container_of(map, struct bpf_dtab, map);
 	struct net *net = current->nsproxy->net_ns;
 	struct bpf_dtab_netdev *dev, *old_dev;
-	struct bpf_devmap_val val = { .bpf_prog.fd = -1 };
+	struct bpf_devmap_val val = { };
 	u32 i = *(u32 *)key;
 
 	if (unlikely(map_flags > BPF_EXIST))
@@ -584,7 +575,7 @@ static int dev_map_update_elem(struct bpf_map *map, void *key, void *value,
 	memcpy(&val, value, map->value_size);
 
 	if (!val.ifindex) {
-		if (val.bpf_prog.fd != -1)
+		if (val.bpf_prog.fd > 0)
 			return -EINVAL;
 		dev = NULL;
 	} else {
@@ -610,7 +601,7 @@ static int __dev_map_hash_update_elem(struct net *net, struct bpf_map *map,
 {
 	struct bpf_dtab *dtab = container_of(map, struct bpf_dtab, map);
 	struct bpf_dtab_netdev *dev, *old_dev;
-	struct bpf_devmap_val val = { .bpf_prog.fd = -1 };
+	struct bpf_devmap_val val = { };
 	u32 idx = *(u32 *)key;
 	unsigned long flags;
 
