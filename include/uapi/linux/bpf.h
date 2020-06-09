@@ -1849,6 +1849,15 @@ struct xdp_md {
 	__u32 egress_ifindex;
 };
 
+/* DEVMAP map-value layout. New members must be appended. */
+struct bpf_devmap_val {
+	__u32 ifindex;
+	union {
+		int fd;
+		__u32 id;
+	} bpf_prog;
+};
+
 /* CPUMAP map-value layout. New members must be appended. */
 struct bpf_cpumap_val {
 	__u32 qsize;
