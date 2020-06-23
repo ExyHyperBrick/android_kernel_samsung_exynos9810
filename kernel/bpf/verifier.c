@@ -439,7 +439,8 @@ static bool is_acquire_function(enum bpf_func_id func_id)
 static bool is_ptr_cast_function(enum bpf_func_id func_id)
 {
 	return func_id == BPF_FUNC_tcp_sock ||
-		func_id == BPF_FUNC_sk_fullsock;
+		func_id == BPF_FUNC_sk_fullsock ||
+		func_id == BPF_FUNC_skc_to_tcp6_sock;
 }
 
 /* string representation of 'enum bpf_reg_type' */
@@ -4179,6 +4180,10 @@ static bool check_btf_id_ok(const struct bpf_func_proto *fn)
 		    !fn->arg_btf_id[i])
 			return false;
 
+	if (fn->ret_type == RET_PTR_TO_BTF_ID_OR_NULL &&
+	    !fn->ret_btf_id)
+		return false;
+
 	return true;
 }
 
@@ -4716,6 +4721,18 @@ static int check_helper_call(struct bpf_verifier_env *env,
 		regs[BPF_REG_0].type = PTR_TO_MEM_OR_NULL;
 		regs[BPF_REG_0].mem_size = meta.mem_size;
 		regs[BPF_REG_0].id = ++env->id_gen;
+	} else if (fn->ret_type == RET_PTR_TO_BTF_ID_OR_NULL) {
+		u32 ret_btf_id;
+
+		mark_reg_known_zero(env, regs, BPF_REG_0);
+		regs[BPF_REG_0].type = PTR_TO_BTF_ID_OR_NULL;
+		ret_btf_id = *fn->ret_btf_id;
+		if (!ret_btf_id) {
+			verbose(env, "invalid return type %d of func %s#%d\n",
+				fn->ret_type, func_id_name(func_id), func_id);
+			return -EINVAL;
+		}
+		regs[BPF_REG_0].btf_id = ret_btf_id;
 	} else {
 		verbose(env, "unknown return type %d of func %s#%d\n",
 			fn->ret_type, func_id_name(func_id), func_id);

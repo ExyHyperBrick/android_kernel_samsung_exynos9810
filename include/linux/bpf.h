@@ -249,6 +249,7 @@ enum bpf_return_type {
 	RET_PTR_TO_TCP_SOCK_OR_NULL,	/* returns a pointer to a tcp_sock or NULL */
 	RET_PTR_TO_SOCK_COMMON_OR_NULL,	/* returns a pointer to a sock_common or NULL */
 	RET_PTR_TO_ALLOC_MEM_OR_NULL,	/* returns a pointer to dynamically allocated memory or NULL */
+	RET_PTR_TO_BTF_ID_OR_NULL,	/* returns a pointer to a btf_id or NULL */
 };
 
 /* eBPF function prototype used by verifier to allow BPF_CALLs from eBPF programs
@@ -280,6 +281,7 @@ struct bpf_func_proto {
 		};
 		u32 *arg_btf_id[5];
 	};
+	u32 *ret_btf_id; /* return value BTF ID */
 	bool (*allowed)(const struct bpf_prog *prog);
 };
 
@@ -929,6 +931,7 @@ static inline bool bpf_map_is_dev_bound(struct bpf_map *map)
 }
 struct bpf_map *bpf_map_offload_map_alloc(union bpf_attr *attr);
 void bpf_map_offload_map_free(struct bpf_map *map);
+void init_btf_sock_ids(struct btf *btf);
 #else
 static inline int bpf_prog_offload_init(struct bpf_prog *prog,
 					union bpf_attr *attr)
@@ -950,6 +953,9 @@ static inline struct bpf_map *bpf_map_offload_map_alloc(union bpf_attr *attr)
 	return ERR_PTR(-EOPNOTSUPP);
 }
 static inline void bpf_map_offload_map_free(struct bpf_map *map)
+{
+}
+static inline void init_btf_sock_ids(struct btf *btf)
 {
 }
 #endif /* CONFIG_NET && CONFIG_BPF_SYSCALL */
@@ -1036,6 +1042,7 @@ extern const struct bpf_func_proto bpf_ringbuf_submit_proto;
 extern const struct bpf_func_proto bpf_ringbuf_discard_proto;
 extern const struct bpf_func_proto bpf_ringbuf_query_proto;
 extern const struct bpf_func_proto bpf_for_each_map_elem_proto;
+extern const struct bpf_func_proto bpf_skc_to_tcp6_sock_proto;
 /* Shared helpers among cBPF and eBPF. */
 void bpf_user_rnd_init_once(void);
 u64 bpf_user_rnd_u32(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5);
