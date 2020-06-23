@@ -7,6 +7,8 @@
 #include <linux/types.h>
 #include <uapi/linux/btf.h>
 
+#define BTF_TYPE_EMIT(type) ((void)(type *)0)
+
 struct btf;
 struct btf_member;
 struct btf_type;
@@ -90,6 +92,7 @@ static inline bool btf_type_is_func_proto(const struct btf_type *t)
 #ifdef CONFIG_BPF_SYSCALL
 const struct btf_type *btf_type_by_id(const struct btf *btf, u32 type_id);
 const char *btf_name_by_offset(const struct btf *btf, u32 offset);
+int btf_find_by_name_kind(const struct btf *btf, const char *name, u8 kind);
 struct btf *btf_parse_vmlinux(void);
 #else
 static inline const struct btf_type *btf_type_by_id(const struct btf *btf,
