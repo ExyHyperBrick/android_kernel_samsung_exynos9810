@@ -644,8 +644,7 @@ static struct sk_psock *sk_psock_from_strp(struct strparser *strp)
 	return container_of(parser, struct sk_psock, parser);
 }
 
-static void sk_psock_verdict_apply(struct sk_psock *psock,
-				   struct sk_buff *skb, int verdict)
+static void sk_psock_verdict_apply(struct sk_buff *skb, int verdict)
 {
 	struct sk_psock *psock_other;
 	struct sock *sk_other;
@@ -694,8 +693,8 @@ static void sk_psock_strp_read(struct strparser *strp, struct sk_buff *skb)
 		ret = sk_psock_bpf_run(psock, prog, skb);
 		ret = sk_psock_map_verd(ret, tcp_skb_bpf_redirect_fetch(skb));
 	}
+	sk_psock_verdict_apply(skb, ret);
 	rcu_read_unlock();
-	sk_psock_verdict_apply(psock, skb, ret);
 }
 
 static int sk_psock_strp_read_done(struct strparser *strp, int err)
