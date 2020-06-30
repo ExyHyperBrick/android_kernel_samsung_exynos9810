@@ -77,14 +77,14 @@ int flow_dissector_bpf_prog_attach_check(struct net *net,
 		for_each_net(ns) {
 			if (ns == &init_net)
 				continue;
-			if (rcu_access_pointer(ns->bpf.progs[type]))
+			if (rcu_access_pointer(ns->bpf.run_array[type]))
 				return -EEXIST;
 		}
 	} else {
 		/* Make sure root flow dissector is not attached
 		 * when attaching to the non-root namespace.
 		 */
-		if (rcu_access_pointer(init_net.bpf.progs[type]))
+		if (rcu_access_pointer(init_net.bpf.run_array[type]))
 			return -EEXIST;
 	}
 
@@ -485,7 +485,7 @@ bool __skb_flow_dissect(const struct sk_buff *skb,
 	struct flow_dissector_key_tags *key_tags;
 	struct flow_dissector_key_vlan *key_vlan;
 	bool skip_vlan = false;
-	struct bpf_prog *attached;
+	struct bpf_prog_array *run_array;
 	u8 ip_proto = 0;
 	bool ret;
 
@@ -512,10 +512,13 @@ bool __skb_flow_dissect(const struct sk_buff *skb,
 					      target_container);
 
 	rcu_read_lock();
-	attached = skb ? rcu_dereference(init_net.bpf.progs[NETNS_BPF_FLOW_DISSECTOR]) : NULL;
-	if (!attached && skb)
-		attached = rcu_dereference(dev_net(skb->dev)->bpf.progs[NETNS_BPF_FLOW_DISSECTOR]);
-	if (attached) {
+	run_array = skb ?
+		rcu_dereference(init_net.bpf.run_array[NETNS_BPF_FLOW_DISSECTOR]) :
+		NULL;
+	if (!run_array && skb)
+		run_array = rcu_dereference(
+			dev_net(skb->dev)->bpf.run_array[NETNS_BPF_FLOW_DISSECTOR]);
+	if (run_array) {
 		/* Note that even though the const qualifier is discarded
 		 * throughout the execution of the BPF program, all changes(the
 		 * control block) are reverted after the BPF program returns.
@@ -524,6 +527,7 @@ bool __skb_flow_dissect(const struct sk_buff *skb,
 		struct bpf_flow_keys flow_keys = {};
 		struct bpf_skb_data_end cb_saved;
 		struct bpf_skb_data_end *cb;
+		struct bpf_prog *prog;
 		u32 result;
 
 		cb = (struct bpf_skb_data_end *)skb->cb;
@@ -537,7 +541,8 @@ bool __skb_flow_dissect(const struct sk_buff *skb,
 		flow_keys.nhoff = nhoff;
 
 		bpf_compute_data_pointers((struct sk_buff *)skb);
-		result = bpf_prog_run_pin_on_cpu(attached, skb);
+		prog = READ_ONCE(run_array->items[0].prog);
+		result = bpf_prog_run_pin_on_cpu(prog, skb);
 
 		/* Restore state */
 		memcpy(cb, &cb_saved, sizeof(cb_saved));
