@@ -289,7 +289,7 @@ static const struct bpf_func_proto *bpf_get_probe_write_proto(void)
 
 /*
  * Only limited trace_printk() conversion specifiers allowed:
- * %d %i %u %x %ld %li %lu %lx %lld %lli %llu %llx %p %s
+ * %d %i %u %x %ld %li %lu %lx %lld %lli %llu %llx %p %pB %s
  */
 BPF_CALL_5(bpf_trace_printk, char *, fmt, u32, fmt_size, u64, arg1,
 	   u64, arg2, u64, arg3)
@@ -327,6 +327,11 @@ BPF_CALL_5(bpf_trace_printk, char *, fmt, u32, fmt_size, u64, arg1,
 			i++;
 		} else if (fmt[i] == 'p' || fmt[i] == 's') {
 			mod[fmt_cnt]++;
+			if (fmt[i] == 'p' && fmt[i + 1] == 'B') {
+				i++;
+				fmt_cnt++;
+				continue;
+			}
 			/* disallow any further format extensions */
 			if (fmt[i + 1] != 0 &&
 			    !isspace(fmt[i + 1]) &&
@@ -539,7 +544,8 @@ BPF_CALL_5(bpf_seq_printf, struct seq_file *, m, char *, fmt, u32, fmt_size,
 		if (fmt[i] == 'p') {
 			if (fmt[i + 1] == 0 ||
 			    fmt[i + 1] == 'K' ||
-			    fmt[i + 1] == 'x') {
+			    fmt[i + 1] == 'x' ||
+			    fmt[i + 1] == 'B') {
 				/* just kernel pointers */
 				params[fmt_cnt] = args[fmt_cnt];
 				fmt_cnt++;
