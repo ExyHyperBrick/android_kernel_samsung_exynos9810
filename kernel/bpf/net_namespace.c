@@ -43,15 +43,11 @@ static void bpf_netns_link_release(struct bpf_link *link)
 	enum netns_bpf_attach_type type = net_link->netns_type;
 	struct net *net;
 
-	/* Link auto-detached by dying netns. */
-	if (!net_link->net)
-		return;
-
 	mutex_lock(&netns_bpf_mutex);
 
-	/* Recheck after potential sleep. We can race with cleanup_net
-	 * here, but if we see a non-NULL struct net pointer the exit
-	 * callback has not happened yet and will block on netns_bpf_mutex.
+	/* We can race with cleanup_net, but if we see a non-NULL
+	 * struct net pointer, the exit callback has not run yet and waits
+	 * for netns_bpf_mutex.
 	 */
 	net = net_link->net;
 	if (!net)
