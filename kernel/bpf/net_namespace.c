@@ -33,6 +33,17 @@ static void __net_exit bpf_netns_link_auto_detach(struct bpf_link *link)
 	net_link->net = NULL;
 }
 
+/* Must be called with netns_bpf_mutex held. */
+static void netns_bpf_run_array_detach(struct net *net,
+				       enum netns_bpf_attach_type type)
+{
+	struct bpf_prog_array *run_array;
+
+	run_array = rcu_dereference_protected(net->bpf.run_array[type], 1);
+	RCU_INIT_POINTER(net->bpf.run_array[type], NULL);
+	bpf_prog_array_free(run_array);
+}
+
 static void bpf_netns_link_release(struct bpf_link *link)
 {
 	struct bpf_netns_link *net_link =
@@ -54,8 +65,8 @@ static void bpf_netns_link_release(struct bpf_link *link)
 	if (!net)
 		goto out_unlock;
 
+	netns_bpf_run_array_detach(net, type);
 	net->bpf.links[type] = NULL;
-	RCU_INIT_POINTER(net->bpf.progs[type], NULL);
 
 out_unlock:
 	mutex_unlock(&netns_bpf_mutex);
@@ -71,8 +82,8 @@ static int bpf_netns_link_detach(struct bpf_link *link)
 	mutex_lock(&netns_bpf_mutex);
 	net = net_link->net;
 	if (net) {
+		netns_bpf_run_array_detach(net, type);
 		net->bpf.links[type] = NULL;
-		RCU_INIT_POINTER(net->bpf.progs[type], NULL);
 		net_link->net = NULL;
 	}
 	mutex_unlock(&netns_bpf_mutex);
@@ -95,6 +106,7 @@ static int bpf_netns_link_update_prog(struct bpf_link *link,
 	struct bpf_netns_link *net_link =
 		container_of(link, struct bpf_netns_link, link);
 	enum netns_bpf_attach_type type = net_link->netns_type;
+	struct bpf_prog_array *run_array;
 	struct net *net;
 	int ret = 0;
 
@@ -112,8 +124,11 @@ static int bpf_netns_link_update_prog(struct bpf_link *link,
 		goto out_unlock;
 	}
 
+	run_array = rcu_dereference_protected(net->bpf.run_array[type],
+					      lockdep_is_held(&netns_bpf_mutex));
+	WRITE_ONCE(run_array->items[0].prog, new_prog);
+
 	old_prog = xchg(&link->prog, new_prog);
-	rcu_assign_pointer(net->bpf.progs[type], new_prog);
 	bpf_prog_put(old_prog);
 
 out_unlock:
@@ -162,14 +177,38 @@ static const struct bpf_link_ops bpf_netns_link_ops = {
 	.show_fdinfo = bpf_netns_link_show_fdinfo,
 };
 
+/* Must be called with netns_bpf_mutex held. */
+static int __netns_bpf_prog_query(const union bpf_attr *attr,
+				  union bpf_attr __user *uattr,
+				  struct net *net,
+				  enum netns_bpf_attach_type type)
+{
+	__u32 __user *prog_ids = u64_to_user_ptr(attr->query.prog_ids);
+	struct bpf_prog_array *run_array;
+	u32 prog_cnt = 0, flags = 0;
+
+	run_array = rcu_dereference_protected(net->bpf.run_array[type],
+					      lockdep_is_held(&netns_bpf_mutex));
+	if (run_array)
+		prog_cnt = bpf_prog_array_length(run_array);
+
+	if (copy_to_user(&uattr->query.attach_flags, &flags, sizeof(flags)))
+		return -EFAULT;
+	if (copy_to_user(&uattr->query.prog_cnt, &prog_cnt, sizeof(prog_cnt)))
+		return -EFAULT;
+	if (!attr->query.prog_cnt || !prog_ids || !prog_cnt)
+		return 0;
+
+	return bpf_prog_array_copy_to_user(run_array, prog_ids,
+					   attr->query.prog_cnt);
+}
+
 int netns_bpf_prog_query(const union bpf_attr *attr,
 			 union bpf_attr __user *uattr)
 {
-	__u32 __user *prog_ids = u64_to_user_ptr(attr->query.prog_ids);
-	u32 prog_id, prog_cnt = 0, flags = 0;
 	enum netns_bpf_attach_type type;
-	struct bpf_prog *attached;
 	struct net *net;
+	int ret;
 
 	if (attr->query.query_flags)
 		return -EINVAL;
@@ -182,32 +221,17 @@ int netns_bpf_prog_query(const union bpf_attr *attr,
 	if (IS_ERR(net))
 		return PTR_ERR(net);
 
-	rcu_read_lock();
-	attached = rcu_dereference(net->bpf.progs[type]);
-	if (attached) {
-		prog_cnt = 1;
-		prog_id = attached->aux->id;
-	}
-	rcu_read_unlock();
+	mutex_lock(&netns_bpf_mutex);
+	ret = __netns_bpf_prog_query(attr, uattr, net, type);
+	mutex_unlock(&netns_bpf_mutex);
 
 	put_net(net);
-
-	if (copy_to_user(&uattr->query.attach_flags, &flags, sizeof(flags)))
-		return -EFAULT;
-	if (copy_to_user(&uattr->query.prog_cnt, &prog_cnt, sizeof(prog_cnt)))
-		return -EFAULT;
-
-	if (!attr->query.prog_cnt || !prog_ids || !prog_cnt)
-		return 0;
-
-	if (copy_to_user(prog_ids, &prog_id, sizeof(u32)))
-		return -EFAULT;
-
-	return 0;
+	return ret;
 }
 
 int netns_bpf_prog_attach(const union bpf_attr *attr, struct bpf_prog *prog)
 {
+	struct bpf_prog_array *run_array;
 	enum netns_bpf_attach_type type;
 	struct bpf_prog *attached;
 	struct net *net;
@@ -237,14 +261,28 @@ int netns_bpf_prog_attach(const union bpf_attr *attr, struct bpf_prog *prog)
 	if (ret)
 		goto out_unlock;
 
-	attached = rcu_dereference_protected(net->bpf.progs[type],
-					     lockdep_is_held(&netns_bpf_mutex));
+	attached = net->bpf.progs[type];
 	if (attached == prog) {
 		/* The same program cannot be attached twice. */
 		ret = -EINVAL;
 		goto out_unlock;
 	}
-	rcu_assign_pointer(net->bpf.progs[type], prog);
+
+	run_array = rcu_dereference_protected(net->bpf.run_array[type],
+					      lockdep_is_held(&netns_bpf_mutex));
+	if (run_array) {
+		WRITE_ONCE(run_array->items[0].prog, prog);
+	} else {
+		run_array = bpf_prog_array_alloc(1, GFP_KERNEL);
+		if (!run_array) {
+			ret = -ENOMEM;
+			goto out_unlock;
+		}
+		run_array->items[0].prog = prog;
+		rcu_assign_pointer(net->bpf.run_array[type], run_array);
+	}
+
+	net->bpf.progs[type] = prog;
 	if (attached)
 		bpf_prog_put(attached);
 
@@ -264,11 +302,11 @@ static int __netns_bpf_prog_detach(struct net *net,
 	if (net->bpf.links[type])
 		return -EINVAL;
 
-	attached = rcu_dereference_protected(net->bpf.progs[type],
-					     lockdep_is_held(&netns_bpf_mutex));
+	attached = net->bpf.progs[type];
 	if (!attached)
 		return -ENOENT;
-	RCU_INIT_POINTER(net->bpf.progs[type], NULL);
+	netns_bpf_run_array_detach(net, type);
+	net->bpf.progs[type] = NULL;
 	bpf_prog_put(attached);
 	return 0;
 }
@@ -292,7 +330,7 @@ int netns_bpf_prog_detach(const union bpf_attr *attr)
 static int netns_bpf_link_attach(struct net *net, struct bpf_link *link,
 				 enum netns_bpf_attach_type type)
 {
-	struct bpf_prog *prog;
+	struct bpf_prog_array *run_array;
 	int err;
 
 	mutex_lock(&netns_bpf_mutex);
@@ -303,9 +341,7 @@ static int netns_bpf_link_attach(struct net *net, struct bpf_link *link,
 		goto out_unlock;
 	}
 	/* Links are not compatible with attaching a program directly. */
-	prog = rcu_dereference_protected(net->bpf.progs[type],
-					 lockdep_is_held(&netns_bpf_mutex));
-	if (prog) {
+	if (net->bpf.progs[type]) {
 		err = -EEXIST;
 		goto out_unlock;
 	}
@@ -321,7 +357,14 @@ static int netns_bpf_link_attach(struct net *net, struct bpf_link *link,
 	if (err)
 		goto out_unlock;
 
-	rcu_assign_pointer(net->bpf.progs[type], link->prog);
+	run_array = bpf_prog_array_alloc(1, GFP_KERNEL);
+	if (!run_array) {
+		err = -ENOMEM;
+		goto out_unlock;
+	}
+	run_array->items[0].prog = link->prog;
+	rcu_assign_pointer(net->bpf.run_array[type], run_array);
+
 	net->bpf.links[type] = link;
 
 out_unlock:
@@ -388,11 +431,12 @@ static void __net_exit netns_bpf_pernet_exit(struct net *net)
 
 	mutex_lock(&netns_bpf_mutex);
 	for (type = 0; type < MAX_NETNS_BPF_ATTACH_TYPE; type++) {
+		netns_bpf_run_array_detach(net, type);
 		link = net->bpf.links[type];
 		if (link)
 			bpf_netns_link_auto_detach(link);
-		else
-			__netns_bpf_prog_detach(net, type);
+		else if (net->bpf.progs[type])
+			bpf_prog_put(net->bpf.progs[type]);
 	}
 	mutex_unlock(&netns_bpf_mutex);
 }
