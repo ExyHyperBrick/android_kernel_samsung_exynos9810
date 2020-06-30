@@ -368,8 +368,7 @@ static void sugov_update_single(struct update_util_data *hook, u64 time,
 		 * Do not reduce the frequency if the CPU has not been idle
 		 * recently, as the reduction is likely to be premature then.
 		 */
-		if (!IS_ENABLED(CONFIG_UCLAMP_TASK) &&
-		    busy && next_f < sg_policy->next_freq) {
+		if (!uclamp_is_used() && busy && next_f < sg_policy->next_freq) {
 			next_f = sg_policy->next_freq;
 
 			/* Reset cached freq as next_freq has changed */
