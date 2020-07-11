@@ -4,8 +4,10 @@
 #include <endian.h>
 #include <errno.h>
 #include <fcntl.h>
+#ifndef BTF_NO_LIBELF
 #include <gelf.h>
 #include <libelf.h>
+#endif
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -264,6 +266,7 @@ err_out:
 	return ERR_PTR(err);
 }
 
+#ifndef BTF_NO_LIBELF
 static bool btf_check_endianness(const GElf_Ehdr *ehdr)
 {
 #if __BYTE_ORDER == __LITTLE_ENDIAN
@@ -376,6 +379,8 @@ out:
 
 	return err ? ERR_PTR(err) : btf;
 }
+
+#endif
 
 const char *btf__name_by_offset(const struct btf *btf, __u32 offset)
 {
