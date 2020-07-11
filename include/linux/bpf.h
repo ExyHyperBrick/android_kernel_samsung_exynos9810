@@ -546,7 +546,8 @@ int btf_struct_access(struct bpf_verifier_log *log,
 		      const struct btf_type *t, int off, int size,
 		      enum bpf_access_type atype,
 		      u32 *next_btf_id);
-u32 btf_resolve_helper_id(struct bpf_verifier_log *log, void *, int);
+int btf_resolve_helper_id(struct bpf_verifier_log *log,
+			  const struct bpf_func_proto *fn, int arg);
 
 /* an array of programs to be executed under rcu_lock.
  *
