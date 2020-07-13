@@ -296,6 +296,8 @@ SECTIONS
 	. += PAGE_SIZE;
 #endif
 #endif
+
+	BTF
 	_end = .;
 
 	STABS_DEBUG
