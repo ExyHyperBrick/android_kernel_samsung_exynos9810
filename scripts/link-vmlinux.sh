@@ -417,6 +417,12 @@ fi
 info LD vmlinux
 vmlinux_link "${kallsymso} ${btf_vmlinux_bin_o}" vmlinux
 
+# Fill in BTF IDs after the final image has its embedded BTF.
+if [ -n "${CONFIG_DEBUG_INFO_BTF}" ]; then
+	info BTFIDS vmlinux
+	${RESOLVE_BTFIDS} vmlinux
+fi
+
 if [ -n "${CONFIG_BUILDTIME_EXTABLE_SORT}" ]; then
 	info SORTEX vmlinux
 	sortextable vmlinux
