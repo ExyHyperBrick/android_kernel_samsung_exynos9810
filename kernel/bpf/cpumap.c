@@ -209,15 +209,15 @@ static bool cpu_map_bpf_prog_run_xdp(struct bpf_cpu_map_entry *rcpu,
 		.data_hard_start = (void *)xdp_pkt + sizeof(*xdp_pkt),
 		.rxq = &rxq,
 	};
+	bool pass = false;
 	u32 act;
+	int err;
 
 	if (!rcpu->prog)
 		return true;
 
-	rcu_read_lock();
+	rcu_read_lock_bh();
 	act = bpf_prog_run_xdp(rcpu->prog, &xdp);
-	rcu_read_unlock();
-
 	switch (act) {
 	case XDP_PASS:
 		xdp_pkt->data = xdp.data;
@@ -225,15 +225,31 @@ static bool cpu_map_bpf_prog_run_xdp(struct bpf_cpu_map_entry *rcpu,
 		xdp_pkt->headroom = xdp.data - xdp.data_hard_start;
 		xdp_pkt->metasize = xdp_data_meta_unsupported(&xdp) ? 0 :
 			xdp.data - xdp.data_meta;
-		return true;
+		pass = true;
+		break;
+	case XDP_REDIRECT:
+		/* Restore the original frame start before handing ownership to
+		 * another redirect target. The private xdp_pkt header may now be
+		 * replaced because this CPU no longer needs it.
+		 */
+		xdp.data_hard_start = xdp_pkt;
+		err = xdp_do_redirect(xdp_pkt->dev_rx, &xdp, rcpu->prog);
+		if (unlikely(err))
+			__free_page_frag(xdp_pkt);
+		else
+			xdp_do_flush_map();
+		break;
 	default:
 		bpf_warn_invalid_xdp_action(act);
 		/* fall through */
 	case XDP_ABORTED:
 	case XDP_DROP:
 		__free_page_frag(xdp_pkt);
-		return false;
+		break;
 	}
+	rcu_read_unlock_bh();
+
+	return pass;
 }
 
 static struct sk_buff *cpu_map_build_skb(struct xdp_pkt *xdp_pkt)
