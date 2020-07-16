@@ -1135,6 +1135,7 @@ void __cpu_map_insert_ctx(struct bpf_map *map, u32 index);
 void __cpu_map_flush(struct bpf_map *map);
 int cpu_map_enqueue(struct bpf_cpu_map_entry *rcpu, struct xdp_buff *xdp,
 		    struct net_device *dev_rx);
+bool cpu_map_prog_allowed(struct bpf_map *map);
 
 static inline bool unprivileged_ebpf_enabled(void)
 {
@@ -1255,6 +1256,11 @@ static inline int cpu_map_enqueue(struct bpf_cpu_map_entry *rcpu,
 				  struct net_device *dev_rx)
 {
 	return 0;
+}
+
+static inline bool cpu_map_prog_allowed(struct bpf_map *map)
+{
+	return false;
 }
 
 static inline bool unprivileged_ebpf_enabled(void)

@@ -214,6 +214,7 @@ enum bpf_attach_type {
 	BPF_TRACE_ITER = 28,
 	BPF_XDP_DEVMAP = 33,
 	BPF_CGROUP_INET_SOCK_RELEASE = 34,
+	BPF_XDP_CPUMAP = 35,
 	BPF_SK_LOOKUP = 36,
 	BPF_PERF_EVENT = 41,
 	__MAX_BPF_ATTACH_TYPE
@@ -1861,6 +1862,10 @@ struct bpf_devmap_val {
 /* CPUMAP map-value layout. New members must be appended. */
 struct bpf_cpumap_val {
 	__u32 qsize;
+	union {
+		int fd;
+		__u32 id;
+	} bpf_prog;
 };
 
 enum sk_action {

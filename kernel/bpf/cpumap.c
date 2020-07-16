@@ -44,6 +44,7 @@ struct xdp_bulk_queue {
 /* Struct for every remote "destination" CPU in map */
 struct bpf_cpu_map_entry {
 	struct bpf_cpumap_val value;
+	struct bpf_prog *prog;
 
 	/* XDP can run multiple RX-ring queues, need __percpu enqueue store */
 	struct xdp_bulk_queue __percpu *bulkq;
@@ -75,6 +76,7 @@ static u64 cpu_map_bitmap_size(const union bpf_attr *attr)
 
 static struct bpf_map *cpu_map_alloc(union bpf_attr *attr)
 {
+	u32 value_size = attr->value_size;
 	struct bpf_cpu_map *cmap;
 	int err = -ENOMEM;
 	u64 cost;
@@ -85,7 +87,9 @@ static struct bpf_map *cpu_map_alloc(union bpf_attr *attr)
 
 	/* check sanity of attributes */
 	if (attr->max_entries == 0 || attr->key_size != 4 ||
-	    attr->value_size != 4 || attr->map_flags & ~BPF_F_NUMA_NODE)
+	    (value_size != offsetofend(struct bpf_cpumap_val, qsize) &&
+	     value_size != offsetofend(struct bpf_cpumap_val, bpf_prog.fd)) ||
+	    attr->map_flags & ~BPF_F_NUMA_NODE)
 		return ERR_PTR(-EINVAL);
 
 	cmap = kzalloc(sizeof(*cmap), GFP_USER);
@@ -149,6 +153,8 @@ void __cpu_map_queue_destructor(void *ptr)
 static void put_cpu_map_entry(struct bpf_cpu_map_entry *rcpu)
 {
 	if (atomic_dec_and_test(&rcpu->refcnt)) {
+		if (rcpu->prog)
+			bpf_prog_put(rcpu->prog);
 		/* The queue should be empty at this point */
 		ptr_ring_cleanup(rcpu->queue, __cpu_map_queue_destructor);
 		kfree(rcpu->queue);
@@ -188,6 +194,46 @@ static struct xdp_pkt *convert_to_xdp_pkt(struct xdp_buff *xdp)
 	xdp_pkt->metasize = metasize;
 
 	return xdp_pkt;
+}
+
+static bool cpu_map_bpf_prog_run_xdp(struct bpf_cpu_map_entry *rcpu,
+				      struct xdp_pkt *xdp_pkt)
+{
+	struct xdp_rxq_info rxq = {
+		.dev = xdp_pkt->dev_rx,
+	};
+	struct xdp_buff xdp = {
+		.data = xdp_pkt->data,
+		.data_end = xdp_pkt->data + xdp_pkt->len,
+		.data_meta = xdp_pkt->data - xdp_pkt->metasize,
+		.data_hard_start = (void *)xdp_pkt + sizeof(*xdp_pkt),
+		.rxq = &rxq,
+	};
+	u32 act;
+
+	if (!rcpu->prog)
+		return true;
+
+	rcu_read_lock();
+	act = bpf_prog_run_xdp(rcpu->prog, &xdp);
+	rcu_read_unlock();
+
+	switch (act) {
+	case XDP_PASS:
+		xdp_pkt->data = xdp.data;
+		xdp_pkt->len = xdp.data_end - xdp.data;
+		xdp_pkt->headroom = xdp.data - xdp.data_hard_start;
+		xdp_pkt->metasize = xdp_data_meta_unsupported(&xdp) ? 0 :
+			xdp.data - xdp.data_meta;
+		return true;
+	default:
+		bpf_warn_invalid_xdp_action(act);
+		/* fall through */
+	case XDP_ABORTED:
+	case XDP_DROP:
+		__free_page_frag(xdp_pkt);
+		return false;
+	}
 }
 
 static struct sk_buff *cpu_map_build_skb(struct xdp_pkt *xdp_pkt)
@@ -260,6 +306,9 @@ static int cpu_map_kthread_run(void *data)
 		while ((xdp_pkt = __ptr_ring_consume(rcpu->queue))) {
 			struct sk_buff *skb;
 
+			if (!cpu_map_bpf_prog_run_xdp(rcpu, xdp_pkt))
+				continue;
+
 			skb = cpu_map_build_skb(xdp_pkt);
 			if (!skb) {
 				__free_page_frag(xdp_pkt);
@@ -278,12 +327,36 @@ static int cpu_map_kthread_run(void *data)
 	return 0;
 }
 
+bool cpu_map_prog_allowed(struct bpf_map *map)
+{
+	return map->map_type == BPF_MAP_TYPE_CPUMAP &&
+	       map->value_size != offsetofend(struct bpf_cpumap_val, qsize);
+}
+
+static int __cpu_map_load_bpf_program(struct bpf_cpu_map_entry *rcpu, int fd)
+{
+	struct bpf_prog *prog;
+
+	prog = bpf_prog_get_type(fd, BPF_PROG_TYPE_XDP);
+	if (IS_ERR(prog))
+		return PTR_ERR(prog);
+
+	if (prog->expected_attach_type != BPF_XDP_CPUMAP) {
+		bpf_prog_put(prog);
+		return -EINVAL;
+	}
+
+	rcpu->value.bpf_prog.id = prog->aux->id;
+	rcpu->prog = prog;
+	return 0;
+}
+
 static struct bpf_cpu_map_entry *
 __cpu_map_entry_alloc(struct bpf_cpumap_val *value, u32 cpu, int map_id)
 {
+	int numa, err, fd = value->bpf_prog.fd;
 	gfp_t gfp = GFP_KERNEL | __GFP_NOWARN;
 	struct bpf_cpu_map_entry *rcpu;
-	int numa, err;
 
 	/* Have map->numa_node, but choose node of redirect target CPU */
 	numa = cpu_to_node(cpu);
@@ -318,6 +391,9 @@ __cpu_map_entry_alloc(struct bpf_cpumap_val *value, u32 cpu, int map_id)
 
 	get_cpu_map_entry(rcpu); /* 1-refcnt for being in cmap->cpu_map[] */
 	get_cpu_map_entry(rcpu); /* 1-refcnt for kthread */
+
+	if (fd > 0 && __cpu_map_load_bpf_program(rcpu, fd))
+		goto free_ptr_ring;
 
 	/* Make sure kthread runs on a single CPU */
 	kthread_bind(rcpu->kthread, cpu);
