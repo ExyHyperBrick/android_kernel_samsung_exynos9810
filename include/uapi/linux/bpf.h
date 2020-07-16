@@ -1845,6 +1845,11 @@ struct xdp_md {
 	__u32 data_meta;
 };
 
+/* CPUMAP map-value layout. New members must be appended. */
+struct bpf_cpumap_val {
+	__u32 qsize;
+};
+
 enum sk_action {
 	SK_DROP = 0,
 	SK_PASS,
