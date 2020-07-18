@@ -1033,7 +1033,7 @@ union bpf_attr {
  *		All values for *flags* are reserved for future usage, and must
  *		be left at zero.
  *
- 	*		This helper is available only if the kernel was compiled with
+ *		This helper is available only if the kernel was compiled with
  *		**CONFIG_NET** configuration option.
  *	Return
  *		Pointer to *struct bpf_sock*, or NULL in case of failure.
