@@ -466,6 +466,25 @@ static u32 udp_ehashfn(const struct net *net, const __be32 laddr,
 			      udp_ehash_secret + net_hash_mix(net));
 }
 
+static struct sock *lookup_reuseport(struct net *net, struct sock *sk,
+				     struct sk_buff *skb,
+				     __be32 saddr, __be16 sport,
+				     __be32 daddr, unsigned short hnum,
+				     u32 *phash)
+{
+	struct sock *reuse_sk = NULL;
+	u32 hash;
+
+	if (sk->sk_reuseport && sk->sk_state != TCP_ESTABLISHED) {
+		hash = udp_ehashfn(net, daddr, hnum, saddr, sport);
+		if (phash)
+			*phash = hash;
+		reuse_sk = reuseport_select_sock(sk, hash, skb,
+						 sizeof(struct udphdr));
+	}
+	return reuse_sk;
+}
+
 /* called with rcu_read_lock() */
 static struct sock *udp4_lib_lookup2(struct net *net,
 				     __be32 saddr, __be16 sport,
@@ -487,10 +506,10 @@ static struct sock *udp4_lib_lookup2(struct net *net,
 			reuseport_result = NULL;
 			reuseport = sk->sk_reuseport;
 			if (reuseport && sk->sk_state != TCP_ESTABLISHED) {
-				hash = udp_ehashfn(net, daddr, hnum,
-						   saddr, sport);
-				reuseport_result = reuseport_select_sock(sk, hash, skb,
-									 sizeof(struct udphdr));
+				reuseport_result = lookup_reuseport(net, sk, skb,
+								 saddr, sport,
+								 daddr, hnum,
+								 &hash);
 				if (reuseport_result &&
 				    !reuseport_has_conns(sk))
 					return reuseport_result;
@@ -565,10 +584,10 @@ begin:
 			reuseport_result = NULL;
 			reuseport = sk->sk_reuseport;
 			if (reuseport && sk->sk_state != TCP_ESTABLISHED) {
-				hash = udp_ehashfn(net, daddr, hnum,
-						   saddr, sport);
-				reuseport_result = reuseport_select_sock(sk, hash, skb,
-									 sizeof(struct udphdr));
+				reuseport_result = lookup_reuseport(net, sk, skb,
+								 saddr, sport,
+								 daddr, hnum,
+								 &hash);
 				if (unlikely(IS_ERR(reuseport_result)))
 					return NULL;
 				if (reuseport_result &&
