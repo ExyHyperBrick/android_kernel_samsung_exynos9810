@@ -1904,6 +1904,10 @@ bpf_prog_load_check_attach(enum bpf_prog_type prog_type,
 		default:
 			return -EINVAL;
 		}
+	case BPF_PROG_TYPE_SK_LOOKUP:
+		if (expected_attach_type == BPF_SK_LOOKUP)
+			return 0;
+		return -EINVAL;
 	default:
 		return 0;
 	}
@@ -1916,6 +1920,7 @@ static int bpf_prog_attach_check_attach_type(const struct bpf_prog *prog,
 	case BPF_PROG_TYPE_CGROUP_SOCK:
 	case BPF_PROG_TYPE_CGROUP_SOCK_ADDR:
 	case BPF_PROG_TYPE_CGROUP_SOCKOPT:
+	case BPF_PROG_TYPE_SK_LOOKUP:
 		return attach_type == prog->expected_attach_type ? 0 : -EINVAL;
 	default:
 		return 0;
@@ -2640,6 +2645,8 @@ attach_type_to_prog_type(enum bpf_attach_type attach_type)
 		return BPF_PROG_TYPE_SK_SKB;
 	case BPF_FLOW_DISSECTOR:
 		return BPF_PROG_TYPE_FLOW_DISSECTOR;
+	case BPF_SK_LOOKUP:
+		return BPF_PROG_TYPE_SK_LOOKUP;
 	case BPF_CGROUP_SYSCTL:
 		return BPF_PROG_TYPE_CGROUP_SYSCTL;
 	case BPF_CGROUP_GETSOCKOPT:
@@ -2799,6 +2806,7 @@ static int bpf_prog_query(const union bpf_attr *attr,
 
 	switch (attr->query.attach_type) {
 	case BPF_FLOW_DISSECTOR:
+	case BPF_SK_LOOKUP:
 		return netns_bpf_prog_query(attr, uattr);
 	case BPF_CGROUP_INET_INGRESS:
 	case BPF_CGROUP_INET_EGRESS:
@@ -3710,6 +3718,7 @@ static int link_create(const union bpf_attr *attr)
 		ret = tracing_bpf_link_attach(attr, prog);
 		break;
 	case BPF_PROG_TYPE_FLOW_DISSECTOR:
+	case BPF_PROG_TYPE_SK_LOOKUP:
 		ret = netns_bpf_link_create(attr, prog);
 		break;
 #ifdef CONFIG_PERF_EVENTS
