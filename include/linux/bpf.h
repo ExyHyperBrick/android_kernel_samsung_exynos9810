@@ -829,7 +829,7 @@ BPF_PROG_RUN_ARRAY_CG_FLAGS(const struct bpf_prog_array __rcu *array_rcu,
 	}
 	bpf_reset_run_ctx(old_run_ctx);
 	rcu_read_unlock();
-	preempt_enable_no_resched();
+	preempt_enable();
 	return ret;
 }
 
@@ -856,7 +856,7 @@ BPF_PROG_RUN_ARRAY_CG(const struct bpf_prog_array __rcu *array_rcu,
 	}
 	bpf_reset_run_ctx(old_run_ctx);
 	rcu_read_unlock();
-	preempt_enable_no_resched();
+	preempt_enable();
 	return ret;
 }
 
@@ -886,7 +886,7 @@ BPF_PROG_RUN_ARRAY(const struct bpf_prog_array __rcu *array_rcu,
 	bpf_reset_run_ctx(old_run_ctx);
 out:
 	rcu_read_unlock();
-	preempt_enable_no_resched();
+	preempt_enable();
 	return ret;
 }
 
