@@ -1237,4 +1237,84 @@ struct bpf_sk_lookup_kern {
 	bool		no_reuseport;
 };
 
+extern struct static_key_false bpf_sk_lookup_enabled;
+
+/* Runners for BPF_SK_LOOKUP programs to invoke on socket lookup. */
+static __always_inline u32
+BPF_PROG_SK_LOOKUP_RUN_ARRAY(const struct bpf_prog_array *array,
+			     struct bpf_sk_lookup_kern *ctx,
+			     bpf_prog_run_fn run_prog)
+{
+	const struct bpf_prog_array_item *item;
+	struct sock *selected_sk = NULL;
+	bool no_reuseport = false;
+	const struct bpf_prog *prog;
+	struct bpf_run_ctx *old_run_ctx;
+	struct bpf_trace_run_ctx run_ctx;
+	bool all_pass = true;
+	u32 ret;
+
+	preempt_disable();
+	old_run_ctx = bpf_set_run_ctx(&run_ctx.run_ctx);
+	item = &array->items[0];
+	while ((prog = READ_ONCE(item->prog))) {
+		ctx->selected_sk = selected_sk;
+		ctx->no_reuseport = no_reuseport;
+		run_ctx.bpf_cookie = item->bpf_cookie;
+
+		ret = run_prog(prog, ctx);
+		if (ret == SK_PASS && ctx->selected_sk) {
+			selected_sk = ctx->selected_sk;
+			no_reuseport = ctx->no_reuseport;
+		} else if (ret == SK_DROP) {
+			all_pass = false;
+		}
+		item++;
+	}
+	ctx->selected_sk = selected_sk;
+	ctx->no_reuseport = no_reuseport;
+	bpf_reset_run_ctx(old_run_ctx);
+	preempt_enable_no_resched();
+
+	return all_pass || selected_sk ? SK_PASS : SK_DROP;
+}
+
+static inline bool bpf_sk_lookup_run_v4(struct net *net, int protocol,
+					const __be32 saddr,
+					const __be16 sport,
+					const __be32 daddr,
+					const u16 dport,
+					struct sock **psk)
+{
+	struct bpf_prog_array *run_array;
+	struct sock *selected_sk = NULL;
+	bool no_reuseport = false;
+
+	rcu_read_lock();
+	run_array = rcu_dereference(net->bpf.run_array[NETNS_BPF_SK_LOOKUP]);
+	if (run_array) {
+		struct bpf_sk_lookup_kern ctx = {
+			.family		= AF_INET,
+			.protocol	= protocol,
+			.v4.saddr	= saddr,
+			.v4.daddr	= daddr,
+			.sport		= sport,
+			.dport		= dport,
+		};
+		u32 act;
+
+		act = BPF_PROG_SK_LOOKUP_RUN_ARRAY(run_array, &ctx,
+						    bpf_prog_run);
+		if (act == SK_PASS) {
+			selected_sk = ctx.selected_sk;
+			no_reuseport = ctx.no_reuseport;
+		} else {
+			selected_sk = ERR_PTR(-ECONNREFUSED);
+		}
+	}
+	rcu_read_unlock();
+	*psk = selected_sk;
+	return no_reuseport;
+}
+
 #endif /* __LINUX_FILTER_H__ */
