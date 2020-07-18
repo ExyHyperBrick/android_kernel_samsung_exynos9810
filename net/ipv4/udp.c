@@ -530,19 +530,49 @@ static struct sock *udp4_lib_lookup2(struct net *net,
 /* UDP is nearly always wildcards out the wazoo, it makes no sense to try
  * harder than this. -DaveM
  */
+static struct sock *udp4_lookup_run_bpf(struct net *net,
+					struct udp_table *udptable,
+					struct sk_buff *skb,
+					__be32 saddr, __be16 sport,
+					__be32 daddr, u16 hnum)
+{
+	struct sock *sk, *reuse_sk;
+	bool no_reuseport;
+
+	if (udptable != &udp_table)
+		return NULL;
+
+	no_reuseport = bpf_sk_lookup_run_v4(net, IPPROTO_UDP,
+					    saddr, sport, daddr, hnum, &sk);
+	if (no_reuseport || IS_ERR_OR_NULL(sk))
+		return sk;
+
+	reuse_sk = lookup_reuseport(net, sk, skb, saddr, sport,
+				    daddr, hnum, NULL);
+	if (reuse_sk && !reuseport_has_conns(sk))
+		sk = reuse_sk;
+	return sk;
+}
+
+/* UDP is nearly always wildcards out the wazoo, it makes no sense to try
+ * harder than this. -DaveM
+ */
 struct sock *__udp4_lib_lookup(struct net *net, __be32 saddr,
 		__be16 sport, __be32 daddr, __be16 dport, int dif,
 		int sdif, struct udp_table *udptable, struct sk_buff *skb)
 {
 	struct sock *sk, *result, *reuseport_result;
 	unsigned short hnum = ntohs(dport);
-	unsigned int hash2, slot2, slot = udp_hashfn(net, hnum, udptable->mask);
+	unsigned int hash2, slot2, slot = udp_hashfn(net, hnum,
+							    udptable->mask);
 	struct udp_hslot *hslot2, *hslot = &udptable->hash[slot];
 	bool exact_dif = udp_lib_exact_dif_match(net, skb);
 	int score, badness, matches = 0, reuseport = 0;
 	u32 hash = 0;
 
 	if (hslot->count > 10) {
+		unsigned int old_slot2;
+
 		hash2 = udp4_portaddr_hash(net, daddr, hnum);
 		slot2 = hash2 & udptable->mask;
 		hslot2 = &udptable->hash2[slot2];
@@ -554,25 +584,35 @@ struct sock *__udp4_lib_lookup(struct net *net, __be32 saddr,
 					  exact_dif, hslot2, skb);
 		if (unlikely(IS_ERR(result)))
 			return NULL;
-		if (!result) {
-			unsigned int old_slot2 = slot2;
-			hash2 = udp4_portaddr_hash(net, htonl(INADDR_ANY), hnum);
-			slot2 = hash2 & udptable->mask;
-			/* avoid searching the same slot again. */
-			if (unlikely(slot2 == old_slot2))
-				return result;
+		if (result && result->sk_state == TCP_ESTABLISHED)
+			goto done;
 
-			hslot2 = &udptable->hash2[slot2];
-			if (hslot->count < hslot2->count)
-				goto begin;
-
-			result = udp4_lib_lookup2(net, saddr, sport,
-						  daddr, hnum, dif, sdif,
-						  exact_dif, hslot2, skb);
-			if (unlikely(IS_ERR(result)))
-				return NULL;
+		if (static_branch_unlikely(&bpf_sk_lookup_enabled)) {
+			sk = udp4_lookup_run_bpf(net, udptable, skb,
+						 saddr, sport, daddr, hnum);
+			if (sk) {
+				result = sk;
+				goto done;
+			}
 		}
-		return result;
+
+		if (result)
+			goto done;
+
+		old_slot2 = slot2;
+		hash2 = udp4_portaddr_hash(net, htonl(INADDR_ANY), hnum);
+		slot2 = hash2 & udptable->mask;
+		if (unlikely(slot2 == old_slot2))
+			goto done;
+
+		hslot2 = &udptable->hash2[slot2];
+		if (hslot->count < hslot2->count)
+			goto begin;
+
+		result = udp4_lib_lookup2(net, saddr, sport,
+					  daddr, hnum, dif, sdif,
+					  exact_dif, hslot2, skb);
+		goto done;
 	}
 begin:
 	result = NULL;
@@ -604,6 +644,19 @@ begin:
 			hash = next_pseudo_random32(hash);
 		}
 	}
+
+	if (result && result->sk_state == TCP_ESTABLISHED)
+		goto done;
+
+	if (static_branch_unlikely(&bpf_sk_lookup_enabled)) {
+		sk = udp4_lookup_run_bpf(net, udptable, skb,
+					 saddr, sport, daddr, hnum);
+		if (sk)
+			result = sk;
+	}
+done:
+	if (IS_ERR(result))
+		return NULL;
 	return result;
 }
 EXPORT_SYMBOL_GPL(__udp4_lib_lookup);
