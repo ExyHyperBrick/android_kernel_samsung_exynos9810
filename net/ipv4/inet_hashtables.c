@@ -203,6 +203,24 @@ static inline int compute_score(struct sock *sk, struct net *net,
 	return score;
 }
 
+static struct sock *lookup_reuseport(struct net *net, struct sock *sk,
+				     struct sk_buff *skb, int doff,
+				     __be32 saddr, __be16 sport,
+				     __be32 daddr, unsigned short hnum,
+				     u32 *phash)
+{
+	struct sock *reuse_sk = NULL;
+	u32 hash;
+
+	if (sk->sk_reuseport) {
+		hash = inet_ehashfn(net, daddr, hnum, saddr, sport);
+		if (phash)
+			*phash = hash;
+		reuse_sk = reuseport_select_sock(sk, hash, skb, doff);
+	}
+	return reuse_sk;
+}
+
 /*
  * Here are some nice properties to exploit here. The BSD API
  * does not allow a listening sock to specify the remote port nor the
@@ -232,10 +250,9 @@ struct sock *__inet_lookup_listener(struct net *net,
 		if (score > hiscore) {
 			reuseport = sk->sk_reuseport;
 			if (reuseport) {
-				phash = inet_ehashfn(net, daddr, hnum,
-						     saddr, sport);
-				result = reuseport_select_sock(sk, phash,
-							       skb, doff);
+				result = lookup_reuseport(net, sk, skb, doff,
+						  saddr, sport, daddr, hnum,
+						  &phash);
 				if (unlikely(IS_ERR(result)))
 					return NULL;
 				if (result)
