@@ -22,7 +22,8 @@
 	    "audit_control", "setfcap"
 
 #define COMMON_CAP2_PERMS  "mac_override", "mac_admin", "syslog", \
-		"wake_alarm", "block_suspend", "audit_read", "perfmon", "bpf"
+		"wake_alarm", "block_suspend", "audit_read", "perfmon", "bpf", \
+		"checkpoint_restore"
 
 /*
  * Note: The name for any socket class should be suffixed by "socket",
