@@ -578,24 +578,6 @@ const struct btf_type *btf_type_by_id(const struct btf *btf, u32 type_id)
 	return btf->types[type_id];
 }
 
-int btf_find_by_name_kind(const struct btf *btf, const char *name, u8 kind)
-{
-	const struct btf_type *t;
-	const char *tname;
-	u32 id;
-
-	for (id = 1; id <= btf->nr_types; id++) {
-		t = btf_type_by_id(btf, id);
-		if (BTF_INFO_KIND(t->info) != kind)
-			continue;
-		tname = btf_name_by_offset(btf, t->name_off);
-		if (tname && !strcmp(tname, name))
-			return id;
-	}
-
-	return -ENOENT;
-}
-
 static const struct btf_type *
 btf_type_skip_modifiers(const struct btf *btf, u32 id, u32 *res_id)
 {
@@ -3361,8 +3343,6 @@ struct btf *btf_parse_vmlinux(void)
 	err = btf_check_all_metas(env);
 	if (err)
 		goto errout;
-
-	init_btf_sock_ids(btf);
 
 	btf_verifier_env_free(env);
 	refcount_set(&btf->refcnt, 1);
