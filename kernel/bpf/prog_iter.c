@@ -4,6 +4,7 @@
 #include <linux/fs.h>
 #include <linux/filter.h>
 #include <linux/kernel.h>
+#include <linux/btf_ids.h>
 
 struct bpf_iter_seq_prog_info {
 	u32 prog_id;
@@ -77,6 +78,9 @@ static const struct seq_operations bpf_prog_seq_ops = {
 	.show	= bpf_prog_seq_show,
 };
 
+BTF_ID_LIST(btf_bpf_prog_id)
+BTF_ID(struct, bpf_prog)
+
 static const struct bpf_iter_seq_info bpf_prog_seq_info = {
 	.seq_ops		= &bpf_prog_seq_ops,
 	.init_seq_private	= NULL,
@@ -84,7 +88,7 @@ static const struct bpf_iter_seq_info bpf_prog_seq_info = {
 	.seq_priv_size		= sizeof(struct bpf_iter_seq_prog_info),
 };
 
-static const struct bpf_iter_reg bpf_prog_reg_info = {
+static struct bpf_iter_reg bpf_prog_reg_info = {
 	.target			= "bpf_prog",
 	.ctx_arg_info_size	= 1,
 	.ctx_arg_info		= {
@@ -96,6 +100,7 @@ static const struct bpf_iter_reg bpf_prog_reg_info = {
 
 static int __init bpf_prog_iter_init(void)
 {
+	bpf_prog_reg_info.ctx_arg_info[0].btf_id = *btf_bpf_prog_id;
 	return bpf_iter_reg_target(&bpf_prog_reg_info);
 }
 

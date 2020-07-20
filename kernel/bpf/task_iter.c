@@ -7,6 +7,7 @@
 #include <linux/fs.h>
 #include <linux/fdtable.h>
 #include <linux/filter.h>
+#include <linux/btf_ids.h>
 
 struct bpf_iter_seq_task_common {
 	struct pid_namespace *ns;
@@ -538,6 +539,11 @@ static const struct seq_operations task_vma_seq_ops = {
 	.show	= task_vma_seq_show,
 };
 
+BTF_ID_LIST(btf_task_file_ids)
+BTF_ID(struct, task_struct)
+BTF_ID(struct, file)
+BTF_ID(struct, vm_area_struct)
+
 static const struct bpf_iter_seq_info task_seq_info = {
 	.seq_ops		= &task_seq_ops,
 	.init_seq_private	= init_seq_pidns,
@@ -545,7 +551,7 @@ static const struct bpf_iter_seq_info task_seq_info = {
 	.seq_priv_size		= sizeof(struct bpf_iter_seq_task_info),
 };
 
-static const struct bpf_iter_reg task_reg_info = {
+static struct bpf_iter_reg task_reg_info = {
 	.target			= "task",
 	.feature		= BPF_ITER_RESCHED,
 	.ctx_arg_info_size	= 1,
@@ -563,7 +569,7 @@ static const struct bpf_iter_seq_info task_file_seq_info = {
 	.seq_priv_size		= sizeof(struct bpf_iter_seq_task_file_info),
 };
 
-static const struct bpf_iter_reg task_file_reg_info = {
+static struct bpf_iter_reg task_file_reg_info = {
 	.target			= "task_file",
 	.feature		= BPF_ITER_RESCHED,
 	.ctx_arg_info_size	= 2,
@@ -583,7 +589,7 @@ static const struct bpf_iter_seq_info task_vma_seq_info = {
 	.seq_priv_size		= sizeof(struct bpf_iter_seq_task_vma_info),
 };
 
-static const struct bpf_iter_reg task_vma_reg_info = {
+static struct bpf_iter_reg task_vma_reg_info = {
 	.target			= "task_vma",
 	.feature		= BPF_ITER_RESCHED,
 	.ctx_arg_info_size	= 2,
@@ -600,14 +606,19 @@ static int __init task_iter_init(void)
 {
 	int ret;
 
+	task_reg_info.ctx_arg_info[0].btf_id = btf_task_file_ids[0];
 	ret = bpf_iter_reg_target(&task_reg_info);
 	if (ret)
 		return ret;
 
+	task_file_reg_info.ctx_arg_info[0].btf_id = btf_task_file_ids[0];
+	task_file_reg_info.ctx_arg_info[1].btf_id = btf_task_file_ids[1];
 	ret = bpf_iter_reg_target(&task_file_reg_info);
 	if (ret)
 		return ret;
 
+	task_vma_reg_info.ctx_arg_info[0].btf_id = btf_task_file_ids[0];
+	task_vma_reg_info.ctx_arg_info[1].btf_id = btf_task_file_ids[2];
 	return bpf_iter_reg_target(&task_vma_reg_info);
 }
 late_initcall(task_iter_init);
