@@ -77,22 +77,54 @@ static const struct seq_operations bpf_map_seq_ops = {
 	.show	= bpf_map_seq_show,
 };
 
-static const struct bpf_iter_reg bpf_map_reg_info = {
-	.target			= "bpf_map",
+static const struct bpf_iter_seq_info bpf_map_seq_info = {
 	.seq_ops		= &bpf_map_seq_ops,
 	.init_seq_private	= NULL,
 	.fini_seq_private	= NULL,
 	.seq_priv_size		= sizeof(struct bpf_iter_seq_map_info),
+};
+
+static const struct bpf_iter_reg bpf_map_reg_info = {
+	.target			= "bpf_map",
 	.ctx_arg_info_size	= 1,
 	.ctx_arg_info		= {
 		{ offsetof(struct bpf_iter__bpf_map, map),
 		  PTR_TO_BTF_ID_OR_NULL },
 	},
+	.seq_info		= &bpf_map_seq_info,
+};
+
+static int bpf_iter_check_map(struct bpf_prog *prog,
+			      struct bpf_iter_aux_info *aux)
+{
+	return -EINVAL;
+}
+
+DEFINE_BPF_ITER_FUNC(bpf_map_elem, struct bpf_iter_meta *meta,
+		     struct bpf_map *map, void *key, void *value)
+
+static const struct bpf_iter_reg bpf_map_elem_reg_info = {
+	.target			= "bpf_map_elem",
+	.check_target		= bpf_iter_check_map,
+	.req_linfo		= BPF_ITER_LINK_MAP_FD,
+	.ctx_arg_info_size	= 2,
+	.ctx_arg_info		= {
+		{ offsetof(struct bpf_iter__bpf_map_elem, key),
+		  PTR_TO_RDONLY_BUF_OR_NULL },
+		{ offsetof(struct bpf_iter__bpf_map_elem, value),
+		  PTR_TO_RDWR_BUF_OR_NULL },
+	},
 };
 
 static int __init bpf_map_iter_init(void)
 {
-	return bpf_iter_reg_target(&bpf_map_reg_info);
+	int ret;
+
+	ret = bpf_iter_reg_target(&bpf_map_reg_info);
+	if (ret)
+		return ret;
+
+	return bpf_iter_reg_target(&bpf_map_elem_reg_info);
 }
 
 late_initcall(bpf_map_iter_init);
