@@ -186,6 +186,13 @@ enum bpf_link_type {
 	MAX_BPF_LINK_TYPE,
 };
 
+enum bpf_iter_link_info {
+	BPF_ITER_LINK_UNSPEC = 0,
+	BPF_ITER_LINK_MAP_FD = 1,
+
+	MAX_BPF_ITER_LINK_INFO,
+};
+
 /* If BPF_F_ALLOW_OVERRIDE flag is used in BPF_PROG_ATTACH command to the
  * given target_fd cgroup, the descendant cgroup will be able to override
  * the effective BPF program inherited from this cgroup.

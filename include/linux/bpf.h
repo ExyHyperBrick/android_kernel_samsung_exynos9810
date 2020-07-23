@@ -33,12 +33,23 @@ struct seq_operations;
 struct btf;
 struct btf_type;
 struct exception_table_entry;
+struct bpf_iter_aux_info;
 
 extern struct idr btf_idr;
 extern spinlock_t btf_idr_lock;
 
 u64 bpf_probe_read_kernel(u64 dst, u64 size, u64 unsafe_ptr, u64 r4, u64 r5);
 struct poll_table_struct;
+
+typedef int (*bpf_iter_init_seq_priv_t)(void *private_data,
+					struct bpf_iter_aux_info *aux);
+typedef void (*bpf_iter_fini_seq_priv_t)(void *private_data);
+struct bpf_iter_seq_info {
+	const struct seq_operations *seq_ops;
+	bpf_iter_init_seq_priv_t init_seq_private;
+	bpf_iter_fini_seq_priv_t fini_seq_private;
+	u32 seq_priv_size;
+};
 
 /* map is generic key/value storage optionally accesible by eBPF programs */
 struct bpf_map_ops {
@@ -99,6 +110,9 @@ struct bpf_map_ops {
 				     u64 imm, u32 *off);
 	unsigned int (*map_poll)(struct bpf_map *map, struct file *filp,
 				 struct poll_table_struct *pts);
+
+	/* bpf_iter info used to open a seq_file */
+	const struct bpf_iter_seq_info *iter_seq_info;
 };
 
 struct bpf_map {
@@ -898,8 +912,12 @@ int bpf_obj_get_user(const char __user *pathname, int flags);
 	int bpf_iter_ ## target(args);				\
 	int __init bpf_iter_ ## target(args) { return 0; }
 
-typedef int (*bpf_iter_init_seq_priv_t)(void *private_data);
-typedef void (*bpf_iter_fini_seq_priv_t)(void *private_data);
+struct bpf_iter_aux_info {
+	struct bpf_map *map;
+};
+
+typedef int (*bpf_iter_check_target_t)(struct bpf_prog *prog,
+				       struct bpf_iter_aux_info *aux);
 
 enum bpf_iter_feature {
 	BPF_ITER_RESCHED	= BIT(0),
@@ -908,19 +926,25 @@ enum bpf_iter_feature {
 #define BPF_ITER_CTX_ARG_MAX 2
 struct bpf_iter_reg {
 	const char *target;
-	const struct seq_operations *seq_ops;
-	bpf_iter_init_seq_priv_t init_seq_private;
-	bpf_iter_fini_seq_priv_t fini_seq_private;
-	u32 seq_priv_size;
+	bpf_iter_check_target_t check_target;
 	u32 ctx_arg_info_size;
+	enum bpf_iter_link_info req_linfo;
 	u32 feature;
 	struct bpf_ctx_arg_aux ctx_arg_info[BPF_ITER_CTX_ARG_MAX];
+	const struct bpf_iter_seq_info *seq_info;
 };
 
 struct bpf_iter_meta {
 	__bpf_md_ptr(struct seq_file *, seq);
 	u64 session_id;
 	u64 seq_num;
+};
+
+struct bpf_iter__bpf_map_elem {
+	__bpf_md_ptr(struct bpf_iter_meta *, meta);
+	__bpf_md_ptr(struct bpf_map *, map);
+	__bpf_md_ptr(void *, key);
+	__bpf_md_ptr(void *, value);
 };
 
 int bpf_iter_reg_target(const struct bpf_iter_reg *reg_info);
