@@ -385,7 +385,9 @@ static bool reg_type_may_be_null(enum bpf_reg_type type)
 	       type == PTR_TO_SOCK_COMMON_OR_NULL ||
 	       type == PTR_TO_TCP_SOCK_OR_NULL ||
 	       type == PTR_TO_BTF_ID_OR_NULL ||
-	       type == PTR_TO_MEM_OR_NULL;
+	       type == PTR_TO_MEM_OR_NULL ||
+	       type == PTR_TO_RDONLY_BUF_OR_NULL ||
+	       type == PTR_TO_RDWR_BUF_OR_NULL;
 }
 
 static bool reg_may_point_to_spin_lock(const struct bpf_reg_state *reg)
@@ -474,6 +476,10 @@ static const char * const reg_type_str[] = {
 	[PTR_TO_BTF_ID_OR_NULL]	= "ptr_or_null_",
 	[PTR_TO_MEM]		= "mem",
 	[PTR_TO_MEM_OR_NULL]	= "mem_or_null",
+	[PTR_TO_RDONLY_BUF]	= "rdonly_buf",
+	[PTR_TO_RDONLY_BUF_OR_NULL] = "rdonly_buf_or_null",
+	[PTR_TO_RDWR_BUF]	= "rdwr_buf",
+	[PTR_TO_RDWR_BUF_OR_NULL] = "rdwr_buf_or_null",
 	[PTR_TO_FUNC]		= "func",
 	[PTR_TO_MAP_KEY]	= "map_key",
 	[PTR_TO_PERCPU_BTF_ID] = "percpu_ptr_",
@@ -2096,6 +2102,10 @@ static bool is_spillable_regtype(enum bpf_reg_type type)
 	case PTR_TO_BTF_ID_OR_NULL:
 	case PTR_TO_MEM:
 	case PTR_TO_MEM_OR_NULL:
+	case PTR_TO_RDONLY_BUF:
+	case PTR_TO_RDONLY_BUF_OR_NULL:
+	case PTR_TO_RDWR_BUF:
+	case PTR_TO_RDWR_BUF_OR_NULL:
 	case PTR_TO_FUNC:
 	case PTR_TO_PERCPU_BTF_ID:
 		return true;
@@ -2952,14 +2962,15 @@ int check_ctx_reg(struct bpf_verifier_env *env,
 	return check_ptr_off_reg(env, reg, regno);
 }
 
-static int check_tp_buffer_access(struct bpf_verifier_env *env,
-				  const struct bpf_reg_state *reg,
-				  int regno, int off, int size)
+static int __check_buffer_access(struct bpf_verifier_env *env,
+				 const char *buf_info,
+				 const struct bpf_reg_state *reg,
+				 int regno, int off, int size)
 {
 	if (off < 0) {
 		verbose(env,
-			"R%d invalid tracepoint buffer access: off=%d, size=%d",
-			regno, off, size);
+			"R%d invalid %s buffer access: off=%d, size=%d",
+			regno, buf_info, off, size);
 		return -EACCES;
 	}
 
@@ -2972,8 +2983,40 @@ static int check_tp_buffer_access(struct bpf_verifier_env *env,
 		return -EACCES;
 	}
 
+	return 0;
+}
+
+static int check_tp_buffer_access(struct bpf_verifier_env *env,
+				  const struct bpf_reg_state *reg,
+				  int regno, int off, int size)
+{
+	int err;
+
+	err = __check_buffer_access(env, "tracepoint", reg, regno, off, size);
+	if (err)
+		return err;
+
 	if (off + size > env->prog->aux->max_tp_access)
 		env->prog->aux->max_tp_access = off + size;
+
+	return 0;
+}
+
+static int check_buffer_access(struct bpf_verifier_env *env,
+			       const struct bpf_reg_state *reg,
+			       int regno, int off, int size,
+			       bool zero_size_allowed,
+			       const char *buf_info,
+			       u32 *max_access)
+{
+	int err;
+
+	err = __check_buffer_access(env, buf_info, reg, regno, off, size);
+	if (err)
+		return err;
+
+	if (off + size > *max_access)
+		*max_access = off + size;
 
 	return 0;
 }
@@ -3302,6 +3345,23 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 	} else if (reg->type == PTR_TO_BTF_ID) {
 		err = check_ptr_to_btf_access(env, regs, regno, off, size, t,
 					      value_regno);
+	} else if (reg->type == PTR_TO_RDONLY_BUF) {
+		if (t == BPF_WRITE) {
+			verbose(env, "R%d cannot write into %s\n",
+				regno, reg_type_str[reg->type]);
+			return -EACCES;
+		}
+		err = check_buffer_access(env, reg, regno, off, size, false,
+					  "rdonly",
+					  &env->prog->aux->max_rdonly_access);
+		if (!err && value_regno >= 0)
+			mark_reg_unknown(env, regs, value_regno);
+	} else if (reg->type == PTR_TO_RDWR_BUF) {
+		err = check_buffer_access(env, reg, regno, off, size, false,
+					  "rdwr",
+					  &env->prog->aux->max_rdwr_access);
+		if (!err && t == BPF_READ && value_regno >= 0)
+			mark_reg_unknown(env, regs, value_regno);
 	} else {
 		return -EACCES;
 	}
@@ -3475,6 +3535,18 @@ static int check_helper_mem_access(struct bpf_verifier_env *env, int regno,
 		return check_mem_region_access(env, regno, reg->off,
 					       access_size, reg->mem_size,
 					       zero_size_allowed);
+	case PTR_TO_RDONLY_BUF:
+		if (meta && meta->raw_mode)
+			return -EACCES;
+		return check_buffer_access(env, reg, regno, reg->off,
+					   access_size, zero_size_allowed,
+					   "rdonly",
+					   &env->prog->aux->max_rdonly_access);
+	case PTR_TO_RDWR_BUF:
+		return check_buffer_access(env, reg, regno, reg->off,
+					   access_size, zero_size_allowed,
+					   "rdwr",
+					   &env->prog->aux->max_rdwr_access);
 	case PTR_TO_STACK:
 		return check_stack_boundary(env, regno, access_size,
 					    zero_size_allowed, meta);
@@ -3637,6 +3709,8 @@ static const struct bpf_reg_types mem_types = {
 		PTR_TO_MAP_KEY,
 		PTR_TO_MAP_VALUE,
 		PTR_TO_MEM,
+		PTR_TO_RDONLY_BUF,
+		PTR_TO_RDWR_BUF,
 	},
 };
 
@@ -3806,6 +3880,8 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 	case PTR_TO_MAP_KEY:
 	case PTR_TO_MAP_VALUE:
 	case PTR_TO_MEM:
+	case PTR_TO_RDONLY_BUF:
+	case PTR_TO_RDWR_BUF:
 	case PTR_TO_STACK:
 		break;
 	default:
@@ -7001,6 +7077,10 @@ static void mark_ptr_or_null_reg(struct bpf_func_state *state,
 			reg->type = PTR_TO_BTF_ID;
 		} else if (reg->type == PTR_TO_MEM_OR_NULL) {
 			reg->type = PTR_TO_MEM;
+		} else if (reg->type == PTR_TO_RDONLY_BUF_OR_NULL) {
+			reg->type = PTR_TO_RDONLY_BUF;
+		} else if (reg->type == PTR_TO_RDWR_BUF_OR_NULL) {
+			reg->type = PTR_TO_RDWR_BUF;
 		}
 
 		if (is_null) {
