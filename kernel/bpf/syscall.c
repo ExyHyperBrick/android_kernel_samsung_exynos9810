@@ -2647,6 +2647,8 @@ attach_type_to_prog_type(enum bpf_attach_type attach_type)
 		return BPF_PROG_TYPE_FLOW_DISSECTOR;
 	case BPF_SK_LOOKUP:
 		return BPF_PROG_TYPE_SK_LOOKUP;
+	case BPF_XDP:
+		return BPF_PROG_TYPE_XDP;
 	case BPF_CGROUP_SYSCTL:
 		return BPF_PROG_TYPE_CGROUP_SYSCTL;
 	case BPF_CGROUP_GETSOCKOPT:
@@ -3728,6 +3730,9 @@ static int link_create(const union bpf_attr *attr)
 	case BPF_PROG_TYPE_FLOW_DISSECTOR:
 	case BPF_PROG_TYPE_SK_LOOKUP:
 		ret = netns_bpf_link_create(attr, prog);
+		break;
+	case BPF_PROG_TYPE_XDP:
+		ret = bpf_xdp_link_attach(attr, prog);
 		break;
 #ifdef CONFIG_PERF_EVENTS
 	case BPF_PROG_TYPE_PERF_EVENT:
