@@ -893,6 +893,33 @@ out:
 	return ret;
 }
 
+struct bpf_link {
+	atomic64_t refcnt;
+	u32 id;
+	enum bpf_link_type type;
+	const struct bpf_link_ops *ops;
+	struct bpf_prog *prog;
+	struct work_struct work;
+};
+
+struct bpf_link_primer {
+	struct bpf_link *link;
+	struct file *file;
+	int fd;
+	u32 id;
+};
+
+struct bpf_link_ops {
+	void (*release)(struct bpf_link *link);
+	void (*dealloc)(struct bpf_link *link);
+	int (*detach)(struct bpf_link *link);
+	int (*update_prog)(struct bpf_link *link, struct bpf_prog *new_prog,
+			   struct bpf_prog *old_prog);
+	void (*show_fdinfo)(const struct bpf_link *link, struct seq_file *seq);
+	int (*fill_link_info)(const struct bpf_link *link,
+			      struct bpf_link_info *info);
+};
+
 #ifdef CONFIG_BPF_SYSCALL
 DECLARE_PER_CPU(int, bpf_prog_active);
 
@@ -960,33 +987,6 @@ extern struct mutex bpf_stats_enabled_mutex;
 
 int bpf_map_new_fd(struct bpf_map *map, int flags);
 int bpf_prog_new_fd(struct bpf_prog *prog);
-
-struct bpf_link {
-	atomic64_t refcnt;
-	u32 id;
-	enum bpf_link_type type;
-	const struct bpf_link_ops *ops;
-	struct bpf_prog *prog;
-	struct work_struct work;
-};
-
-struct bpf_link_primer {
-	struct bpf_link *link;
-	struct file *file;
-	int fd;
-	u32 id;
-};
-
-struct bpf_link_ops {
-	void (*release)(struct bpf_link *link);
-	void (*dealloc)(struct bpf_link *link);
-	int (*detach)(struct bpf_link *link);
-	int (*update_prog)(struct bpf_link *link, struct bpf_prog *new_prog,
-			   struct bpf_prog *old_prog);
-	void (*show_fdinfo)(const struct bpf_link *link, struct seq_file *seq);
-	int (*fill_link_info)(const struct bpf_link *link,
-			      struct bpf_link_info *info);
-};
 
 void bpf_link_init(struct bpf_link *link, enum bpf_link_type type,
 		   const struct bpf_link_ops *ops, struct bpf_prog *prog);
@@ -1192,6 +1192,36 @@ static inline struct bpf_prog *__must_check
 bpf_prog_inc_not_zero(struct bpf_prog *prog)
 {
 	return ERR_PTR(-EOPNOTSUPP);
+}
+
+static inline void bpf_link_init(struct bpf_link *link,
+				 enum bpf_link_type type,
+				 const struct bpf_link_ops *ops,
+				 struct bpf_prog *prog)
+{
+}
+
+static inline int bpf_link_prime(struct bpf_link *link,
+				 struct bpf_link_primer *primer)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline int bpf_link_settle(struct bpf_link_primer *primer)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline void bpf_link_cleanup(struct bpf_link_primer *primer)
+{
+}
+
+static inline void bpf_link_inc(struct bpf_link *link)
+{
+}
+
+static inline void bpf_link_put(struct bpf_link *link)
+{
 }
 
 static inline int __bpf_prog_charge(struct user_struct *user, u32 pages)
