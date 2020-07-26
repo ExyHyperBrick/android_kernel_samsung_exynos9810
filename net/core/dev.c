@@ -7048,71 +7048,121 @@ int dev_change_proto_down(struct net_device *dev, bool proto_down)
 }
 EXPORT_SYMBOL(dev_change_proto_down);
 
-u32 __dev_xdp_query(struct net_device *dev, bpf_op_t bpf_op,
-		    enum bpf_netdev_command cmd)
+static enum bpf_xdp_mode dev_xdp_mode(u32 flags)
 {
-	struct netdev_bpf xdp;
-
-	if (!bpf_op)
-		return 0;
-
-	memset(&xdp, 0, sizeof(xdp));
-	xdp.command = cmd;
-
-	/* Query must always succeed for the original software command. */
-	WARN_ON(bpf_op(dev, &xdp) < 0 && cmd == XDP_QUERY_PROG);
-
-	return xdp.prog_id;
+	if (flags & XDP_FLAGS_HW_MODE)
+		return XDP_MODE_HW;
+	if (flags & XDP_FLAGS_DRV_MODE)
+		return XDP_MODE_DRV;
+	return XDP_MODE_SKB;
 }
 
-static int dev_xdp_install(struct net_device *dev, bpf_op_t bpf_op,
-			    u32 flags, struct bpf_prog *prog)
+static bpf_op_t dev_xdp_bpf_op(struct net_device *dev,
+			       enum bpf_xdp_mode mode)
+{
+	switch (mode) {
+	case XDP_MODE_SKB:
+		return generic_xdp_install;
+	case XDP_MODE_DRV:
+	case XDP_MODE_HW:
+		return dev->netdev_ops->ndo_bpf;
+	default:
+		return NULL;
+	}
+}
+
+static struct bpf_prog *dev_xdp_prog(struct net_device *dev,
+				     enum bpf_xdp_mode mode)
+{
+	return dev->xdp_state[mode].prog;
+}
+
+u32 dev_xdp_prog_id(struct net_device *dev, enum bpf_xdp_mode mode)
+{
+	struct bpf_prog *prog = dev_xdp_prog(dev, mode);
+
+	return prog ? prog->aux->id : 0;
+}
+
+static void dev_xdp_set_prog(struct net_device *dev,
+			     enum bpf_xdp_mode mode,
+			     struct bpf_prog *prog)
+{
+	dev->xdp_state[mode].prog = prog;
+}
+
+static int dev_xdp_install(struct net_device *dev, enum bpf_xdp_mode mode,
+			   bpf_op_t bpf_op, u32 flags,
+			   struct bpf_prog *prog)
 {
 	struct netdev_bpf xdp;
+	int err;
 
 	memset(&xdp, 0, sizeof(xdp));
-	if (flags & XDP_FLAGS_HW_MODE)
-		xdp.command = XDP_SETUP_PROG_HW;
-	else
-		xdp.command = XDP_SETUP_PROG;
+	xdp.command = mode == XDP_MODE_HW ? XDP_SETUP_PROG_HW :
+		XDP_SETUP_PROG;
 	xdp.flags = flags;
 	xdp.prog = prog;
 
-	return bpf_op(dev, &xdp);
+	/* The driver owns one reference while the core state owns another. */
+	if (prog)
+		bpf_prog_inc(prog);
+	err = bpf_op(dev, &xdp);
+	if (err && prog)
+		bpf_prog_put(prog);
+
+	return err;
+}
+
+static void dev_xdp_uninstall(struct net_device *dev)
+{
+	struct bpf_prog *prog;
+	enum bpf_xdp_mode mode;
+	bpf_op_t bpf_op;
+
+	ASSERT_RTNL();
+
+	for (mode = XDP_MODE_SKB; mode < __MAX_XDP_MODE; mode++) {
+		prog = dev_xdp_prog(dev, mode);
+		if (!prog)
+			continue;
+
+		bpf_op = dev_xdp_bpf_op(dev, mode);
+		if (!bpf_op)
+			continue;
+
+		WARN_ON(dev_xdp_install(dev, mode, bpf_op, 0, NULL));
+		bpf_prog_put(prog);
+		dev_xdp_set_prog(dev, mode, NULL);
+	}
 }
 
 /**
  *	dev_change_xdp_fd - set or clear a bpf program for a device rx path
  *	@dev: device
  *	@fd: new program fd or negative value to clear
+ *	@expected_fd: old program fd that userspace expects to replace
  *	@flags: xdp-related flags
  *
- *	Set or clear a bpf program for a device
+ *	Set or clear a bpf program for a device.
  */
 int dev_change_xdp_fd(struct net_device *dev, int fd, int expected_fd,
 		      u32 flags)
 {
-	const struct net_device_ops *ops = dev->netdev_ops;
-	enum bpf_netdev_command query;
-	u32 prog_id = 0, expected_id = 0;
+	enum bpf_xdp_mode mode = dev_xdp_mode(flags);
+	bool offload = mode == XDP_MODE_HW;
+	u32 prog_id, expected_id = 0;
 	struct bpf_prog *prog = NULL;
-	bpf_op_t bpf_op, bpf_chk;
+	bpf_op_t bpf_op;
 	int err;
 
 	ASSERT_RTNL();
 
-	query = flags & XDP_FLAGS_HW_MODE ? XDP_QUERY_PROG_HW :
-		XDP_QUERY_PROG;
-
-	bpf_op = bpf_chk = ops->ndo_bpf;
-	if (!bpf_op && (flags & (XDP_FLAGS_DRV_MODE | XDP_FLAGS_HW_MODE)))
+	bpf_op = dev_xdp_bpf_op(dev, mode);
+	if (!bpf_op)
 		return -EOPNOTSUPP;
-	if (!bpf_op || (flags & XDP_FLAGS_SKB_MODE))
-		bpf_op = generic_xdp_install;
-	if (bpf_op == bpf_chk)
-		bpf_chk = generic_xdp_install;
 
-	prog_id = __dev_xdp_query(dev, bpf_op, query);
+	prog_id = dev_xdp_prog_id(dev, mode);
 	if (flags & XDP_FLAGS_REPLACE) {
 		if (expected_fd >= 0) {
 			prog = bpf_prog_get_type(expected_fd, BPF_PROG_TYPE_XDP);
@@ -7128,8 +7178,10 @@ int dev_change_xdp_fd(struct net_device *dev, int fd, int expected_fd,
 	}
 
 	if (fd >= 0) {
-		if (__dev_xdp_query(dev, bpf_chk, XDP_QUERY_PROG) ||
-		    __dev_xdp_query(dev, bpf_chk, XDP_QUERY_PROG_HW))
+		enum bpf_xdp_mode other_mode = mode == XDP_MODE_SKB ?
+			XDP_MODE_DRV : XDP_MODE_SKB;
+
+		if (!offload && dev_xdp_prog_id(dev, other_mode))
 			return -EEXIST;
 		if ((flags & XDP_FLAGS_UPDATE_IF_NOEXIST) && prog_id)
 			return -EBUSY;
@@ -7142,13 +7194,23 @@ int dev_change_xdp_fd(struct net_device *dev, int fd, int expected_fd,
 			bpf_prog_put(prog);
 			return -EINVAL;
 		}
+
+		if (prog->aux->id && prog->aux->id == prog_id) {
+			bpf_prog_put(prog);
+			return 0;
+		}
+	} else if (!prog_id) {
+		return 0;
 	}
 
-	err = dev_xdp_install(dev, bpf_op, flags, prog);
-	if (err < 0 && prog)
+	err = dev_xdp_install(dev, mode, bpf_op, flags, prog);
+	if (err < 0 && prog) {
 		bpf_prog_put(prog);
+		return err;
+	}
+	dev_xdp_set_prog(dev, mode, prog);
 
-	return err;
+	return 0;
 }
 EXPORT_SYMBOL(dev_change_xdp_fd);
 
@@ -7227,6 +7289,7 @@ static void rollback_registered_many(struct list_head *head)
 		/* Shutdown queueing discipline. */
 		dev_shutdown(dev);
 
+		dev_xdp_uninstall(dev);
 
 		/* Notify protocols, that we are about to destroy
 		 * this device. They should clean all the things.
