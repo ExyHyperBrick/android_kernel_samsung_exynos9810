@@ -1984,6 +1984,9 @@ struct bpf_link_info {
 			__u32 attach_type;
 		} netns;
 		struct {
+			__u32 ifindex;
+		} xdp;
+		struct {
 			__aligned_u64 target_name;
 			__u32 target_name_len;
 			union {
