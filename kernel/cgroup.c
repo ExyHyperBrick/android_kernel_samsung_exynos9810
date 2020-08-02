@@ -6771,6 +6771,8 @@ int cgroup_bpf_link_detach(struct bpf_cgroup_link *link)
 		goto out_unlock;
 	}
 	ret = __cgroup_bpf_detach(cgrp, NULL, link, link->type);
+	if (!ret)
+		link->cgroup = NULL;
 out_unlock:
 	mutex_unlock(&cgroup_mutex);
 	if (!ret && cgrp)
