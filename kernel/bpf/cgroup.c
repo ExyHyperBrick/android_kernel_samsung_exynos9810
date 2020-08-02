@@ -667,6 +667,12 @@ static void bpf_cgroup_link_dealloc(struct bpf_link *link)
 	kfree(cg_link);
 }
 
+static int bpf_cgroup_link_detach(struct bpf_link *link)
+{
+	bpf_cgroup_link_release(link);
+	return 0;
+}
+
 static void bpf_cgroup_link_show_fdinfo(const struct bpf_link *link,
 					struct seq_file *seq)
 {
@@ -696,6 +702,7 @@ static int bpf_cgroup_link_fill_link_info(const struct bpf_link *link,
 static const struct bpf_link_ops bpf_cgroup_link_lops = {
 	.release = bpf_cgroup_link_release,
 	.dealloc = bpf_cgroup_link_dealloc,
+	.detach = bpf_cgroup_link_detach,
 	.update_prog = cgroup_bpf_replace,
 	.show_fdinfo = bpf_cgroup_link_show_fdinfo,
 	.fill_link_info = bpf_cgroup_link_fill_link_info,
