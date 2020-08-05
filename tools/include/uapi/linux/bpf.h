@@ -75,6 +75,12 @@ struct bpf_lpm_trie_key {
 	__u8	data[0];	/* Arbitrary size */
 };
 
+union bpf_iter_link_info {
+	struct {
+		__u32	map_fd;
+	} map;
+};
+
 /* BPF syscall commands, see bpf(2) man-page for details. */
 enum bpf_cmd {
 	BPF_MAP_CREATE,
@@ -184,13 +190,6 @@ enum bpf_link_type {
 	BPF_LINK_TYPE_ITER = 4,
 
 	MAX_BPF_LINK_TYPE,
-};
-
-enum bpf_iter_link_info {
-	BPF_ITER_LINK_UNSPEC = 0,
-	BPF_ITER_LINK_MAP_FD = 1,
-
-	MAX_BPF_ITER_LINK_INFO,
 };
 
 /* If BPF_F_ALLOW_OVERRIDE flag is used in BPF_PROG_ATTACH command to the
@@ -398,6 +397,8 @@ union bpf_attr {
 		__u32		target_fd;
 		__u32		attach_type;
 		__u32		flags;
+		__aligned_u64	iter_info;	/* extra bpf_iter_link_info */
+		__u32		iter_info_len;	/* iter_info length */
 	} link_create;
 
 	struct { /* struct used by BPF_LINK_UPDATE command */

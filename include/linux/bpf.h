@@ -916,8 +916,10 @@ struct bpf_iter_aux_info {
 	struct bpf_map *map;
 };
 
-typedef int (*bpf_iter_check_target_t)(struct bpf_prog *prog,
-				       struct bpf_iter_aux_info *aux);
+typedef int (*bpf_iter_attach_target_t)(struct bpf_prog *prog,
+					union bpf_iter_link_info *linfo,
+					struct bpf_iter_aux_info *aux);
+typedef void (*bpf_iter_detach_target_t)(struct bpf_iter_aux_info *aux);
 
 enum bpf_iter_feature {
 	BPF_ITER_RESCHED	= BIT(0),
@@ -926,9 +928,9 @@ enum bpf_iter_feature {
 #define BPF_ITER_CTX_ARG_MAX 2
 struct bpf_iter_reg {
 	const char *target;
-	bpf_iter_check_target_t check_target;
+	bpf_iter_attach_target_t attach_target;
+	bpf_iter_detach_target_t detach_target;
 	u32 ctx_arg_info_size;
-	enum bpf_iter_link_info req_linfo;
 	u32 feature;
 	struct bpf_ctx_arg_aux ctx_arg_info[BPF_ITER_CTX_ARG_MAX];
 	const struct bpf_iter_seq_info *seq_info;
