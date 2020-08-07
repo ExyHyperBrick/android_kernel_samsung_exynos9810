@@ -2869,14 +2869,15 @@ static bool shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 			unsigned long reclaimed;
 			unsigned long scanned;
 
-			switch (mem_cgroup_protected(root, memcg)) {
-			case MEMCG_PROT_MIN:
+			mem_cgroup_calculate_protection(root, memcg);
+
+			if (mem_cgroup_below_min(memcg)) {
 				/*
 				 * Hard protection.
 				 * OOM if no memory can be reclaimed.
 				 */
 				continue;
-			case MEMCG_PROT_LOW:
+			} else if (mem_cgroup_below_low(memcg)) {
 				/*
 				 * Soft protection.
 				 * Protect while other cgroups have
@@ -2887,16 +2888,6 @@ static bool shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 					continue;
 				}
 				mem_cgroup_events(memcg, MEMCG_LOW, 1);
-				break;
-			case MEMCG_PROT_NONE:
-				/*
-				 * All protection thresholds breached. We may
-				 * still choose to vary the scan pressure
-				 * applied based on by how much the cgroup in
-				 * question has exceeded its protection
-				 * thresholds (see get_scan_count).
-				 */
-				break;
 			}
 
 			reclaimed = sc->nr_reclaimed;
