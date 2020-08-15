@@ -76,8 +76,8 @@ void page_counter_charge(struct page_counter *counter, unsigned long nr_pages)
 		 * This is indeed racy, but we can live with some
 		 * inaccuracy in the watermark.
 		 */
-		if (new > c->watermark)
-			c->watermark = new;
+		if (new > READ_ONCE(c->watermark))
+			WRITE_ONCE(c->watermark, new);
 	}
 }
 
@@ -118,7 +118,8 @@ bool page_counter_try_charge(struct page_counter *counter,
 			propagate_protected_usage(c, new);
 			/*
 			 * This is racy, but we can live with some
-			 * inaccuracy in the failcnt.
+			 * inaccuracy in the failcnt which is only used
+			 * to report stats.
 			 */
 			c->failcnt++;
 			*fail = c;
@@ -129,8 +130,8 @@ bool page_counter_try_charge(struct page_counter *counter,
 		 * Just like with failcnt, we can live with some
 		 * inaccuracy in the watermark.
 		 */
-		if (new > c->watermark)
-			c->watermark = new;
+		if (new > READ_ONCE(c->watermark))
+			WRITE_ONCE(c->watermark, new);
 	}
 	return true;
 
