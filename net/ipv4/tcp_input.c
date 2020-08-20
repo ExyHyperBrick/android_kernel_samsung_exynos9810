@@ -106,6 +106,36 @@ int sysctl_tcp_early_retrans __read_mostly = 3;
 int sysctl_tcp_invalid_ratelimit __read_mostly = HZ/2;
 
 #ifdef CONFIG_CGROUP_BPF
+static void bpf_skops_parse_hdr(struct sock *sk, struct sk_buff *skb)
+{
+	bool unknown_opt =
+		tcp_sk(sk)->rx_opt.saw_unknown &&
+		BPF_SOCK_OPS_TEST_FLAG(
+			tcp_sk(sk),
+			BPF_SOCK_OPS_PARSE_UNKNOWN_HDR_OPT_CB_FLAG);
+	bool parse_all_opt =
+		BPF_SOCK_OPS_TEST_FLAG(
+			tcp_sk(sk),
+			BPF_SOCK_OPS_PARSE_ALL_HDR_OPT_CB_FLAG);
+
+	if (likely(!unknown_opt && !parse_all_opt))
+		return;
+
+	/* The skb will be handled in bpf_skops_established() or in the
+	 * header-option write callback during the three-way handshake.
+	 */
+	switch (sk->sk_state) {
+	case TCP_SYN_RECV:
+	case TCP_SYN_SENT:
+	case TCP_LISTEN:
+		return;
+	}
+
+	/* Context preparation and the program call are added with the
+	 * remaining BPF header-option support.
+	 */
+}
+
 void bpf_skops_established(struct sock *sk, int bpf_op,
 			   struct sk_buff *skb)
 {
@@ -122,6 +152,10 @@ void bpf_skops_established(struct sock *sk, int bpf_op,
 	BPF_CGROUP_RUN_PROG_SOCK_OPS(&sock_ops);
 }
 #else
+static void bpf_skops_parse_hdr(struct sock *sk, struct sk_buff *skb)
+{
+}
+
 void bpf_skops_established(struct sock *sk, int bpf_op,
 			   struct sk_buff *skb)
 {
@@ -5930,6 +5964,8 @@ syn_challenge:
 		tcp_send_challenge_ack(sk, skb);
 		goto discard;
 	}
+
+	bpf_skops_parse_hdr(sk, skb);
 
 	return true;
 
