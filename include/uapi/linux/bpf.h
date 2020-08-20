@@ -2296,7 +2296,8 @@ struct bpf_sock_ops {
 #define BPF_SOCK_OPS_RTT_CB_FLAG	(1<<3)
 #define BPF_SOCK_OPS_PARSE_ALL_HDR_OPT_CB_FLAG	(1<<4)
 #define BPF_SOCK_OPS_PARSE_UNKNOWN_HDR_OPT_CB_FLAG	(1<<5)
-#define BPF_SOCK_OPS_ALL_CB_FLAGS       0x3F		/* Mask of all currently
+#define BPF_SOCK_OPS_WRITE_HDR_OPT_CB_FLAG	(1<<6)
+#define BPF_SOCK_OPS_ALL_CB_FLAGS       0x7F		/* Mask of all currently
 							 * supported cb flags
 							 */
 
