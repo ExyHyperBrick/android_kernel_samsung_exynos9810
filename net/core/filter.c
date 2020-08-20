@@ -4833,6 +4833,13 @@ static int _bpf_setsockopt(struct sock *sk, int level, int optname,
 					return -EINVAL;
 				icsk->icsk_delack_max = timeout;
 				break;
+			case TCP_BPF_RTO_MIN:
+				timeout = usecs_to_jiffies(val);
+				if (timeout > TCP_RTO_MIN ||
+				    timeout < TCP_TIMEOUT_MIN)
+					return -EINVAL;
+				icsk->icsk_rto_min = timeout;
+				break;
 			default:
 				ret = -EINVAL;
 			}
