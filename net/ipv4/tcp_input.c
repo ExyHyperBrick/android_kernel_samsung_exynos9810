@@ -105,6 +105,29 @@ int sysctl_tcp_moderate_rcvbuf __read_mostly = 1;
 int sysctl_tcp_early_retrans __read_mostly = 3;
 int sysctl_tcp_invalid_ratelimit __read_mostly = HZ/2;
 
+#ifdef CONFIG_CGROUP_BPF
+void bpf_skops_established(struct sock *sk, int bpf_op,
+			   struct sk_buff *skb)
+{
+	struct bpf_sock_ops_kern sock_ops;
+
+	sock_owned_by_me(sk);
+
+	memset(&sock_ops, 0, offsetof(struct bpf_sock_ops_kern, temp));
+	sock_ops.op = bpf_op;
+	sock_ops.is_fullsock = 1;
+	sock_ops.sk = sk;
+	/* skb will be passed to the bpf prog in a later patch. */
+
+	BPF_CGROUP_RUN_PROG_SOCK_OPS(&sock_ops);
+}
+#else
+void bpf_skops_established(struct sock *sk, int bpf_op,
+			   struct sk_buff *skb)
+{
+}
+#endif
+
 #ifdef CONFIG_NETPM
 int sysctl_tcp_netpm[4] __read_mostly;	/* Timestamp, RAT, PHY status, Access TP */
 #endif
@@ -6153,7 +6176,7 @@ void tcp_finish_connect(struct sock *sk, struct sk_buff *skb)
 	icsk->icsk_af_ops->rebuild_header(sk);
 
 	tcp_init_metrics(sk);
-	tcp_call_bpf(sk, BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB, 0, NULL);
+	bpf_skops_established(sk, BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB, skb);
 	/* Initialize congestion control unless BPF initialized it already. */
 	if (!icsk->icsk_ca_initialized)
 		tcp_init_congestion_control(sk);
@@ -6571,7 +6594,9 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 			/* Make sure socket is routed, for correct metrics. */
 			icsk->icsk_af_ops->rebuild_header(sk);
 			tcp_init_metrics(sk);
-			tcp_call_bpf(sk, BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB, 0, NULL);
+			bpf_skops_established(
+				sk, BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB,
+				skb);
 			/* Initialize CC unless BPF initialized it already. */
 			if (!icsk->icsk_ca_initialized)
 				tcp_init_congestion_control(sk);

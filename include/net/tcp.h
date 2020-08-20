@@ -497,6 +497,8 @@ struct sk_buff *tcp_make_synack(const struct sock *sk, struct dst_entry *dst,
 int tcp_disconnect(struct sock *sk, int flags);
 
 void tcp_finish_connect(struct sock *sk, struct sk_buff *skb);
+void bpf_skops_established(struct sock *sk, int bpf_op,
+			   struct sk_buff *skb);
 int tcp_send_rcvq(struct sock *sk, struct msghdr *msg, size_t size);
 void inet_sk_rx_dst_set(struct sock *sk, const struct sk_buff *skb);
 

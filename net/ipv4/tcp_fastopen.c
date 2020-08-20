@@ -238,7 +238,8 @@ static struct sock *tcp_fastopen_create_child(struct sock *sk,
 	tcp_mtup_init(child);
 	inet_csk(child)->icsk_af_ops->rebuild_header(child);
 	tcp_init_metrics(child);
-	tcp_call_bpf(child, BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB, 0, NULL);
+	bpf_skops_established(child, BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB,
+			      skb);
 	/* Initialize congestion control unless BPF initialized it already. */
 	if (!inet_csk(child)->icsk_ca_initialized)
 		tcp_init_congestion_control(child);
