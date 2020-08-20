@@ -7054,13 +7054,17 @@ struct bpf_xdp_link {
 	int flags;
 };
 
-static enum bpf_xdp_mode dev_xdp_mode(u32 flags)
+static enum bpf_xdp_mode dev_xdp_mode(struct net_device *dev,
+				      u32 flags)
 {
 	if (flags & XDP_FLAGS_HW_MODE)
 		return XDP_MODE_HW;
 	if (flags & XDP_FLAGS_DRV_MODE)
 		return XDP_MODE_DRV;
-	return XDP_MODE_SKB;
+	if (flags & XDP_FLAGS_SKB_MODE)
+		return XDP_MODE_SKB;
+	return dev->netdev_ops->ndo_bpf ? XDP_MODE_DRV :
+		XDP_MODE_SKB;
 }
 
 static bpf_op_t dev_xdp_bpf_op(struct net_device *dev,
@@ -7190,7 +7194,7 @@ static int dev_xdp_attach(struct net_device *dev,
 	if (old_prog && !(flags & XDP_FLAGS_REPLACE))
 		return -EINVAL;
 
-	mode = dev_xdp_mode(flags);
+	mode = dev_xdp_mode(dev, flags);
 	if (dev_xdp_link(dev, mode))
 		return -EBUSY;
 
@@ -7251,7 +7255,7 @@ static int dev_xdp_detach_link(struct net_device *dev,
 
 	ASSERT_RTNL();
 
-	mode = dev_xdp_mode(link->flags);
+	mode = dev_xdp_mode(dev, link->flags);
 	if (dev_xdp_link(dev, mode) != link)
 		return -EINVAL;
 
@@ -7349,7 +7353,7 @@ static int bpf_xdp_link_update(struct bpf_link *link,
 		goto out_unlock;
 	}
 
-	mode = dev_xdp_mode(xdp_link->flags);
+	mode = dev_xdp_mode(xdp_link->dev, xdp_link->flags);
 	bpf_op = dev_xdp_bpf_op(xdp_link->dev, mode);
 	err = dev_xdp_install(xdp_link->dev, mode, bpf_op,
 			      xdp_link->flags, new_prog);
