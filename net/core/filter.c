@@ -4802,7 +4802,9 @@ static int _bpf_setsockopt(struct sock *sk, int level, int optname,
 			name[TCP_CA_NAME_MAX-1] = 0;
 			ret = tcp_set_congestion_control(sk, name, false, true);
 		} else {
+			struct inet_connection_sock *icsk = inet_csk(sk);
 			struct tcp_sock *tp = tcp_sk(sk);
+			unsigned long timeout;
 
 			if (optlen != sizeof(int))
 				return -EINVAL;
@@ -4823,6 +4825,13 @@ static int _bpf_setsockopt(struct sock *sk, int level, int optname,
 					tp->snd_cwnd_clamp = val;
 					tp->snd_ssthresh = val;
 				}
+				break;
+			case TCP_BPF_DELACK_MAX:
+				timeout = usecs_to_jiffies(val);
+				if (timeout > TCP_DELACK_MAX ||
+				    timeout < TCP_TIMEOUT_MIN)
+					return -EINVAL;
+				icsk->icsk_delack_max = timeout;
 				break;
 			default:
 				ret = -EINVAL;
