@@ -2265,6 +2265,7 @@ enum {
 
 #define TCP_BPF_IW		1001	/* Set TCP initial congestion window */
 #define TCP_BPF_SNDCWND_CLAMP	1002	/* Set sndcwnd_clamp */
+#define TCP_BPF_DELACK_MAX	1003	/* Max delay ack in usecs */
 
 #define BPF_DEVCG_ACC_MKNOD    (1ULL << 0)
 #define BPF_DEVCG_ACC_READ     (1ULL << 1)
