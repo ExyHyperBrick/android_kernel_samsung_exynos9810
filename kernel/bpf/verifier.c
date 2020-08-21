@@ -3658,6 +3658,33 @@ static int int_ptr_type_to_size(enum bpf_arg_type type)
 	return -EINVAL;
 }
 
+static int resolve_map_arg_type(struct bpf_verifier_env *env,
+				const struct bpf_call_arg_meta *meta,
+				enum bpf_arg_type *arg_type)
+{
+	if (!meta->map_ptr) {
+		verbose(env, "invalid map_ptr to access map->type\n");
+		return -EACCES;
+	}
+
+	switch (meta->map_ptr->map_type) {
+	case BPF_MAP_TYPE_SOCKMAP:
+	case BPF_MAP_TYPE_SOCKHASH:
+		if (*arg_type == ARG_PTR_TO_MAP_VALUE) {
+			*arg_type = ARG_PTR_TO_SOCKET;
+		} else {
+			verbose(env,
+				"invalid arg_type for sockmap/sockhash\n");
+			return -EINVAL;
+		}
+		break;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 struct bpf_reg_types {
 	const enum bpf_reg_type types[10];
 	u32 *btf_id;
@@ -3679,6 +3706,10 @@ static const struct bpf_reg_types sock_types = {
 		PTR_TO_SOCKET,
 		PTR_TO_TCP_SOCK,
 	},
+};
+
+static const struct bpf_reg_types fullsock_types = {
+	.types = { PTR_TO_SOCKET },
 };
 
 static const struct bpf_reg_types mem_types = {
@@ -3756,6 +3787,7 @@ static const struct bpf_reg_types *compatible_reg_types[__BPF_ARG_TYPE_MAX] = {
 	[ARG_CONST_MAP_PTR]		= &const_map_ptr_types,
 	[ARG_PTR_TO_CTX]		= &context_types,
 	[ARG_PTR_TO_SOCK_COMMON]	= &sock_types,
+	[ARG_PTR_TO_SOCKET]		= &fullsock_types,
 	[ARG_PTR_TO_SPIN_LOCK]		= &spin_lock_types,
 	[ARG_PTR_TO_MEM]		= &mem_types,
 	[ARG_PTR_TO_MEM_OR_NULL]	= &mem_types,
@@ -3888,6 +3920,14 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 	    !may_access_direct_pkt_data(env, meta, BPF_READ)) {
 		verbose(env, "helper access to the packet is not allowed\n");
 		return -EACCES;
+	}
+
+	if (arg_type == ARG_PTR_TO_MAP_VALUE ||
+	    arg_type == ARG_PTR_TO_UNINIT_MAP_VALUE ||
+	    arg_type == ARG_PTR_TO_MAP_VALUE_OR_NULL) {
+		err = resolve_map_arg_type(env, meta, &arg_type);
+		if (err)
+			return err;
 	}
 
 	if (register_is_null(reg) && arg_type_may_be_null(arg_type))
