@@ -974,6 +974,9 @@ static int bpf_map_update_value(struct bpf_map *map, struct fd f, void *key,
 		return bpf_map_offload_update_elem(map, key, value, flags);
 	else if (map->map_type == BPF_MAP_TYPE_CPUMAP)
 		return map->ops->map_update_elem(map, key, value, flags);
+	else if (map->map_type == BPF_MAP_TYPE_SOCKHASH ||
+		 map->map_type == BPF_MAP_TYPE_SOCKMAP)
+		return sock_map_update_elem_sys(map, key, value, flags);
 
 	preempt_disable();
 	__this_cpu_inc(bpf_prog_active);
