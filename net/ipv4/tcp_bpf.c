@@ -32,7 +32,7 @@ static int tcp_bpf_wait_data(struct sock *sk, struct sk_psock *psock,
 	sk_set_bit(SOCKWQ_ASYNC_WAITDATA, sk);
 	ret = sk_wait_event(sk, &timeo,
 			    !list_empty(&psock->ingress_msg) ||
-			    !skb_queue_empty(&sk->sk_receive_queue), &wait);
+			    !skb_queue_empty(&sk->sk_receive_queue));
 	sk_clear_bit(SOCKWQ_ASYNC_WAITDATA, sk);
 	remove_wait_queue(sk_sleep(sk), &wait);
 	return ret;
@@ -571,10 +571,10 @@ static void tcp_bpf_rebuild_protos(struct proto prot[TCP_BPF_NUM_CFGS],
 	prot[TCP_BPF_TX].sendpage		= tcp_bpf_sendpage;
 }
 
-static void tcp_bpf_check_v6_needs_rebuild(struct sock *sk, struct proto *ops)
+static void tcp_bpf_check_v6_needs_rebuild(struct proto *ops)
 {
-	if (sk->sk_family == AF_INET6 &&
-	    unlikely(ops != smp_load_acquire(&tcpv6_prot_saved))) {
+	/* Pairs with smp_store_release() after rebuilding the table. */
+	if (unlikely(ops != smp_load_acquire(&tcpv6_prot_saved))) {
 		spin_lock_bh(&tcpv6_prot_lock);
 		if (likely(ops != tcpv6_prot_saved)) {
 			tcp_bpf_rebuild_protos(tcp_bpf_prots[TCP_BPF_IPV6], ops);
@@ -626,8 +626,6 @@ void tcp_bpf_reinit(struct sock *sk)
 {
 	struct sk_psock *psock;
 
-	sock_owned_by_me(sk);
-
 	rcu_read_lock();
 	psock = sk_psock(sk);
 	tcp_bpf_reinit_sk_prot(sk, psock);
@@ -636,19 +634,17 @@ void tcp_bpf_reinit(struct sock *sk)
 
 int tcp_bpf_init(struct sock *sk)
 {
-	struct proto *ops = READ_ONCE(sk->sk_prot);
 	struct sk_psock *psock;
-
-	sock_owned_by_me(sk);
 
 	rcu_read_lock();
 	psock = sk_psock(sk);
-	if (unlikely(!psock || psock->sk_proto ||
-		     tcp_bpf_assert_proto_ops(ops))) {
+	if (unlikely(!psock ||
+		     tcp_bpf_assert_proto_ops(psock->sk_proto))) {
 		rcu_read_unlock();
 		return -EINVAL;
 	}
-	tcp_bpf_check_v6_needs_rebuild(sk, ops);
+	if (sk->sk_family == AF_INET6)
+		tcp_bpf_check_v6_needs_rebuild(psock->sk_proto);
 	tcp_bpf_update_sk_prot(sk, psock);
 	rcu_read_unlock();
 	return 0;
