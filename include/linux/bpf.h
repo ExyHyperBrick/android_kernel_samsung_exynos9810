@@ -271,6 +271,7 @@ struct bpf_func_proto {
 		enum bpf_arg_type arg_type[5];
 	};
 	u32 *btf_id; /* BTF ids of arguments */
+	bool (*allowed)(const struct bpf_prog *prog);
 };
 
 /* bpf_context is intentionally undefined structure. Pointer to bpf_context is
@@ -550,6 +551,8 @@ bool btf_struct_ids_match(struct bpf_verifier_log *log,
 			  int off, u32 id, u32 need_type_id);
 int btf_resolve_helper_id(struct bpf_verifier_log *log,
 			  const struct bpf_func_proto *fn, int arg);
+struct btf_id_set;
+bool btf_id_set_contains(struct btf_id_set *set, u32 id);
 
 /* an array of programs to be executed under rcu_lock.
  *
