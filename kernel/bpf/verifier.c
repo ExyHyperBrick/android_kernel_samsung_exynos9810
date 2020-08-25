@@ -3714,6 +3714,7 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 {
 	struct bpf_reg_state *regs = cur_regs(env), *reg = &regs[regno];
 	enum bpf_reg_type type = reg->type;
+	bool ids_match = false;
 	int err = 0;
 
 	if (arg_type == ARG_DONTCARE)
@@ -3742,9 +3743,14 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 	case PTR_TO_STACK:
 		break;
 	default:
-		err = check_ptr_off_reg(env, reg, regno);
-		if (err < 0)
-			return err;
+		/* BTF pointers can refer to an embedded structure. Defer
+		 * their fixed-offset check until the expected BTF ID is known.
+		 */
+		if (type != PTR_TO_BTF_ID) {
+			err = check_ptr_off_reg(env, reg, regno);
+			if (err < 0)
+				return err;
+		}
 		break;
 	}
 
@@ -3768,11 +3774,24 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 		meta->subprogno = reg->subprogno;
 
 skip_type_check:
-	if (type == PTR_TO_BTF_ID && reg->btf_id != meta->btf_id) {
-		verbose(env, "Helper has type %s got %s in R%d\n",
-			kernel_type_name(meta->btf_id),
-			kernel_type_name(reg->btf_id), regno);
-		return -EACCES;
+	if (type == PTR_TO_BTF_ID) {
+		if (reg->btf_id != meta->btf_id) {
+			ids_match = btf_struct_ids_match(&env->log, reg->off,
+						 reg->btf_id, meta->btf_id);
+			if (!ids_match) {
+				verbose(env, "Helper has type %s got %s in R%d\n",
+					kernel_type_name(meta->btf_id),
+					kernel_type_name(reg->btf_id), regno);
+				return -EACCES;
+			}
+		}
+		if ((reg->off && !ids_match) ||
+		    !tnum_is_const(reg->var_off) || reg->var_off.value) {
+			verbose(env,
+				"R%d is a pointer to in-kernel struct with non-zero offset\n",
+				regno);
+			return -EACCES;
+		}
 	}
 
 	if (reg->ref_obj_id) {
