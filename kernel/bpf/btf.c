@@ -1043,9 +1043,9 @@ static const struct resolve_vertex *env_stack_peak(struct btf_verifier_env *env)
  * *total_nelems: 1
  */
 static const struct btf_type *
-btf_resolve_size(const struct btf *btf, const struct btf_type *type,
-		 u32 *type_size, const struct btf_type **elem_type,
-		 u32 *total_nelems)
+__btf_resolve_size(const struct btf *btf, const struct btf_type *type,
+		   u32 *type_size, const struct btf_type **elem_type,
+		   u32 *total_nelems)
 {
 	const struct btf_type *array_type = NULL;
 	const struct btf_array *array;
@@ -1096,10 +1096,19 @@ resolved:
 		return ERR_PTR(-EINVAL);
 
 	*type_size = nelems * size;
-	*total_nelems = nelems;
-	*elem_type = type;
+	if (total_nelems)
+		*total_nelems = nelems;
+	if (elem_type)
+		*elem_type = type;
 
 	return array_type ? : type;
+}
+
+const struct btf_type *
+btf_resolve_size(const struct btf *btf, const struct btf_type *type,
+		 u32 *type_size)
+{
+	return __btf_resolve_size(btf, type, type_size, NULL, NULL);
 }
 
 /* The input param "type_id" must point to a needs_resolve type */
@@ -3458,8 +3467,8 @@ again:
 		mtype = btf_type_by_id(btf_vmlinux, member->type);
 		mname = __btf_name_by_offset(btf_vmlinux, member->name_off);
 
-		mtype = btf_resolve_size(btf_vmlinux, mtype, &msize,
-					 &elem_type, &total_nelems);
+		mtype = __btf_resolve_size(btf_vmlinux, mtype, &msize,
+					   &elem_type, &total_nelems);
 		if (IS_ERR(mtype)) {
 			bpf_log(log, "field %s doesn't have size\n", mname);
 			return -EFAULT;
@@ -3473,7 +3482,7 @@ again:
 		if (btf_type_is_array(mtype)) {
 			u32 elem_idx;
 
-			/* btf_resolve_size() above helps to
+			/* __btf_resolve_size() above helps to
 			 * linearize a multi-dimensional array.
 			 *
 			 * The logic here is treating an array
