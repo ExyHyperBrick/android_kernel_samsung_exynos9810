@@ -466,6 +466,13 @@ static int array_map_mmap(struct bpf_map *map, struct vm_area_struct *vma)
 				   vma->vm_pgoff + pgoff);
 }
 
+static bool array_map_meta_equal(const struct bpf_map *meta0,
+				 const struct bpf_map *meta1)
+{
+	return meta0->max_entries == meta1->max_entries &&
+		bpf_map_meta_equal(meta0, meta1);
+}
+
 static int bpf_for_each_array_elem(struct bpf_map *map, void *callback_fn,
 				   void *callback_ctx, u64 flags)
 {
@@ -640,7 +647,7 @@ static const struct bpf_iter_seq_info iter_seq_info = {
 };
 
 const struct bpf_map_ops array_map_ops = {
-	.map_meta_equal = bpf_map_meta_equal,
+	.map_meta_equal = array_map_meta_equal,
 	.map_alloc = array_map_alloc,
 	.map_free = array_map_free,
 	.map_get_next_key = array_map_get_next_key,
