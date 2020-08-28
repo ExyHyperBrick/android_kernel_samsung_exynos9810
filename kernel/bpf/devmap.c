@@ -718,6 +718,7 @@ int dev_map_enqueue(struct bpf_map *map, u32 key, struct xdp_buff *xdp,
 }
 
 const struct bpf_map_ops dev_map_ops = {
+	.map_meta_equal = bpf_map_meta_equal,
 	.map_alloc = dev_map_alloc,
 	.map_free = dev_map_free,
 	.map_get_next_key = dev_map_get_next_key,
@@ -728,6 +729,7 @@ const struct bpf_map_ops dev_map_ops = {
 };
 
 const struct bpf_map_ops dev_map_hash_ops = {
+	.map_meta_equal = bpf_map_meta_equal,
 	.map_alloc = dev_map_alloc,
 	.map_free = dev_map_free,
 	.map_get_next_key = dev_map_hash_get_next_key,
