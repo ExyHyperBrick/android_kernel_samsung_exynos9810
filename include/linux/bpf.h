@@ -113,6 +113,18 @@ struct bpf_map_ops {
 	unsigned int (*map_poll)(struct bpf_map *map, struct file *filp,
 				 struct poll_table_struct *pts);
 
+	/* map_meta_equal must be implemented for maps that can be
+	 * used as an inner map.  It is a runtime check to ensure
+	 * an inner map can be inserted to an outer map.
+	 *
+	 * Some properties of the inner map has been used during the
+	 * verification time.  When inserting an inner map at the runtime,
+	 * map_meta_equal has to ensure the inserting map has the same
+	 * properties that the verifier has used earlier.
+	 */
+	bool (*map_meta_equal)(const struct bpf_map *meta0,
+			       const struct bpf_map *meta1);
+
 	/* bpf_iter info used to open a seq_file */
 	const struct bpf_iter_seq_info *iter_seq_info;
 };
@@ -214,6 +226,9 @@ int map_check_no_btf(const struct bpf_map *map,
 		     const struct btf *btf,
 		     const struct btf_type *key_type,
 		     const struct btf_type *value_type);
+
+bool bpf_map_meta_equal(const struct bpf_map *meta0,
+			const struct bpf_map *meta1);
 
 extern const struct bpf_map_ops bpf_map_offload_ops;
 

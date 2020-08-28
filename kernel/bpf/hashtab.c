@@ -1766,6 +1766,7 @@ static const struct bpf_iter_seq_info iter_seq_info = {
 };
 
 const struct bpf_map_ops htab_map_ops = {
+	.map_meta_equal = bpf_map_meta_equal,
 	.map_alloc = htab_map_alloc,
 	.map_free = htab_map_free,
 	.map_get_next_key = htab_map_get_next_key,
@@ -1780,6 +1781,7 @@ const struct bpf_map_ops htab_map_ops = {
 };
 
 const struct bpf_map_ops htab_lru_map_ops = {
+	.map_meta_equal = bpf_map_meta_equal,
 	.map_alloc = htab_map_alloc,
 	.map_free = htab_map_free,
 	.map_get_next_key = htab_map_get_next_key,
@@ -1868,6 +1870,7 @@ int bpf_percpu_hash_update(struct bpf_map *map, void *key, void *value,
 }
 
 const struct bpf_map_ops htab_percpu_map_ops = {
+	.map_meta_equal = bpf_map_meta_equal,
 	.map_alloc = htab_map_alloc,
 	.map_free = htab_map_free,
 	.map_get_next_key = htab_map_get_next_key,
@@ -1881,6 +1884,7 @@ const struct bpf_map_ops htab_percpu_map_ops = {
 };
 
 const struct bpf_map_ops htab_lru_percpu_map_ops = {
+	.map_meta_equal = bpf_map_meta_equal,
 	.map_alloc = htab_map_alloc,
 	.map_free = htab_map_free,
 	.map_get_next_key = htab_map_get_next_key,

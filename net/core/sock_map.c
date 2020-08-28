@@ -725,6 +725,7 @@ static const struct bpf_iter_seq_info sock_map_iter_seq_info = {
 };
 
 const struct bpf_map_ops sock_map_ops = {
+	.map_meta_equal		= bpf_map_meta_equal,
 	.map_alloc		= sock_map_alloc,
 	.map_free		= sock_map_free,
 	.map_update_elem	= sock_map_update_elem,
@@ -1294,6 +1295,7 @@ static const struct bpf_iter_seq_info sock_hash_iter_seq_info = {
 };
 
 const struct bpf_map_ops sock_hash_ops = {
+	.map_meta_equal		= bpf_map_meta_equal,
 	.map_alloc		= sock_hash_alloc,
 	.map_free		= sock_hash_free,
 	.map_update_elem	= sock_map_update_elem,

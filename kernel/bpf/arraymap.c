@@ -640,6 +640,7 @@ static const struct bpf_iter_seq_info iter_seq_info = {
 };
 
 const struct bpf_map_ops array_map_ops = {
+	.map_meta_equal = bpf_map_meta_equal,
 	.map_alloc = array_map_alloc,
 	.map_free = array_map_free,
 	.map_get_next_key = array_map_get_next_key,
@@ -658,6 +659,7 @@ const struct bpf_map_ops array_map_ops = {
 };
 
 const struct bpf_map_ops percpu_array_map_ops = {
+	.map_meta_equal = bpf_map_meta_equal,
 	.map_alloc = array_map_alloc,
 	.map_free = array_map_free,
 	.map_get_next_key = array_map_get_next_key,
@@ -903,6 +905,7 @@ static void perf_event_fd_array_map_free(struct bpf_map *map)
 }
 
 const struct bpf_map_ops perf_event_array_map_ops = {
+	.map_meta_equal = bpf_map_meta_equal,
 	.map_alloc = fd_array_map_alloc,
 	.map_free = perf_event_fd_array_map_free,
 	.map_get_next_key = array_map_get_next_key,
@@ -935,6 +938,7 @@ static void cgroup_fd_array_free(struct bpf_map *map)
 }
 
 const struct bpf_map_ops cgroup_array_map_ops = {
+	.map_meta_equal = bpf_map_meta_equal,
 	.map_alloc = fd_array_map_alloc,
 	.map_free = cgroup_fd_array_free,
 	.map_get_next_key = array_map_get_next_key,
