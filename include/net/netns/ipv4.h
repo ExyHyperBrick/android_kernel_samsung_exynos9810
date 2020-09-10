@@ -137,6 +137,7 @@ struct netns_ipv4 {
 	unsigned int sysctl_tcp_fastopen_blackhole_timeout;
 	atomic_t tfo_active_disable_times;
 	unsigned long tfo_active_disable_stamp;
+	int sysctl_tcp_reflect_tos;
 	int sysctl_tcp_default_init_rwnd;
 
 #ifdef CONFIG_NET_L3_MASTER_DEV
