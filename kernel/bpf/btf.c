@@ -3731,22 +3731,6 @@ again:
 	return true;
 }
 
-int btf_resolve_helper_id(struct bpf_verifier_log *log,
-			  const struct bpf_func_proto *fn, int arg)
-{
-	int id;
-
-	if (fn->arg_type[arg] != ARG_PTR_TO_BTF_ID ||
-	    !btf_vmlinux || IS_ERR(btf_vmlinux))
-		return -EINVAL;
-
-	id = fn->btf_id[arg];
-	if (!id || id > btf_vmlinux->nr_types)
-		return -EINVAL;
-
-	return id;
-}
-
 void btf_type_seq_show(const struct btf *btf, u32 type_id, void *obj,
 		       struct seq_file *m)
 {
