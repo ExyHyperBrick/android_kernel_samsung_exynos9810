@@ -236,6 +236,7 @@ enum bpf_arg_type {
 	ARG_CONST_ALLOC_SIZE_OR_ZERO,	/* number of allocated bytes requested */
 	ARG_PTR_TO_FUNC,		/* pointer to a bpf program function */
 	ARG_PTR_TO_STACK_OR_NULL,	/* pointer to stack or NULL */
+	__BPF_ARG_TYPE_MAX,
 };
 
 /* type of values returned from helper functions */
