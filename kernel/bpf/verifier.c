@@ -3687,12 +3687,6 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 		expected_type = PTR_TO_BTF_ID;
 		if (type != expected_type)
 			goto err_type;
-		if (reg->btf_id != meta->btf_id) {
-			verbose(env, "Helper has type %s got %s in R%d\n",
-				kernel_type_name(meta->btf_id),
-				kernel_type_name(reg->btf_id), regno);
-			return -EACCES;
-		}
 	} else if (arg_type == ARG_PTR_TO_FUNC) {
 		expected_type = PTR_TO_FUNC;
 		if (type != expected_type)
@@ -3745,6 +3739,13 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 	} else {
 		verbose(env, "unsupported arg_type %d\n", arg_type);
 		return -EFAULT;
+	}
+
+	if (type == PTR_TO_BTF_ID && reg->btf_id != meta->btf_id) {
+		verbose(env, "Helper has type %s got %s in R%d\n",
+			kernel_type_name(meta->btf_id),
+			kernel_type_name(reg->btf_id), regno);
+		return -EACCES;
 	}
 
 	if (arg_type == ARG_CONST_MAP_PTR) {
