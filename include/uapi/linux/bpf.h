@@ -1020,7 +1020,7 @@ union bpf_attr {
  *	Return
  *		Pointer to **struct bpf_sock**, or NULL in case of failure.
  *
- * int bpf_sk_release(struct bpf_sock *sk)
+ * int bpf_sk_release(void *sk)
  *	Description
  *		Release the reference held by *sock*. *sock* must be a non-NULL
  *		pointer that was returned from bpf_sk_lookup_xxx\ ().

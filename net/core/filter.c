@@ -3039,7 +3039,7 @@ static const struct bpf_func_proto bpf_sk_lookup_udp_proto = {
 BPF_CALL_1(bpf_sk_release, struct sock *, sk)
 {
 	/* Only full sockets have sk->sk_flags. */
-	if (!sk_fullsock(sk) || !sock_flag(sk, SOCK_RCU_FREE))
+	if (sk && (!sk_fullsock(sk) || !sock_flag(sk, SOCK_RCU_FREE)))
 		sock_gen_put(sk);
 	return 0;
 }
@@ -3047,7 +3047,7 @@ static const struct bpf_func_proto bpf_sk_release_proto = {
 	.func		= bpf_sk_release,
 	.gpl_only	= false,
 	.ret_type	= RET_INTEGER,
-	.arg1_type	= ARG_PTR_TO_SOCK_COMMON,
+	.arg1_type	= ARG_PTR_TO_BTF_ID_SOCK_COMMON,
 };
 
 BPF_CALL_5(bpf_xdp_sk_lookup_udp, struct xdp_buff *, ctx,
