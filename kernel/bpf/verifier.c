@@ -35,6 +35,7 @@
 #include <linux/slab.h>
 #include <linux/bpf.h>
 #include <linux/btf.h>
+#include <linux/btf_ids.h>
 #include <linux/bpf_verifier.h>
 #include <linux/filter.h>
 #include <net/netlink.h>
@@ -3593,6 +3594,7 @@ static int int_ptr_type_to_size(enum bpf_arg_type type)
 
 struct bpf_reg_types {
 	const enum bpf_reg_type types[10];
+	u32 *btf_id;
 };
 
 static const struct bpf_reg_types map_key_value_types = {
@@ -3649,6 +3651,15 @@ static const struct bpf_reg_types const_map_ptr_types = {
 static const struct bpf_reg_types btf_ptr_types = {
 	.types = { PTR_TO_BTF_ID },
 };
+static const struct bpf_reg_types btf_id_sock_common_types = {
+	.types = {
+		PTR_TO_SOCK_COMMON,
+		PTR_TO_SOCKET,
+		PTR_TO_TCP_SOCK,
+		PTR_TO_BTF_ID,
+	},
+	.btf_id = &btf_sock_ids[BTF_SOCK_TYPE_SOCK_COMMON],
+};
 static const struct bpf_reg_types spin_lock_types = {
 	.types = { PTR_TO_MAP_VALUE },
 };
@@ -3679,6 +3690,7 @@ static const struct bpf_reg_types *compatible_reg_types[__BPF_ARG_TYPE_MAX] = {
 	[ARG_PTR_TO_INT]		= &int_ptr_types,
 	[ARG_PTR_TO_LONG]		= &int_ptr_types,
 	[ARG_PTR_TO_BTF_ID]		= &btf_ptr_types,
+	[ARG_PTR_TO_BTF_ID_SOCK_COMMON] = &btf_id_sock_common_types,
 	[ARG_PTR_TO_FUNC]		= &func_types,
 	[ARG_PTR_TO_STACK_OR_NULL]	= &stack_types,
 };
@@ -3716,9 +3728,12 @@ static int check_reg_type(struct bpf_verifier_env *env, u32 regno,
 found:
 	if (type == PTR_TO_BTF_ID) {
 		if (!arg_btf_id) {
-			verbose(env,
-				"verifier internal error: missing BTF ID\n");
-			return -EFAULT;
+			if (!compatible->btf_id) {
+				verbose(env,
+					"verifier internal error: missing compatible BTF ID\n");
+				return -EFAULT;
+			}
+			arg_btf_id = compatible->btf_id;
 		}
 
 		if (!btf_struct_ids_match(&env->log, reg->off, reg->btf_id,
@@ -4184,10 +4199,14 @@ static bool check_btf_id_ok(const struct bpf_func_proto *fn)
 {
 	int i;
 
-	for (i = 0; i < ARRAY_SIZE(fn->arg_type); i++)
+	for (i = 0; i < ARRAY_SIZE(fn->arg_type); i++) {
 		if (fn->arg_type[i] == ARG_PTR_TO_BTF_ID &&
 		    !fn->arg_btf_id[i])
 			return false;
+		if (fn->arg_type[i] != ARG_PTR_TO_BTF_ID &&
+		    fn->arg_btf_id[i])
+			return false;
+	}
 
 	if (fn->ret_type == RET_PTR_TO_BTF_ID_OR_NULL &&
 	    !fn->ret_btf_id)
