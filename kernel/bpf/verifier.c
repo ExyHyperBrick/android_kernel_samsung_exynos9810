@@ -3684,7 +3684,8 @@ static const struct bpf_reg_types *compatible_reg_types[__BPF_ARG_TYPE_MAX] = {
 };
 
 static int check_reg_type(struct bpf_verifier_env *env, u32 regno,
-			  enum bpf_arg_type arg_type)
+			  enum bpf_arg_type arg_type,
+			  const u32 *arg_btf_id)
 {
 	struct bpf_reg_state *regs = cur_regs(env), *reg = &regs[regno];
 	const struct bpf_reg_types *compatible;
@@ -3703,7 +3704,7 @@ static int check_reg_type(struct bpf_verifier_env *env, u32 regno,
 		if (expected == NOT_INIT)
 			break;
 		if (type == expected)
-			return 0;
+			goto found;
 	}
 
 	verbose(env, "R%d type=%s expected=", regno, reg_type_str[type]);
@@ -3711,6 +3712,32 @@ static int check_reg_type(struct bpf_verifier_env *env, u32 regno,
 		verbose(env, "%s, ", reg_type_str[compatible->types[j]]);
 	verbose(env, "%s\n", reg_type_str[compatible->types[j]]);
 	return -EACCES;
+
+found:
+	if (type == PTR_TO_BTF_ID) {
+		if (!arg_btf_id) {
+			verbose(env,
+				"verifier internal error: missing BTF ID\n");
+			return -EFAULT;
+		}
+
+		if (!btf_struct_ids_match(&env->log, reg->off, reg->btf_id,
+					  *arg_btf_id)) {
+			verbose(env, "R%d is of type %s but %s is expected\n",
+				regno, kernel_type_name(reg->btf_id),
+				kernel_type_name(*arg_btf_id));
+			return -EACCES;
+		}
+
+		if (!tnum_is_const(reg->var_off) || reg->var_off.value) {
+			verbose(env,
+				"R%d is a pointer to in-kernel struct with non-zero offset\n",
+				regno);
+			return -EACCES;
+		}
+	}
+
+	return 0;
 
 unsupported:
 	verbose(env, "verifier internal error: unsupported arg type %d\n",
@@ -3775,7 +3802,7 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 		 */
 		goto skip_type_check;
 
-	err = check_reg_type(env, regno, arg_type);
+	err = check_reg_type(env, regno, arg_type, btf_id);
 	if (err)
 		return err;
 
@@ -3783,28 +3810,6 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 		meta->subprogno = reg->subprogno;
 
 skip_type_check:
-	if (type == PTR_TO_BTF_ID) {
-		if (!btf_id) {
-			verbose(env, "verifier internal error: missing BTF ID\n");
-			return -EFAULT;
-		}
-
-		if (!btf_struct_ids_match(&env->log, reg->off, reg->btf_id,
-					  *btf_id)) {
-			verbose(env, "R%d is of type %s but %s is expected\n",
-				regno, kernel_type_name(reg->btf_id),
-				kernel_type_name(*btf_id));
-			return -EACCES;
-		}
-
-		if (!tnum_is_const(reg->var_off) || reg->var_off.value) {
-			verbose(env,
-				"R%d is a pointer to in-kernel struct with non-zero offset\n",
-				regno);
-			return -EACCES;
-		}
-	}
-
 	if (reg->ref_obj_id) {
 		if (meta->ref_obj_id) {
 			verbose(env, "verifier internal error: more than one arg with ref_obj_id R%d %u %u\n",
