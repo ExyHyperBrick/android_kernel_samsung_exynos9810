@@ -72,6 +72,8 @@ btf_resolve_size(const struct btf *btf, const struct btf_type *type,
 
 void btf_type_seq_show(const struct btf *btf, u32 type_id, void *obj,
 		       struct seq_file *m);
+int btf_type_seq_show_flags(const struct btf *btf, u32 type_id, void *obj,
+			    struct seq_file *m, u64 flags);
 
 /*
  * Copy len bytes of string representation of obj of BTF type_id into buf.
