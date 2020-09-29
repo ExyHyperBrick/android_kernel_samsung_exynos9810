@@ -1226,6 +1226,15 @@ union bpf_attr {
  *		A pointer to the per-CPU kernel variable on *cpu*, or **NULL**
  *		when *cpu* is invalid.
  *
+ * void *bpf_this_cpu_ptr(const void *percpu_ptr)
+ *	Description
+ *		Take a pointer to a per-CPU ksym, *percpu_ptr*, and return a
+ *		pointer to the per-CPU kernel variable on the current CPU.
+ *		Unlike **bpf_per_cpu_ptr**\ (), this helper never returns
+ *		**NULL**.
+ *	Return
+ *		A pointer to the per-CPU kernel variable on the current CPU.
+ *
  * long bpf_for_each_map_elem(struct bpf_map *map, void *callback_fn, void *callback_ctx, u64 flags)
  *	Description
  *		For each element in **map**, call **callback_fn** with **map**,

@@ -725,6 +725,13 @@ union bpf_attr {
  *	Return
  *		A pointer to the per-CPU kernel variable on *cpu*, or NULL
  *		when *cpu* is invalid.
+ *
+ * void *bpf_this_cpu_ptr(const void *percpu_ptr)
+ *	Description
+ *		Return a pointer to the per-CPU kernel variable on the
+ *		current CPU. This helper never returns NULL.
+ *	Return
+ *		A pointer to the per-CPU kernel variable on the current CPU.
  */
 #define __BPF_FUNC_MAPPER(FN)		\
 	FN(unspec),			\
