@@ -1212,6 +1212,20 @@ union bpf_attr {
  *	Return
  *		Requested value, or 0, if flags are not recognized.
  *
+ * void *bpf_per_cpu_ptr(const void *percpu_ptr, u32 cpu)
+ *	Description
+ *		Take a pointer to a per-CPU ksym, *percpu_ptr*, and return a
+ *		pointer to the per-CPU kernel variable on *cpu*. A ksym is an
+ *		extern variable decorated with ``__ksym``. The ksym is per-CPU
+ *		when the kernel variable with the same name is per-CPU.
+ *
+ *		This helper has the same semantics as **per_cpu_ptr**\ (), except
+ *		that it may return **NULL** when *cpu* is greater than or equal
+ *		to **nr_cpu_ids**. The caller must check the returned pointer.
+ *	Return
+ *		A pointer to the per-CPU kernel variable on *cpu*, or **NULL**
+ *		when *cpu* is invalid.
+ *
  * long bpf_for_each_map_elem(struct bpf_map *map, void *callback_fn, void *callback_ctx, u64 flags)
  *	Description
  *		For each element in **map**, call **callback_fn** with **map**,

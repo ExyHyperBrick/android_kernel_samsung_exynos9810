@@ -58,6 +58,7 @@ bool btf_member_is_reg_int(const struct btf *btf, const struct btf_type *s,
 			   u32 expected_offset, u32 expected_size);
 
 int btf_find_spin_lock(const struct btf *btf, const struct btf_type *t);
+s32 btf_find_by_name_kind(const struct btf *btf, const char *name, u8 kind);
 
 static inline bool btf_type_is_ptr(const struct btf_type *t)
 {
@@ -89,6 +90,11 @@ static inline bool btf_type_is_func_proto(const struct btf_type *t)
 	return BTF_INFO_KIND(t->info) == BTF_KIND_FUNC_PROTO;
 }
 
+static inline u16 btf_type_vlen(const struct btf_type *t)
+{
+	return BTF_INFO_VLEN(t->info);
+}
+
 static inline bool btf_type_is_var(const struct btf_type *t)
 {
 	return BTF_INFO_KIND(t->info) == BTF_KIND_VAR;
@@ -101,6 +107,17 @@ static inline bool btf_type_is_struct(const struct btf_type *t)
 
 	return kind == BTF_KIND_STRUCT || kind == BTF_KIND_UNION;
 }
+
+static inline const struct btf_var_secinfo *
+btf_type_var_secinfo(const struct btf_type *t)
+{
+	return (const struct btf_var_secinfo *)(t + 1);
+}
+
+#define for_each_vsi(i, datasec_type, member)			\
+	for (i = 0, member = btf_type_var_secinfo(datasec_type);	\
+	     i < btf_type_vlen(datasec_type);			\
+	     i++, member++)
 
 #ifdef CONFIG_BPF_SYSCALL
 const struct btf_type *btf_type_by_id(const struct btf *btf, u32 type_id);

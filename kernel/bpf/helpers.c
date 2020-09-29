@@ -134,6 +134,22 @@ const struct bpf_func_proto bpf_for_each_map_elem_proto = {
 	.arg4_type	= ARG_ANYTHING,
 };
 
+BPF_CALL_2(bpf_per_cpu_ptr, const void *, ptr, u32, cpu)
+{
+	if (cpu >= nr_cpu_ids)
+		return (unsigned long)NULL;
+
+	return (unsigned long)per_cpu_ptr((const void __percpu *)ptr, cpu);
+}
+
+const struct bpf_func_proto bpf_per_cpu_ptr_proto = {
+	.func		= bpf_per_cpu_ptr,
+	.gpl_only	= false,
+	.ret_type	= RET_PTR_TO_MEM_OR_BTF_ID_OR_NULL,
+	.arg1_type	= ARG_PTR_TO_PERCPU_BTF_ID,
+	.arg2_type	= ARG_ANYTHING,
+};
+
 const struct bpf_func_proto bpf_get_prandom_u32_proto = {
 	.func		= bpf_user_rnd_u32,
 	.gpl_only	= false,
