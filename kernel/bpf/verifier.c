@@ -216,6 +216,7 @@ struct bpf_call_arg_meta {
 	int ref_obj_id;
 	int mem_size;
 	int func_id;
+	u32 ret_btf_id;
 	u32 subprogno;
 };
 
@@ -475,6 +476,7 @@ static const char * const reg_type_str[] = {
 	[PTR_TO_MEM_OR_NULL]	= "mem_or_null",
 	[PTR_TO_FUNC]		= "func",
 	[PTR_TO_MAP_KEY]	= "map_key",
+	[PTR_TO_PERCPU_BTF_ID] = "percpu_ptr_",
 };
 
 static void print_liveness(struct bpf_verifier_env *env,
@@ -527,7 +529,9 @@ static void print_verifier_state(struct bpf_verifier_env *env,
 			/* reg->off should be 0 for SCALAR_VALUE */
 			verbose(env, "%lld", reg->var_off.value + reg->off);
 		} else {
-			if (t == PTR_TO_BTF_ID || t == PTR_TO_BTF_ID_OR_NULL)
+			if (t == PTR_TO_BTF_ID ||
+			    t == PTR_TO_BTF_ID_OR_NULL ||
+			    t == PTR_TO_PERCPU_BTF_ID)
 				verbose(env, "%s", kernel_type_name(reg->btf_id));
 			verbose(env, "(id=%d", reg->id);
 			if (reg_type_may_be_refcounted_or_null(t))
@@ -2097,6 +2101,7 @@ static bool is_spillable_regtype(enum bpf_reg_type type)
 	case PTR_TO_MEM:
 	case PTR_TO_MEM_OR_NULL:
 	case PTR_TO_FUNC:
+	case PTR_TO_PERCPU_BTF_ID:
 		return true;
 	default:
 		return false;
@@ -3652,6 +3657,9 @@ static const struct bpf_reg_types const_map_ptr_types = {
 static const struct bpf_reg_types btf_ptr_types = {
 	.types = { PTR_TO_BTF_ID },
 };
+static const struct bpf_reg_types percpu_btf_ptr_types = {
+	.types = { PTR_TO_PERCPU_BTF_ID },
+};
 static const struct bpf_reg_types btf_id_sock_common_types = {
 	.types = {
 		PTR_TO_SOCK_COMMON,
@@ -3694,6 +3702,7 @@ static const struct bpf_reg_types *compatible_reg_types[__BPF_ARG_TYPE_MAX] = {
 	[ARG_PTR_TO_BTF_ID_SOCK_COMMON] = &btf_id_sock_common_types,
 	[ARG_PTR_TO_FUNC]		= &func_types,
 	[ARG_PTR_TO_STACK_OR_NULL]	= &stack_types,
+	[ARG_PTR_TO_PERCPU_BTF_ID]	= &percpu_btf_ptr_types,
 };
 
 static int check_reg_type(struct bpf_verifier_env *env, u32 regno,
@@ -3822,8 +3831,16 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 	if (err)
 		return err;
 
-	if (arg_type == ARG_PTR_TO_FUNC)
+	if (arg_type == ARG_PTR_TO_FUNC) {
 		meta->subprogno = reg->subprogno;
+	} else if (arg_type == ARG_PTR_TO_PERCPU_BTF_ID) {
+		if (!reg->btf_id) {
+			verbose(env, "Helper has invalid BTF ID in R%d\n",
+				regno);
+			return -EACCES;
+		}
+		meta->ret_btf_id = reg->btf_id;
+	}
 
 skip_type_check:
 	if (reg->ref_obj_id) {
@@ -4747,6 +4764,36 @@ static int check_helper_call(struct bpf_verifier_env *env,
 		mark_reg_known_zero(env, regs, BPF_REG_0);
 		regs[BPF_REG_0].type = PTR_TO_MEM_OR_NULL;
 		regs[BPF_REG_0].mem_size = meta.mem_size;
+	} else if (fn->ret_type == RET_PTR_TO_MEM_OR_BTF_ID_OR_NULL) {
+		const struct btf_type *t;
+
+		mark_reg_known_zero(env, regs, BPF_REG_0);
+		t = btf_type_skip_modifiers(btf_vmlinux, meta.ret_btf_id, NULL);
+		if (!t) {
+			verbose(env, "invalid return BTF ID %u of func %s#%d\n",
+				meta.ret_btf_id, func_id_name(func_id), func_id);
+			return -EINVAL;
+		}
+		if (!btf_type_is_struct(t)) {
+			const struct btf_type *ret;
+			const char *tname;
+			u32 tsize;
+
+			ret = btf_resolve_size(btf_vmlinux, t, &tsize);
+			if (IS_ERR(ret)) {
+				tname = btf_name_by_offset(btf_vmlinux,
+						   t->name_off);
+				verbose(env,
+					"unable to resolve size of type '%s': %ld\n",
+					tname, PTR_ERR(ret));
+				return -EINVAL;
+			}
+			regs[BPF_REG_0].type = PTR_TO_MEM_OR_NULL;
+			regs[BPF_REG_0].mem_size = tsize;
+		} else {
+			regs[BPF_REG_0].type = PTR_TO_BTF_ID_OR_NULL;
+			regs[BPF_REG_0].btf_id = meta.ret_btf_id;
+		}
 	} else if (fn->ret_type == RET_PTR_TO_BTF_ID_OR_NULL) {
 		u32 ret_btf_id;
 
@@ -7164,6 +7211,7 @@ static int check_ld_imm(struct bpf_verifier_env *env, struct bpf_insn *insn)
 			dst_reg->mem_size = aux->btf_var.mem_size;
 			break;
 		case PTR_TO_BTF_ID:
+		case PTR_TO_PERCPU_BTF_ID:
 			dst_reg->btf_id = aux->btf_var.btf_id;
 			break;
 		default:
@@ -8546,6 +8594,7 @@ static bool reg_type_mismatch_ok(enum bpf_reg_type type)
 	case PTR_TO_TCP_SOCK_OR_NULL:
 	case PTR_TO_BTF_ID:
 	case PTR_TO_BTF_ID_OR_NULL:
+	case PTR_TO_PERCPU_BTF_ID:
 		return false;
 	default:
 		return true;
@@ -8932,10 +8981,14 @@ static int check_pseudo_btf_id(struct bpf_verifier_env *env,
 			       struct bpf_insn *insn,
 			       struct bpf_insn_aux_data *aux)
 {
-	u32 type, id = insn->imm;
+	u32 datasec_id, type, id = insn->imm;
+	const struct btf_var_secinfo *vsi;
+	const struct btf_type *datasec;
 	const struct btf_type *t;
 	const char *sym_name;
+	bool percpu = false;
 	u64 addr;
+	int i;
 
 	if (!btf_vmlinux) {
 		verbose(env,
@@ -8967,12 +9020,27 @@ static int check_pseudo_btf_id(struct bpf_verifier_env *env,
 		return -ENOENT;
 	}
 
+	datasec_id = btf_find_by_name_kind(btf_vmlinux, ".data..percpu",
+					   BTF_KIND_DATASEC);
+	if (datasec_id > 0) {
+		datasec = btf_type_by_id(btf_vmlinux, datasec_id);
+		for_each_vsi(i, datasec, vsi) {
+			if (vsi->type == id) {
+				percpu = true;
+				break;
+			}
+		}
+	}
+
 	insn[0].imm = (u32)addr;
 	insn[1].imm = addr >> 32;
 
 	type = t->type;
 	t = btf_type_skip_modifiers(btf_vmlinux, type, NULL);
-	if (!btf_type_is_struct(t)) {
+	if (percpu) {
+		aux->btf_var.reg_type = PTR_TO_PERCPU_BTF_ID;
+		aux->btf_var.btf_id = type;
+	} else if (!btf_type_is_struct(t)) {
 		const struct btf_type *ret;
 		const char *tname;
 		u32 tsize;

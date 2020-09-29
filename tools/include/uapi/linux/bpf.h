@@ -715,6 +715,16 @@ union bpf_attr {
  *	@map: pointer to sockmap to update
  *	@key: key to insert/update sock in map
  *	@flags: same flags as map update elem
+ *
+ * void *bpf_per_cpu_ptr(const void *percpu_ptr, u32 cpu)
+ *	Description
+ *		Take a pointer to a per-CPU ksym, *percpu_ptr*, and return a
+ *		pointer to the per-CPU kernel variable on *cpu*. This helper
+ *		may return NULL when *cpu* is greater than or equal to
+ *		**nr_cpu_ids**, so the caller must check the returned pointer.
+ *	Return
+ *		A pointer to the per-CPU kernel variable on *cpu*, or NULL
+ *		when *cpu* is invalid.
  */
 #define __BPF_FUNC_MAPPER(FN)		\
 	FN(unspec),			\

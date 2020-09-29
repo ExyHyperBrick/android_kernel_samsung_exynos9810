@@ -187,11 +187,6 @@
 	     i < btf_type_vlen(struct_type);				\
 	     i++, member++)
 
-#define for_each_vsi(i, struct_type, member)			\
-	for (i = 0, member = btf_type_var_secinfo(struct_type);	\
-	     i < btf_type_vlen(struct_type);			\
-	     i++, member++)
-
 #define for_each_vsi_from(i, from, struct_type, member)				\
 	for (i = from, member = btf_type_var_secinfo(struct_type) + from;	\
 	     i < btf_type_vlen(struct_type);					\
@@ -428,11 +423,6 @@ static const char *btf_int_encoding_str(u8 encoding)
 		return "UNKN";
 }
 
-static u16 btf_type_vlen(const struct btf_type *t)
-{
-	return BTF_INFO_VLEN(t->info);
-}
-
 static bool btf_type_kflag(const struct btf_type *t)
 {
 	return BTF_INFO_KFLAG(t->info);
@@ -475,11 +465,6 @@ static const struct btf_enum *btf_type_enum(const struct btf_type *t)
 static const struct btf_var *btf_type_var(const struct btf_type *t)
 {
 	return (const struct btf_var *)(t + 1);
-}
-
-static const struct btf_var_secinfo *btf_type_var_secinfo(const struct btf_type *t)
-{
-	return (const struct btf_var_secinfo *)(t + 1);
 }
 
 static const struct btf_kind_operations *btf_type_ops(const struct btf_type *t)
@@ -553,6 +538,25 @@ const char *btf_name_by_offset(const struct btf *btf, u32 offset)
 		return &btf->strings[offset];
 
 	return NULL;
+}
+
+s32 btf_find_by_name_kind(const struct btf *btf, const char *name, u8 kind)
+{
+	const struct btf_type *t;
+	const char *tname;
+	u32 i;
+
+	for (i = 1; i <= btf->nr_types; i++) {
+		t = btf->types[i];
+		if (BTF_INFO_KIND(t->info) != kind)
+			continue;
+
+		tname = btf_name_by_offset(btf, t->name_off);
+		if (!strcmp(tname, name))
+			return i;
+	}
+
+	return -ENOENT;
 }
 
 const struct btf_type *btf_type_by_id(const struct btf *btf, u32 type_id)
