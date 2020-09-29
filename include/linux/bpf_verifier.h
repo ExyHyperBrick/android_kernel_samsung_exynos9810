@@ -321,6 +321,13 @@ struct bpf_insn_aux_data {
 			u32 map_index;		/* index into used_maps[] */
 			u32 map_off;		/* offset from value base address */
 		};
+		struct {
+			enum bpf_reg_type reg_type;	/* type of pseudo BTF ID */
+			union {
+				u32 btf_id;	/* BTF ID for struct-typed var */
+				u32 mem_size;	/* size for non-struct var */
+			};
+		} btf_var;
 	};
 	int ctx_field_size; /* the ctx field size for load insn, maybe 0 */
 	int converted_op_size; /* the valid value width after perceived conversion */
