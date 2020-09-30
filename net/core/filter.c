@@ -2495,6 +2495,25 @@ static const struct bpf_func_proto bpf_get_cgroup_classid_proto = {
 	.arg1_type      = ARG_PTR_TO_CTX,
 };
 
+#ifdef CONFIG_CGROUP_NET_CLASSID
+BPF_CALL_1(bpf_skb_cgroup_classid, const struct sk_buff *, skb)
+{
+	struct sock *sk = skb_to_full_sk(skb);
+
+	if (!sk || !sk_fullsock(sk))
+		return 0;
+
+	return sock_cgroup_classid(&sk->sk_cgrp_data);
+}
+
+static const struct bpf_func_proto bpf_skb_cgroup_classid_proto = {
+	.func		= bpf_skb_cgroup_classid,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_CTX,
+};
+#endif
+
 BPF_CALL_1(bpf_get_route_realm, const struct sk_buff *, skb)
 {
 	return dst_tclassid(skb);
@@ -5023,6 +5042,10 @@ tc_cls_act_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_clone_redirect_proto;
 	case BPF_FUNC_get_cgroup_classid:
 		return &bpf_get_cgroup_classid_proto;
+#ifdef CONFIG_CGROUP_NET_CLASSID
+	case BPF_FUNC_skb_cgroup_classid:
+		return &bpf_skb_cgroup_classid_proto;
+#endif
 	case BPF_FUNC_skb_vlan_push:
 		return &bpf_skb_vlan_push_proto;
 	case BPF_FUNC_skb_vlan_pop:
