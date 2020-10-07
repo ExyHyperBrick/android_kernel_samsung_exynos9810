@@ -3778,6 +3778,7 @@ static const struct bpf_reg_types btf_ptr_types = {
 static const struct bpf_reg_types percpu_btf_ptr_types = {
 	.types = { PTR_TO_PERCPU_BTF_ID },
 };
+#ifdef CONFIG_NET
 static const struct bpf_reg_types btf_id_sock_common_types = {
 	.types = {
 		PTR_TO_SOCK_COMMON,
@@ -3787,6 +3788,7 @@ static const struct bpf_reg_types btf_id_sock_common_types = {
 	},
 	.btf_id = &btf_sock_ids[BTF_SOCK_TYPE_SOCK_COMMON],
 };
+#endif
 static const struct bpf_reg_types spin_lock_types = {
 	.types = { PTR_TO_MAP_VALUE },
 };
@@ -3823,7 +3825,9 @@ static const struct bpf_reg_types *compatible_reg_types[__BPF_ARG_TYPE_MAX] = {
 	[ARG_PTR_TO_INT]		= &int_ptr_types,
 	[ARG_PTR_TO_LONG]		= &int_ptr_types,
 	[ARG_PTR_TO_BTF_ID]		= &btf_ptr_types,
+#ifdef CONFIG_NET
 	[ARG_PTR_TO_BTF_ID_SOCK_COMMON] = &btf_id_sock_common_types,
+#endif
 	[ARG_PTR_TO_FUNC]		= &func_types,
 	[ARG_PTR_TO_STACK_OR_NULL]	= &stack_types,
 	[ARG_PTR_TO_PERCPU_BTF_ID]	= &percpu_btf_ptr_types,
