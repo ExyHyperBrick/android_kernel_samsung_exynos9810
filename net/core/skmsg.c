@@ -690,8 +690,6 @@ static void sk_psock_verdict_apply(struct sk_psock *psock,
 		    (ingress &&
 		     atomic_read(&sk_other->sk_rmem_alloc) <=
 		     sk_other->sk_rcvbuf)) {
-			if (!ingress)
-				skb_set_owner_w(skb, sk_other);
 			skb_queue_tail(&psock_other->ingress_skb, skb);
 			schedule_work(&psock_other->work);
 			break;
