@@ -5735,7 +5735,6 @@ static int bpf_fib_set_fwd_params(struct bpf_fib_lookup *params,
 	memcpy(params->smac, dev->dev_addr, ETH_ALEN);
 	params->h_vlan_TCI = 0;
 	params->h_vlan_proto = 0;
-	params->ifindex = dev->ifindex;
 
 	return 0;
 }
@@ -5820,6 +5819,7 @@ static int bpf_ipv4_fib_lookup(struct net *net, struct bpf_fib_lookup *params,
 	if (nh->nh_gw)
 		params->ipv4_dst = nh->nh_gw;
 	params->rt_metric = res.fi->fib_priority;
+	params->ifindex = dev->ifindex;
 
 	neigh = __ipv4_neigh_lookup_noref(dev,
 					  (__force u32)params->ipv4_dst);
@@ -5916,6 +5916,7 @@ static int bpf_ipv6_fib_lookup(struct net *net, struct bpf_fib_lookup *params,
 		*dst = rt->rt6i_gateway;
 	dev = rt->dst.dev;
 	params->rt_metric = rt->rt6i_metric;
+	params->ifindex = dev->ifindex;
 
 	neigh = __ipv6_neigh_lookup_noref(dev, dst);
 	if (neigh)
