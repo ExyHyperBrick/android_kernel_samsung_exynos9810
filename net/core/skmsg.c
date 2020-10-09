@@ -651,6 +651,7 @@ static void sk_psock_verdict_apply(struct sk_psock *psock,
 	struct sk_psock *psock_other;
 	struct sock *sk_other;
 	bool ingress;
+	int err = -EIO;
 
 	switch (verdict) {
 	case __SK_PASS:
@@ -662,8 +663,19 @@ static void sk_psock_verdict_apply(struct sk_psock *psock,
 
 		tcp = TCP_SKB_CB(skb);
 		tcp->bpf.flags |= BPF_F_INGRESS;
-		skb_queue_tail(&psock->ingress_skb, skb);
-		schedule_work(&psock->work);
+
+		/* If the queue is empty then we can submit directly
+		 * into the msg queue. If its not empty we have to
+		 * queue work otherwise we may get OOO data. Otherwise,
+		 * if sk_psock_skb_ingress errors will be handled by
+		 * retrying later from workqueue.
+		 */
+		if (skb_queue_empty(&psock->ingress_skb))
+			err = sk_psock_skb_ingress(psock, skb);
+		if (err < 0) {
+			skb_queue_tail(&psock->ingress_skb, skb);
+			schedule_work(&psock->work);
+		}
 		break;
 	case __SK_REDIRECT:
 		sk_other = tcp_skb_bpf_redirect_fetch(skb);
