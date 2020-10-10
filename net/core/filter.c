@@ -2106,8 +2106,9 @@ out:
 }
 
 enum {
-	BPF_F_NEIGH = (1ULL << 1),
-#define BPF_F_REDIRECT_INTERNAL	(BPF_F_NEIGH)
+	BPF_F_NEIGH	= (1ULL << 1),
+	BPF_F_PEER	= (1ULL << 2),
+#define BPF_F_REDIRECT_INTERNAL	(BPF_F_NEIGH | BPF_F_PEER)
 };
 
 BPF_CALL_3(bpf_clone_redirect, struct sk_buff *, skb, u32, ifindex, u64, flags)
@@ -2176,19 +2177,36 @@ BPF_CALL_2(bpf_redirect, u32, ifindex, u64, flags)
 int skb_do_redirect(struct sk_buff *skb)
 {
 	struct redirect_info *ri = this_cpu_ptr(&redirect_info);
+	struct net *net = dev_net(skb->dev);
 	struct net_device *dev;
 	u32 flags = ri->flags;
 
-	dev = dev_get_by_index_rcu(dev_net(skb->dev), ri->ifindex);
+	dev = dev_get_by_index_rcu(net, ri->ifindex);
 	ri->ifindex = 0;
-	if (unlikely(!dev)) {
-		kfree_skb(skb);
-		return -EINVAL;
+	ri->flags = 0;
+	if (unlikely(!dev))
+		goto out_drop;
+	if (flags & BPF_F_PEER) {
+		const struct net_device_ops *ops = dev->netdev_ops;
+
+		if (unlikely(!ops->ndo_get_peer_dev ||
+			     !skb_at_tc_ingress(skb)))
+			goto out_drop;
+		dev = ops->ndo_get_peer_dev(dev);
+		if (unlikely(!dev ||
+			     !is_skb_forwardable(dev, skb) ||
+			     net_eq(net, dev_net(dev))))
+			goto out_drop;
+		skb->dev = dev;
+		return -EAGAIN;
 	}
 
 	return flags & BPF_F_NEIGH ?
 	       __bpf_redirect_neigh(skb, dev) :
 	       __bpf_redirect(skb, dev, flags);
+out_drop:
+	kfree_skb(skb);
+	return -EINVAL;
 }
 
 static const struct bpf_func_proto bpf_redirect_proto = {
@@ -2197,6 +2215,26 @@ static const struct bpf_func_proto bpf_redirect_proto = {
 	.ret_type       = RET_INTEGER,
 	.arg1_type      = ARG_ANYTHING,
 	.arg2_type      = ARG_ANYTHING,
+};
+
+BPF_CALL_2(bpf_redirect_peer, u32, ifindex, u64, flags)
+{
+	struct redirect_info *ri = this_cpu_ptr(&redirect_info);
+
+	if (unlikely(flags))
+		return TC_ACT_SHOT;
+
+	ri->flags = BPF_F_PEER;
+	ri->ifindex = ifindex;
+	return TC_ACT_REDIRECT;
+}
+
+static const struct bpf_func_proto bpf_redirect_peer_proto = {
+	.func		= bpf_redirect_peer,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_ANYTHING,
+	.arg2_type	= ARG_ANYTHING,
 };
 
 BPF_CALL_2(bpf_redirect_neigh, u32, ifindex, u64, flags)
@@ -6224,6 +6262,8 @@ tc_cls_act_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_redirect_proto;
 	case BPF_FUNC_redirect_neigh:
 		return &bpf_redirect_neigh_proto;
+	case BPF_FUNC_redirect_peer:
+		return &bpf_redirect_peer_proto;
 	case BPF_FUNC_get_route_realm:
 		return &bpf_get_route_realm_proto;
 	case BPF_FUNC_get_hash_recalc:
