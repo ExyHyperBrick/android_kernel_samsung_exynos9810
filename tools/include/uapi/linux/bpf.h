@@ -398,6 +398,9 @@ enum bpf_stats_type {
 /* Share perf_event among processes */
 #define BPF_F_PRESERVE_ELEMS	(1U << 11)
 
+/* Create a map that is suitable to be an inner map with dynamic max entries */
+#define BPF_F_INNER_MAP		(1U << 12)
+
 union bpf_attr {
 	struct { /* anonymous struct used by BPF_MAP_CREATE command */
 		__u32	map_type;	/* one of enum bpf_map_type */

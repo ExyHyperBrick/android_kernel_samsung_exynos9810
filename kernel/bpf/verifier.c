@@ -10578,7 +10578,9 @@ static int fixup_bpf_calls(struct bpf_verifier_env *env)
 				goto patch_call_imm;
 
 			cnt = map_ptr->ops->map_gen_lookup(map_ptr, insn_buf);
-			if (cnt == 0 || cnt >= ARRAY_SIZE(insn_buf)) {
+			if (cnt == -EOPNOTSUPP)
+				goto patch_call_imm;
+			if (cnt <= 0 || cnt >= ARRAY_SIZE(insn_buf)) {
 				verbose(env, "bpf verifier is misconfigured\n");
 				return -EINVAL;
 			}

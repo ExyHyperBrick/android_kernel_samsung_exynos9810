@@ -23,7 +23,7 @@
 
 #define ARRAY_CREATE_FLAG_MASK \
 	(BPF_F_NUMA_NODE | BPF_F_MMAPABLE | BPF_F_ACCESS_MASK | \
-	 BPF_F_PRESERVE_ELEMS)
+	 BPF_F_PRESERVE_ELEMS | BPF_F_INNER_MAP)
 
 static void bpf_array_free_percpu(struct bpf_array *array)
 {
@@ -66,6 +66,10 @@ int array_map_alloc_check(union bpf_attr *attr)
 	    attr->map_flags & ~ARRAY_CREATE_FLAG_MASK ||
 	    !bpf_map_flags_access_ok(attr->map_flags) ||
 	    (percpu && numa_node != NUMA_NO_NODE))
+		return -EINVAL;
+
+	if (attr->map_type != BPF_MAP_TYPE_ARRAY &&
+	    attr->map_flags & (BPF_F_MMAPABLE | BPF_F_INNER_MAP))
 		return -EINVAL;
 
 	if (attr->map_type != BPF_MAP_TYPE_PERF_EVENT_ARRAY &&
@@ -226,13 +230,16 @@ static int array_map_direct_value_meta(const struct bpf_map *map, u64 imm,
 }
 
 /* emit BPF instructions equivalent to C code of array_map_lookup_elem() */
-static u32 array_map_gen_lookup(struct bpf_map *map, struct bpf_insn *insn_buf)
+static int array_map_gen_lookup(struct bpf_map *map, struct bpf_insn *insn_buf)
 {
 	struct bpf_insn *insn = insn_buf;
 	u32 elem_size = round_up(map->value_size, 8);
 	const int ret = BPF_REG_0;
 	const int map_ptr = BPF_REG_1;
 	const int index = BPF_REG_2;
+
+	if (map->map_flags & BPF_F_INNER_MAP)
+		return -EOPNOTSUPP;
 
 	*insn++ = BPF_ALU64_IMM(BPF_ADD, map_ptr, offsetof(struct bpf_array, value));
 	*insn++ = BPF_LDX_MEM(BPF_W, ret, index, 0);
@@ -469,8 +476,10 @@ static int array_map_mmap(struct bpf_map *map, struct vm_area_struct *vma)
 static bool array_map_meta_equal(const struct bpf_map *meta0,
 				 const struct bpf_map *meta1)
 {
-	return meta0->max_entries == meta1->max_entries &&
-		bpf_map_meta_equal(meta0, meta1);
+	if (!bpf_map_meta_equal(meta0, meta1))
+		return false;
+	return meta0->map_flags & BPF_F_INNER_MAP ? true :
+	       meta0->max_entries == meta1->max_entries;
 }
 
 static int bpf_for_each_array_elem(struct bpf_map *map, void *callback_fn,
@@ -996,7 +1005,7 @@ static void *array_of_map_lookup_elem(struct bpf_map *map, void *key)
 	return READ_ONCE(*inner_map);
 }
 
-static u32 array_of_map_gen_lookup(struct bpf_map *map,
+static int array_of_map_gen_lookup(struct bpf_map *map,
 				   struct bpf_insn *insn_buf)
 {
 	u32 elem_size = round_up(map->value_size, 8);
