@@ -681,6 +681,8 @@ void sk_psock_drop(struct sock *sk, struct sk_psock *psock)
 	rcu_assign_sk_user_data(sk, NULL);
 	if (psock->progs.skb_parser)
 		sk_psock_stop_strp(sk, psock);
+	else if (psock->progs.skb_verdict)
+		sk_psock_stop_verdict(sk, psock);
 	write_unlock_bh(&sk->sk_callback_lock);
 
 	sk_psock_stop(psock);
@@ -744,8 +746,6 @@ static int sk_psock_bpf_run(struct sk_psock *psock, struct bpf_prog *prog,
 {
 	return bpf_prog_run_pin_on_cpu(prog, skb);
 }
-
-#if IS_ENABLED(CONFIG_BPF_STREAM_PARSER)
 
 static void sk_psock_verdict_apply(struct sk_psock *psock,
 				   struct sk_buff *skb, int verdict)
@@ -829,6 +829,7 @@ out_free:
 	}
 }
 
+#if IS_ENABLED(CONFIG_BPF_STREAM_PARSER)
 static void sk_psock_strp_read(struct strparser *strp, struct sk_buff *skb)
 {
 	struct sk_psock *psock;
@@ -896,6 +897,57 @@ static void sk_psock_data_ready(struct sock *sk)
 
 #endif /* CONFIG_BPF_STREAM_PARSER */
 
+static int sk_psock_verdict_recv(read_descriptor_t *desc, struct sk_buff *skb,
+				 unsigned int offset, size_t orig_len)
+{
+	struct sock *sk = (struct sock *)desc->arg.data;
+	struct sk_psock *psock;
+	struct bpf_prog *prog;
+	int ret = __SK_DROP;
+	int len = skb->len;
+
+	/* Clone here so read_sock() can consume the original skb. */
+	skb = skb_clone(skb, GFP_ATOMIC);
+	if (!skb) {
+		desc->error = -ENOMEM;
+		return 0;
+	}
+
+	rcu_read_lock();
+	psock = sk_psock(sk);
+	if (unlikely(!psock)) {
+		len = 0;
+		kfree_skb(skb);
+		goto out;
+	}
+	skb_set_owner_r(skb, sk);
+	prog = READ_ONCE(psock->progs.skb_verdict);
+	if (likely(prog)) {
+		skb_dst_drop(skb);
+		skb_bpf_redirect_clear(skb);
+		ret = sk_psock_bpf_run(psock, prog, skb);
+		ret = sk_psock_map_verd(ret, skb_bpf_redirect_fetch(skb));
+	}
+	sk_psock_verdict_apply(psock, skb, ret);
+out:
+	rcu_read_unlock();
+	return len;
+}
+
+static void sk_psock_verdict_data_ready(struct sock *sk)
+{
+	struct socket *sock = sk->sk_socket;
+	read_descriptor_t desc;
+
+	if (unlikely(!sock || !sock->ops || !sock->ops->read_sock))
+		return;
+
+	desc.arg.data = sk;
+	desc.error = 0;
+	desc.count = 1;
+	sock->ops->read_sock(sk, &desc, sk_psock_verdict_recv);
+}
+
 static void sk_psock_write_space(struct sock *sk)
 {
 	struct sk_psock *psock;
@@ -911,6 +963,25 @@ static void sk_psock_write_space(struct sock *sk)
 	rcu_read_unlock();
 	if (write_space)
 		write_space(sk);
+}
+
+void sk_psock_start_verdict(struct sock *sk, struct sk_psock *psock)
+{
+	if (psock->saved_data_ready)
+		return;
+
+	psock->saved_data_ready = sk->sk_data_ready;
+	sk->sk_data_ready = sk_psock_verdict_data_ready;
+	sk->sk_write_space = sk_psock_write_space;
+}
+
+void sk_psock_stop_verdict(struct sock *sk, struct sk_psock *psock)
+{
+	if (!psock->saved_data_ready)
+		return;
+
+	sk->sk_data_ready = psock->saved_data_ready;
+	psock->saved_data_ready = NULL;
 }
 
 #if IS_ENABLED(CONFIG_BPF_STREAM_PARSER)
