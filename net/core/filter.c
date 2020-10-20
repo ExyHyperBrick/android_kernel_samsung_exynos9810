@@ -1901,11 +1901,19 @@ static int __bpf_redirect(struct sk_buff *skb, struct net_device *dev,
 		return __bpf_redirect_no_mac(skb, dev, flags);
 }
 
+struct bpf_nh_params {
+	u32 nh_family;
+	union {
+		__be32 ipv4_nh;
+		struct in6_addr ipv6_nh;
+	};
+};
+
 #if IS_ENABLED(CONFIG_IPV6)
-static int bpf_out_neigh_v6(struct net *net, struct sk_buff *skb)
+static int bpf_out_neigh_v6(struct net *net, struct sk_buff *skb,
+			    struct net_device *dev, struct bpf_nh_params *nh)
 {
-	struct dst_entry *dst = skb_dst(skb);
-	struct net_device *dev = dst->dev;
+	struct dst_entry *dst = NULL;
 	u32 hh_len = LL_RESERVED_SPACE(dev);
 	struct neighbour *neigh;
 	int ret;
@@ -1933,44 +1941,61 @@ static int bpf_out_neigh_v6(struct net *net, struct sk_buff *skb)
 	}
 
 	rcu_read_lock_bh();
-	neigh = dst_neigh_lookup_skb(dst, skb);
-	if (likely(neigh)) {
+	if (!nh) {
+		dst = skb_dst(skb);
+		neigh = dst_neigh_lookup_skb(dst, skb);
+	} else if (!ipv6_stub->nd_tbl) {
+		rcu_read_unlock_bh();
+		goto out_drop;
+	} else {
+		neigh = __neigh_lookup_errno(ipv6_stub->nd_tbl,
+					     &nh->ipv6_nh, dev);
+	}
+	if (likely(neigh && !IS_ERR(neigh))) {
 		__this_cpu_inc(xmit_recursion);
-		ret = dst_neigh_output(dst, neigh, skb);
+		ret = dst ? dst_neigh_output(dst, neigh, skb) :
+			    neigh->output(neigh, skb);
 		__this_cpu_dec(xmit_recursion);
 		neigh_release(neigh);
 		rcu_read_unlock_bh();
 		return ret;
 	}
 	rcu_read_unlock_bh();
-	IP6_INC_STATS(net, ip6_dst_idev(dst), IPSTATS_MIB_OUTNOROUTES);
+	if (dst)
+		IP6_INC_STATS(net, ip6_dst_idev(dst), IPSTATS_MIB_OUTNOROUTES);
 out_drop:
 	kfree_skb(skb);
 	return -ENETDOWN;
 }
 
-static int __bpf_redirect_neigh_v6(struct sk_buff *skb, struct net_device *dev)
+static int __bpf_redirect_neigh_v6(struct sk_buff *skb, struct net_device *dev,
+				   struct bpf_nh_params *nh)
 {
 	const struct ipv6hdr *ip6h = ipv6_hdr(skb);
 	struct net *net = dev_net(dev);
 	int err, ret = NET_XMIT_DROP;
-	struct dst_entry *dst;
-	struct flowi6 fl6 = {
-		.flowi6_flags	= FLOWI_FLAG_ANYSRC,
-		.flowi6_mark	= skb->mark,
-		.flowlabel	= ip6_flowinfo(ip6h),
-		.flowi6_oif	= dev->ifindex,
-		.flowi6_proto	= ip6h->nexthdr,
-		.daddr		= ip6h->daddr,
-		.saddr		= ip6h->saddr,
-	};
 
-	dst = ipv6_stub->ipv6_dst_lookup_flow(net, NULL, &fl6, NULL);
-	if (IS_ERR(dst))
+	if (!nh) {
+		struct dst_entry *dst;
+		struct flowi6 fl6 = {
+			.flowi6_flags = FLOWI_FLAG_ANYSRC,
+			.flowi6_mark  = skb->mark,
+			.flowlabel    = ip6_flowinfo(ip6h),
+			.flowi6_oif   = dev->ifindex,
+			.flowi6_proto = ip6h->nexthdr,
+			.daddr	       = ip6h->daddr,
+			.saddr	       = ip6h->saddr,
+		};
+
+		dst = ipv6_stub->ipv6_dst_lookup_flow(net, NULL, &fl6, NULL);
+		if (IS_ERR(dst))
+			goto out_drop;
+		skb_dst_set(skb, dst);
+	} else if (nh->nh_family != AF_INET6) {
 		goto out_drop;
+	}
 
-	skb_dst_set(skb, dst);
-	err = bpf_out_neigh_v6(net, skb);
+	err = bpf_out_neigh_v6(net, skb, dev, nh);
 	if (unlikely(net_xmit_eval(err)))
 		dev->stats.tx_errors++;
 	else
@@ -1983,7 +2008,8 @@ out_xmit:
 	return ret;
 }
 #else
-static int __bpf_redirect_neigh_v6(struct sk_buff *skb, struct net_device *dev)
+static int __bpf_redirect_neigh_v6(struct sk_buff *skb, struct net_device *dev,
+				   struct bpf_nh_params *nh)
 {
 	kfree_skb(skb);
 	return NET_XMIT_DROP;
@@ -1991,10 +2017,10 @@ static int __bpf_redirect_neigh_v6(struct sk_buff *skb, struct net_device *dev)
 #endif
 
 #if IS_ENABLED(CONFIG_INET)
-static int bpf_out_neigh_v4(struct sk_buff *skb)
+static int bpf_out_neigh_v4(struct sk_buff *skb, struct net_device *dev,
+			    struct bpf_nh_params *nh)
 {
-	struct dst_entry *dst = skb_dst(skb);
-	struct net_device *dev = dst->dev;
+	struct dst_entry *dst = NULL;
 	u32 hh_len = LL_RESERVED_SPACE(dev);
 	struct neighbour *neigh;
 	int ret;
@@ -2022,10 +2048,27 @@ static int bpf_out_neigh_v4(struct sk_buff *skb)
 	}
 
 	rcu_read_lock_bh();
-	neigh = dst_neigh_lookup_skb(dst, skb);
-	if (likely(neigh)) {
+	if (!nh) {
+		dst = skb_dst(skb);
+		neigh = dst_neigh_lookup_skb(dst, skb);
+	} else if (nh->nh_family == AF_INET) {
+		neigh = __neigh_lookup_errno(&arp_tbl, &nh->ipv4_nh, dev);
+#if IS_ENABLED(CONFIG_IPV6)
+	} else if (nh->nh_family == AF_INET6) {
+		if (!ipv6_stub->nd_tbl) {
+			rcu_read_unlock_bh();
+			goto out_drop;
+		}
+		neigh = __neigh_lookup_errno(ipv6_stub->nd_tbl,
+					     &nh->ipv6_nh, dev);
+#endif
+	} else {
+		neigh = ERR_PTR(-EAFNOSUPPORT);
+	}
+	if (likely(neigh && !IS_ERR(neigh))) {
 		__this_cpu_inc(xmit_recursion);
-		ret = dst_neigh_output(dst, neigh, skb);
+		ret = dst ? dst_neigh_output(dst, neigh, skb) :
+			    neigh->output(neigh, skb);
 		__this_cpu_dec(xmit_recursion);
 		neigh_release(neigh);
 		rcu_read_unlock_bh();
@@ -2037,32 +2080,36 @@ out_drop:
 	return -ENETDOWN;
 }
 
-static int __bpf_redirect_neigh_v4(struct sk_buff *skb, struct net_device *dev)
+static int __bpf_redirect_neigh_v4(struct sk_buff *skb, struct net_device *dev,
+				   struct bpf_nh_params *nh)
 {
 	const struct iphdr *ip4h = ip_hdr(skb);
 	struct net *net = dev_net(dev);
 	int err, ret = NET_XMIT_DROP;
-	struct rtable *rt;
-	struct flowi4 fl4 = {
-		.flowi4_flags	= FLOWI_FLAG_ANYSRC,
-		.flowi4_mark	= skb->mark,
-		.flowi4_tos	= RT_TOS(ip4h->tos),
-		.flowi4_oif	= dev->ifindex,
-		.flowi4_proto	= ip4h->protocol,
-		.daddr		= ip4h->daddr,
-		.saddr		= ip4h->saddr,
-	};
 
-	rt = ip_route_output_flow(net, &fl4, NULL);
-	if (IS_ERR(rt))
-		goto out_drop;
-	if (rt->rt_type != RTN_UNICAST && rt->rt_type != RTN_LOCAL) {
-		ip_rt_put(rt);
-		goto out_drop;
+	if (!nh) {
+		struct flowi4 fl4 = {
+			.flowi4_flags = FLOWI_FLAG_ANYSRC,
+			.flowi4_mark  = skb->mark,
+			.flowi4_tos   = RT_TOS(ip4h->tos),
+			.flowi4_oif   = dev->ifindex,
+			.flowi4_proto = ip4h->protocol,
+			.daddr	       = ip4h->daddr,
+			.saddr	       = ip4h->saddr,
+		};
+		struct rtable *rt;
+
+		rt = ip_route_output_flow(net, &fl4, NULL);
+		if (IS_ERR(rt))
+			goto out_drop;
+		if (rt->rt_type != RTN_UNICAST && rt->rt_type != RTN_LOCAL) {
+			ip_rt_put(rt);
+			goto out_drop;
+		}
+		skb_dst_set(skb, &rt->dst);
 	}
 
-	skb_dst_set(skb, &rt->dst);
-	err = bpf_out_neigh_v4(skb);
+	err = bpf_out_neigh_v4(skb, dev, nh);
 	if (unlikely(net_xmit_eval(err)))
 		dev->stats.tx_errors++;
 	else
@@ -2075,14 +2122,16 @@ out_xmit:
 	return ret;
 }
 #else
-static int __bpf_redirect_neigh_v4(struct sk_buff *skb, struct net_device *dev)
+static int __bpf_redirect_neigh_v4(struct sk_buff *skb, struct net_device *dev,
+				   struct bpf_nh_params *nh)
 {
 	kfree_skb(skb);
 	return NET_XMIT_DROP;
 }
 #endif
 
-static int __bpf_redirect_neigh(struct sk_buff *skb, struct net_device *dev)
+static int __bpf_redirect_neigh(struct sk_buff *skb, struct net_device *dev,
+				struct bpf_nh_params *nh)
 {
 	struct ethhdr *ethh = eth_hdr(skb);
 
@@ -2097,9 +2146,9 @@ static int __bpf_redirect_neigh(struct sk_buff *skb, struct net_device *dev)
 	skb_reset_network_header(skb);
 
 	if (skb->protocol == htons(ETH_P_IP))
-		return __bpf_redirect_neigh_v4(skb, dev);
+		return __bpf_redirect_neigh_v4(skb, dev, nh);
 	if (skb->protocol == htons(ETH_P_IPV6))
-		return __bpf_redirect_neigh_v6(skb, dev);
+		return __bpf_redirect_neigh_v6(skb, dev, nh);
 out:
 	kfree_skb(skb);
 	return -ENOTSUPP;
@@ -2108,7 +2157,8 @@ out:
 enum {
 	BPF_F_NEIGH	= (1ULL << 1),
 	BPF_F_PEER	= (1ULL << 2),
-#define BPF_F_REDIRECT_INTERNAL	(BPF_F_NEIGH | BPF_F_PEER)
+	BPF_F_NEXTHOP	= (1ULL << 3),
+#define BPF_F_REDIRECT_INTERNAL	(BPF_F_NEIGH | BPF_F_PEER | BPF_F_NEXTHOP)
 };
 
 BPF_CALL_3(bpf_clone_redirect, struct sk_buff *, skb, u32, ifindex, u64, flags)
@@ -2157,6 +2207,7 @@ struct redirect_info {
 	struct bpf_map *map;
 	struct bpf_map *map_to_flush;
 	unsigned long   map_owner;
+	struct bpf_nh_params nh;
 };
 
 static DEFINE_PER_CPU(struct redirect_info, redirect_info);
@@ -2202,7 +2253,8 @@ int skb_do_redirect(struct sk_buff *skb)
 	}
 
 	return flags & BPF_F_NEIGH ?
-	       __bpf_redirect_neigh(skb, dev) :
+	       __bpf_redirect_neigh(skb, dev, flags & BPF_F_NEXTHOP ?
+				    &ri->nh : NULL) :
 	       __bpf_redirect(skb, dev, flags);
 out_drop:
 	kfree_skb(skb);
@@ -2237,15 +2289,21 @@ static const struct bpf_func_proto bpf_redirect_peer_proto = {
 	.arg2_type	= ARG_ANYTHING,
 };
 
-BPF_CALL_2(bpf_redirect_neigh, u32, ifindex, u64, flags)
+BPF_CALL_4(bpf_redirect_neigh, u32, ifindex, struct bpf_redir_neigh *, params,
+	   int, plen, u64, flags)
 {
 	struct redirect_info *ri = this_cpu_ptr(&redirect_info);
 
-	if (unlikely(flags))
+	if (unlikely((plen && plen < sizeof(*params)) || flags))
 		return TC_ACT_SHOT;
 
-	ri->flags = BPF_F_NEIGH;
+	ri->flags = BPF_F_NEIGH | (plen ? BPF_F_NEXTHOP : 0);
 	ri->ifindex = ifindex;
+
+	BUILD_BUG_ON(sizeof(struct bpf_redir_neigh) !=
+		     sizeof(struct bpf_nh_params));
+	if (plen)
+		memcpy(&ri->nh, params, sizeof(ri->nh));
 	return TC_ACT_REDIRECT;
 }
 
@@ -2254,7 +2312,9 @@ static const struct bpf_func_proto bpf_redirect_neigh_proto = {
 	.gpl_only	= false,
 	.ret_type	= RET_INTEGER,
 	.arg1_type	= ARG_ANYTHING,
-	.arg2_type	= ARG_ANYTHING,
+	.arg2_type	= ARG_PTR_TO_MEM_OR_NULL,
+	.arg3_type	= ARG_CONST_SIZE_OR_ZERO,
+	.arg4_type	= ARG_ANYTHING,
 };
 
 BPF_CALL_2(bpf_msg_apply_bytes, struct sk_msg *, msg, u32, bytes)

@@ -2359,6 +2359,14 @@ struct bpf_fib_lookup {
 	__u8	dmac[6];
 };
 
+struct bpf_redir_neigh {
+	__u32 nh_family;
+	union {
+		__be32	ipv4_nh;
+		__u32	ipv6_nh[4];
+	};
+};
+
 #define BPF_FLOW_DISSECTOR_F_PARSE_1ST_FRAG		(1U << 0)
 #define BPF_FLOW_DISSECTOR_F_STOP_AT_FLOW_LABEL		(1U << 1)
 #define BPF_FLOW_DISSECTOR_F_STOP_AT_ENCAP		(1U << 2)
