@@ -325,6 +325,7 @@ static const struct seq_operations task_file_seq_ops = {
 
 static const struct bpf_iter_reg task_reg_info = {
 	.target			= "task",
+	.feature		= BPF_ITER_RESCHED,
 	.seq_ops		= &task_seq_ops,
 	.init_seq_private	= init_seq_pidns,
 	.fini_seq_private	= fini_seq_pidns,
@@ -338,6 +339,7 @@ static const struct bpf_iter_reg task_reg_info = {
 
 static const struct bpf_iter_reg task_file_reg_info = {
 	.target			= "task_file",
+	.feature		= BPF_ITER_RESCHED,
 	.seq_ops		= &task_file_seq_ops,
 	.init_seq_private	= init_seq_pidns,
 	.fini_seq_private	= fini_seq_pidns,
