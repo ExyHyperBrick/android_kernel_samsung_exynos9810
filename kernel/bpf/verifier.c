@@ -4538,7 +4538,8 @@ static bool check_btf_id_ok(const struct bpf_func_proto *fn)
 			return false;
 	}
 
-	if (fn->ret_type == RET_PTR_TO_BTF_ID_OR_NULL &&
+	if ((fn->ret_type == RET_PTR_TO_BTF_ID_OR_NULL ||
+	     fn->ret_type == RET_PTR_TO_BTF_ID) &&
 	    !fn->ret_btf_id)
 		return false;
 
@@ -5260,11 +5261,14 @@ static int check_helper_call(struct bpf_verifier_env *env,
 				PTR_TO_BTF_ID_OR_NULL : PTR_TO_BTF_ID;
 			regs[BPF_REG_0].btf_id = meta.ret_btf_id;
 		}
-	} else if (fn->ret_type == RET_PTR_TO_BTF_ID_OR_NULL) {
+	} else if (fn->ret_type == RET_PTR_TO_BTF_ID_OR_NULL ||
+		   fn->ret_type == RET_PTR_TO_BTF_ID) {
 		u32 ret_btf_id;
 
 		mark_reg_known_zero(env, regs, BPF_REG_0);
-		regs[BPF_REG_0].type = PTR_TO_BTF_ID_OR_NULL;
+		regs[BPF_REG_0].type = fn->ret_type == RET_PTR_TO_BTF_ID ?
+					     PTR_TO_BTF_ID :
+					     PTR_TO_BTF_ID_OR_NULL;
 		ret_btf_id = *fn->ret_btf_id;
 		if (!ret_btf_id) {
 			verbose(env, "invalid return type %d of func %s#%d\n",
