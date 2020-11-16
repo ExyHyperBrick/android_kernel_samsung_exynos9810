@@ -341,16 +341,18 @@ EXPORT_SYMBOL_GPL(sk_msg_memcopy_from_iter);
 static int sk_psock_skb_ingress(struct sk_psock *psock, struct sk_buff *skb)
 {
 	struct sock *sk = psock->sk;
+	bool self = skb->sk == sk;
 	int copied = 0, num_sge;
 	struct sk_msg *msg;
 
-	if (atomic_read(&sk->sk_rmem_alloc) > sk->sk_rcvbuf)
+	/* The source socket already owns and accounts self-redirected data. */
+	if (!self && atomic_read(&sk->sk_rmem_alloc) > sk->sk_rcvbuf)
 		return -EAGAIN;
 
 	msg = kzalloc(sizeof(*msg), __GFP_NOWARN | GFP_ATOMIC);
 	if (unlikely(!msg))
 		return -EAGAIN;
-	if (!sk_rmem_schedule(sk, skb, skb->truesize)) {
+	if (!self && !sk_rmem_schedule(sk, skb, skb->truesize)) {
 		kfree(msg);
 		return -EAGAIN;
 	}
@@ -368,7 +370,8 @@ static int sk_psock_skb_ingress(struct sk_psock *psock, struct sk_buff *skb)
 	 * from skb_consume found in __tcp_bpf_recvmsg() after its been copied
 	 * into user buffers.
 	 */
-	skb_set_owner_r(skb, sk);
+	if (!self)
+		skb_set_owner_r(skb, sk);
 
 	copied = skb->len;
 	msg->sg.start = 0;
