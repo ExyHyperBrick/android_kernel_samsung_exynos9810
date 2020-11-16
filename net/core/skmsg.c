@@ -358,6 +358,11 @@ static int sk_psock_skb_ingress(struct sk_psock *psock, struct sk_buff *skb)
 	}
 
 	sk_msg_init(msg);
+	/* Linearize so skb_to_sgvec() cannot fail on a frag_list skb. */
+	if (skb_linearize(skb)) {
+		kfree(msg);
+		return -EAGAIN;
+	}
 	num_sge = skb_to_sgvec(skb, msg->sg.data, 0, skb->len);
 	if (unlikely(num_sge < 0)) {
 		kfree(msg);
