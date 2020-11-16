@@ -42,7 +42,7 @@ int __tcp_bpf_recvmsg(struct sock *sk, struct sk_psock *psock,
 		      struct msghdr *msg, int len)
 {
 	struct iov_iter *iter = &msg->msg_iter;
-	int i, ret, copied = 0;
+	int i, copied = 0;
 
 	while (copied != len) {
 		struct scatterlist *sge;
@@ -63,11 +63,9 @@ int __tcp_bpf_recvmsg(struct sock *sk, struct sk_psock *psock,
 			page = sg_page(sge);
 			if (copied + copy > len)
 				copy = len - copied;
-			ret = copy_page_to_iter(page, sge->offset, copy, iter);
-			if (ret != copy) {
-				msg_rx->sg.start = i;
-				return -EFAULT;
-			}
+			copy = copy_page_to_iter(page, sge->offset, copy, iter);
+			if (!copy)
+				return copied ? copied : -EFAULT;
 
 			copied += copy;
 			sge->offset += copy;
