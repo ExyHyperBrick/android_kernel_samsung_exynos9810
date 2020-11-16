@@ -70,7 +70,8 @@ int __tcp_bpf_recvmsg(struct sock *sk, struct sk_psock *psock,
 			copied += copy;
 			sge->offset += copy;
 			sge->length -= copy;
-			sk_mem_uncharge(sk, copy);
+			if (!msg_rx->skb)
+				sk_mem_uncharge(sk, copy);
 			if (!sge->length) {
 				i++;
 				if (i == MAX_SKB_FRAGS)
