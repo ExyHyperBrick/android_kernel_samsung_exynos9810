@@ -104,6 +104,8 @@ static inline struct file *fcheck_files(struct files_struct *files, unsigned int
 
 struct task_struct;
 
+struct file *task_lookup_next_fd_rcu(struct task_struct *task,
+				     unsigned int *fd);
 struct files_struct *get_files_struct(struct task_struct *);
 void put_files_struct(struct files_struct *fs);
 void reset_files_struct(struct files_struct *);
