@@ -413,3 +413,4 @@
 396	common	pkey_free		sys_pkey_free
 397	common	statx			sys_statx
 436	common	close_range		sys_close_range
+441	common	epoll_pwait2		sys_epoll_pwait2
