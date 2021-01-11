@@ -3819,8 +3819,23 @@ static int _bpf_getsockopt(struct sock *sk, int level, int optname,
 
 	sock_owned_by_me(sk);
 
+	if (level == SOL_SOCKET) {
+		if (optlen != sizeof(int))
+			goto err_clear;
+
+		switch (optname) {
+		case SO_MARK:
+			*((int *)optval) = sk->sk_mark;
+			break;
+		case SO_PRIORITY:
+			*((int *)optval) = sk->sk_priority;
+			break;
+		default:
+			goto err_clear;
+		}
 #ifdef CONFIG_INET
-	if (level == SOL_TCP && sk->sk_prot->getsockopt == tcp_getsockopt) {
+	} else if (level == SOL_TCP &&
+		   sk->sk_prot->getsockopt == tcp_getsockopt) {
 		if (optname == TCP_CONGESTION) {
 			struct inet_connection_sock *icsk = inet_csk(sk);
 
@@ -3831,11 +3846,11 @@ static int _bpf_getsockopt(struct sock *sk, int level, int optname,
 		} else {
 			goto err_clear;
 		}
+#endif
 	} else {
 		goto err_clear;
 	}
 	return 0;
-#endif
 err_clear:
 	memset(optval, 0, optlen);
 	return -EINVAL;
