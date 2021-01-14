@@ -254,6 +254,33 @@ static void maybe_emit_mod(u8 **pprog, u32 dst_reg, u32 src_reg, bool is64)
 	*pprog = prog;
 }
 
+static int emit_atomic(u8 **pprog, u8 atomic_op, u32 dst_reg, u32 src_reg,
+		       s16 off, u8 bpf_size)
+{
+	u8 *prog = *pprog;
+	int cnt = 0;
+
+	EMIT1(0xF0); /* lock prefix */
+
+	maybe_emit_mod(&prog, dst_reg, src_reg, bpf_size == BPF_DW);
+
+	/* emit opcode */
+	switch (atomic_op) {
+	case BPF_ADD:
+		/* lock *(u32/u64 *)(dst_reg + off) <op>= src_reg */
+		EMIT1(simple_alu_opcodes[atomic_op]);
+		break;
+	default:
+		pr_err("bpf_jit: unknown atomic opcode %02x\n", atomic_op);
+		return -EFAULT;
+	}
+
+	emit_insn_suffix(&prog, dst_reg, src_reg, off);
+
+	*pprog = prog;
+	return 0;
+}
+
 static void jit_fill_hole(void *area, unsigned int size)
 {
 	/* fill whole space with int3 instructions */
@@ -447,6 +474,7 @@ static int do_jit(struct bpf_prog *bpf_prog, int *addrs, u8 *image,
 	int i, cnt = 0, excnt = 0;
 	int proglen = 0;
 	u8 *prog = temp;
+	int err;
 
 	emit_prologue(&prog, bpf_prog->aux->stack_depth);
 
@@ -929,17 +957,12 @@ ldx:			emit_insn_suffix(&prog, src_reg, dst_reg, insn->off);
 			}
 			break;
 
-			/* STX XADD: lock *(u32*)(dst_reg + off) += src_reg */
-		case BPF_STX | BPF_XADD | BPF_W:
-			/* emit 'lock add dword ptr [rax + off], eax' */
-			if (is_ereg(dst_reg) || is_ereg(src_reg))
-				EMIT3(0xF0, add_2mod(0x40, dst_reg, src_reg), 0x01);
-			else
-				EMIT2(0xF0, 0x01);
-			goto xadd;
-		case BPF_STX | BPF_XADD | BPF_DW:
-			EMIT3(0xF0, add_2mod(0x48, dst_reg, src_reg), 0x01);
-xadd:			emit_insn_suffix(&prog, dst_reg, src_reg, insn->off);
+		case BPF_STX | BPF_ATOMIC | BPF_W:
+		case BPF_STX | BPF_ATOMIC | BPF_DW:
+			err = emit_atomic(&prog, insn->imm, dst_reg, src_reg,
+					  insn->off, BPF_SIZE(insn->code));
+			if (err)
+				return err;
 			break;
 
 			/* call */
