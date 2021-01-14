@@ -1326,8 +1326,8 @@ static u64 ___bpf_prog_run(u64 *regs, const struct bpf_insn *insn, u64 *stack)
 		[BPF_STX | BPF_MEM | BPF_H] = &&STX_MEM_H,
 		[BPF_STX | BPF_MEM | BPF_W] = &&STX_MEM_W,
 		[BPF_STX | BPF_MEM | BPF_DW] = &&STX_MEM_DW,
-		[BPF_STX | BPF_XADD | BPF_W] = &&STX_XADD_W,
-		[BPF_STX | BPF_XADD | BPF_DW] = &&STX_XADD_DW,
+		[BPF_STX | BPF_ATOMIC | BPF_W] = &&STX_ATOMIC_W,
+		[BPF_STX | BPF_ATOMIC | BPF_DW] = &&STX_ATOMIC_DW,
 		[BPF_ST | BPF_MEM | BPF_B] = &&ST_MEM_B,
 		[BPF_ST | BPF_MEM | BPF_H] = &&ST_MEM_H,
 		[BPF_ST | BPF_MEM | BPF_W] = &&ST_MEM_W,
@@ -1866,13 +1866,25 @@ out:
 				      SRC + insn->off, 0, 0);
 		CONT;
 
-	STX_XADD_W: /* lock xadd *(u32 *)(dst_reg + off16) += src_reg */
-		atomic_add((u32) SRC, (atomic_t *)(unsigned long)
-			   (DST + insn->off));
+	STX_ATOMIC_W:
+		switch (IMM) {
+		case BPF_ADD:
+			/* lock xadd *(u32 *)(dst_reg + off16) += src_reg */
+			atomic_add((u32) SRC, (atomic_t *)(unsigned long)
+				   (DST + insn->off));
+		default:
+			goto default_label;
+		}
 		CONT;
-	STX_XADD_DW: /* lock xadd *(u64 *)(dst_reg + off16) += src_reg */
-		atomic64_add((u64) SRC, (atomic64_t *)(unsigned long)
-			     (DST + insn->off));
+	STX_ATOMIC_DW:
+		switch (IMM) {
+		case BPF_ADD:
+			/* lock xadd *(u64 *)(dst_reg + off16) += src_reg */
+			atomic64_add((u64) SRC, (atomic64_t *)(unsigned long)
+				     (DST + insn->off));
+		default:
+			goto default_label;
+		}
 		CONT;
 	LD_ABS_W: /* BPF_R0 = ntohl(*(u32 *) (skb->data + imm32)) */
 		off = IMM;
@@ -1938,7 +1950,8 @@ load_byte:
 
 	default_label:
 		/* If we ever reach this, we have a bug somewhere. */
-		WARN_RATELIMIT(1, "unknown opcode %02x\n", insn->code);
+		WARN_RATELIMIT(1, "unknown opcode %02x (imm: 0x%x)\n",
+			       insn->code, insn->imm);
 		return 0;
 }
 STACK_FRAME_NON_STANDARD(___bpf_prog_run); /* jump table */
