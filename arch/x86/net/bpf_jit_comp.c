@@ -208,6 +208,27 @@ static u8 add_2reg(u8 byte, u32 dst_reg, u32 src_reg)
 	return byte + reg2hex[dst_reg] + (reg2hex[src_reg] << 3);
 }
 
+/* Emit the suffix (ModR/M etc) for addressing *(ptr_reg + off) and val_reg */
+static void emit_insn_suffix(u8 **pprog, u32 ptr_reg, u32 val_reg, int off)
+{
+	u8 *prog = *pprog;
+	int cnt = 0;
+
+	if (is_imm8(off)) {
+		/* 1-byte signed displacement.
+		 *
+		 * If off == 0 we could skip this and save one extra byte, but
+		 * special case of x86 R13 which always needs an offset is not
+		 * worth the hassle
+		 */
+		EMIT2(add_2reg(0x40, ptr_reg, val_reg), off);
+	} else {
+		/* 4-byte signed displacement */
+		EMIT1_off32(add_2reg(0x80, ptr_reg, val_reg), off);
+	}
+	*pprog = prog;
+}
+
 static void jit_fill_hole(void *area, unsigned int size)
 {
 	/* fill whole space with int3 instructions */
@@ -828,11 +849,7 @@ st:			if (is_imm8(insn->off))
 			goto stx;
 		case BPF_STX | BPF_MEM | BPF_DW:
 			EMIT2(add_2mod(0x48, dst_reg, src_reg), 0x89);
-stx:			if (is_imm8(insn->off))
-				EMIT2(add_2reg(0x40, dst_reg, src_reg), insn->off);
-			else
-				EMIT1_off32(add_2reg(0x80, dst_reg, src_reg),
-					    insn->off);
+stx:			emit_insn_suffix(&prog, dst_reg, src_reg, insn->off);
 			break;
 
 			/* LDX: dst_reg = *(u8*)(src_reg + off) */
@@ -858,15 +875,7 @@ stx:			if (is_imm8(insn->off))
 		case BPF_LDX | BPF_PROBE_MEM | BPF_DW:
 			/* emit 'mov rax, qword ptr [rax+0x14]' */
 			EMIT2(add_2mod(0x48, src_reg, dst_reg), 0x8B);
-ldx:			/* if insn->off == 0 we can save one extra byte, but
-			 * special case of x86 r13 which always needs an offset
-			 * is not worth the hassle
-			 */
-			if (is_imm8(insn->off))
-				EMIT2(add_2reg(0x40, src_reg, dst_reg), insn->off);
-			else
-				EMIT1_off32(add_2reg(0x80, src_reg, dst_reg),
-					    insn->off);
+ldx:			emit_insn_suffix(&prog, src_reg, dst_reg, insn->off);
 			if (BPF_MODE(insn->code) == BPF_PROBE_MEM) {
 				struct exception_table_entry *ex;
 				u8 *_insn = image + proglen;
@@ -921,11 +930,7 @@ ldx:			/* if insn->off == 0 we can save one extra byte, but
 			goto xadd;
 		case BPF_STX | BPF_XADD | BPF_DW:
 			EMIT3(0xF0, add_2mod(0x48, dst_reg, src_reg), 0x01);
-xadd:			if (is_imm8(insn->off))
-				EMIT2(add_2reg(0x40, dst_reg, src_reg), insn->off);
-			else
-				EMIT1_off32(add_2reg(0x80, dst_reg, src_reg),
-					    insn->off);
+xadd:			emit_insn_suffix(&prog, dst_reg, src_reg, insn->off);
 			break;
 
 			/* call */
