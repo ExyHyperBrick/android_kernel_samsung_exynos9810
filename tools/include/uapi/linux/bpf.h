@@ -2337,7 +2337,10 @@ struct bpf_fib_lookup {
 	__u8	l4_protocol;
 	__be16	sport;
 	__be16	dport;
-	__u16	tot_len;
+	union {
+		__u16	tot_len;
+		__u16	mtu_result;
+	};
 	/* input: L3 device; output: nexthop device */
 	__u32	ifindex;
 	union {
