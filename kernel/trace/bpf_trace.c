@@ -691,6 +691,10 @@ BTF_SET_END(btf_allowlist_d_path)
 
 static bool bpf_d_path_allowed(const struct bpf_prog *prog)
 {
+	if (prog->type == BPF_PROG_TYPE_TRACING &&
+	    prog->expected_attach_type == BPF_TRACE_ITER)
+		return true;
+
 	return btf_id_set_contains(&btf_allowlist_d_path,
 				   prog->aux->attach_btf_id);
 }
