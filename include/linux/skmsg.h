@@ -350,7 +350,6 @@ static inline struct sk_psock *sk_psock_get(struct sock *sk)
 	return psock;
 }
 
-void sk_psock_stop(struct sock *sk, struct sk_psock *psock);
 void sk_psock_destroy(struct rcu_head *rcu);
 void sk_psock_drop(struct sock *sk, struct sk_psock *psock);
 
