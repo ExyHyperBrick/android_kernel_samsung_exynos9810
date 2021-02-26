@@ -937,7 +937,7 @@ void ipv6_local_rxpmtu(struct sock *sk, struct flowi6 *fl6, u32 mtu);
 
 int inet6_release(struct socket *sock);
 int __inet6_bind(struct sock *sock, struct sockaddr *uaddr, int addr_len,
-		 bool force_bind_address_no_port, bool with_lock);
+		 u32 flags);
 int inet6_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len);
 int inet6_getname(struct socket *sock, struct sockaddr *uaddr, int *uaddr_len,
 		  int peer);
