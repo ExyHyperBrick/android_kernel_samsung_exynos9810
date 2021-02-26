@@ -7037,6 +7037,27 @@ static int push_insn(int t, int w, int e, struct bpf_verifier_env *env,
 	return 0;
 }
 
+static int visit_func_call_insn(int t, int insn_cnt,
+				struct bpf_insn *insns,
+				struct bpf_verifier_env *env,
+				bool visit_callee)
+{
+	int ret;
+
+	ret = push_insn(t, t + 1, FALLTHROUGH, env, false);
+	if (ret)
+		return ret;
+
+	if (t + 1 < insn_cnt)
+		init_explored_state(env, t + 1);
+	if (visit_callee) {
+		init_explored_state(env, t);
+		ret = push_insn(t, t + insns[t].imm + 1, BRANCH,
+				env, false);
+	}
+	return ret;
+}
+
 /* non-recursive depth-first-search to detect loops in BPF program
  * loop == back-edge in directed graph
  */
@@ -7078,22 +7099,13 @@ peek_stack:
 		if (opcode == BPF_EXIT) {
 			goto mark_explored;
 		} else if (opcode == BPF_CALL) {
-			ret = push_insn(t, t + 1, FALLTHROUGH, env, false);
+			ret = visit_func_call_insn(t, insn_cnt, insns, env,
+						  insns[t].src_reg ==
+						  BPF_PSEUDO_CALL);
 			if (ret == 1)
 				goto peek_stack;
 			else if (ret < 0)
 				goto err_free;
-			if (t + 1 < insn_cnt)
-				init_explored_state(env, t + 1);
-			if (insns[t].src_reg == BPF_PSEUDO_CALL) {
-				init_explored_state(env, t);
-				ret = push_insn(t, t + insns[t].imm + 1, BRANCH,
-						env, false);
-				if (ret == 1)
-					goto peek_stack;
-				else if (ret < 0)
-					goto err_free;
-			}
 		} else if (opcode == BPF_JA) {
 			if (BPF_SRC(insns[t].code) != BPF_K) {
 				ret = -EINVAL;
