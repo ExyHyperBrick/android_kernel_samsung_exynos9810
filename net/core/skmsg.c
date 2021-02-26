@@ -652,10 +652,9 @@ void sk_psock_drop(struct sock *sk, struct sk_psock *psock)
 {
 	sock_owned_by_me(sk);
 
-	rcu_assign_sk_user_data(sk, NULL);
-	sk_psock_restore_proto(sk, psock);
-
 	write_lock_bh(&sk->sk_callback_lock);
+	sk_psock_restore_proto(sk, psock);
+	rcu_assign_sk_user_data(sk, NULL);
 	if (psock->progs.skb_parser)
 		sk_psock_stop_strp(sk, psock);
 	write_unlock_bh(&sk->sk_callback_lock);
@@ -724,13 +723,6 @@ static int sk_psock_bpf_run(struct sk_psock *psock, struct bpf_prog *prog,
 }
 
 #if IS_ENABLED(CONFIG_BPF_STREAM_PARSER)
-static struct sk_psock *sk_psock_from_strp(struct strparser *strp)
-{
-	struct sk_psock_parser *parser;
-
-	parser = container_of(strp, struct sk_psock_parser, strp);
-	return container_of(parser, struct sk_psock, parser);
-}
 
 static void sk_psock_verdict_apply(struct sk_psock *psock,
 				   struct sk_buff *skb, int verdict)
@@ -850,7 +842,7 @@ static int sk_psock_strp_read_done(struct strparser *strp, int err)
 
 static int sk_psock_strp_parse(struct strparser *strp, struct sk_buff *skb)
 {
-	struct sk_psock *psock = sk_psock_from_strp(strp);
+	struct sk_psock *psock = container_of(strp, struct sk_psock, strp);
 	struct bpf_prog *prog;
 	int ret = skb->len;
 
@@ -874,7 +866,7 @@ static void sk_psock_data_ready(struct sock *sk)
 	psock = sk_psock(sk);
 	if (likely(psock)) {
 		read_lock_bh(&sk->sk_callback_lock);
-		strp_data_ready(&psock->parser.strp);
+		strp_data_ready(&psock->strp);
 		read_unlock_bh(&sk->sk_callback_lock);
 	}
 	rcu_read_unlock();
@@ -909,8 +901,7 @@ int sk_psock_init_strp(struct sock *sk, struct sk_psock *psock)
 	};
 	int ret;
 
-	psock->parser.enabled = false;
-	ret = strp_init(&psock->parser.strp, sk, &cb);
+	ret = strp_init(&psock->strp, sk, &cb);
 	if (!ret)
 		sk_psock_set_state(psock, SK_PSOCK_RX_STRP_ENABLED);
 
@@ -919,38 +910,32 @@ int sk_psock_init_strp(struct sock *sk, struct sk_psock *psock)
 
 void sk_psock_start_strp(struct sock *sk, struct sk_psock *psock)
 {
-	struct sk_psock_parser *parser = &psock->parser;
-
-	if (parser->enabled)
+	if (psock->saved_data_ready)
 		return;
 
-	parser->saved_data_ready = sk->sk_data_ready;
+	psock->saved_data_ready = sk->sk_data_ready;
 	sk->sk_data_ready = sk_psock_data_ready;
 	sk->sk_write_space = sk_psock_write_space;
-	parser->enabled = true;
 }
 
 void sk_psock_stop_strp(struct sock *sk, struct sk_psock *psock)
 {
-	struct sk_psock_parser *parser = &psock->parser;
-
 	psock_set_prog(&psock->progs.skb_parser, NULL);
 	psock_set_prog(&psock->progs.skb_verdict, NULL);
 
-	if (!parser->enabled)
+	if (!psock->saved_data_ready)
 		return;
 
-	sk->sk_data_ready = parser->saved_data_ready;
-	parser->saved_data_ready = NULL;
-	strp_stop(&parser->strp);
-	parser->enabled = false;
+	sk->sk_data_ready = psock->saved_data_ready;
+	psock->saved_data_ready = NULL;
+	strp_stop(&psock->strp);
 }
 
 
 static void sk_psock_done_strp(struct sk_psock *psock)
 {
 	if (sk_psock_test_state(psock, SK_PSOCK_RX_STRP_ENABLED))
-		strp_done(&psock->parser.strp);
+		strp_done(&psock->strp);
 }
 #else
 static void sk_psock_done_strp(struct sk_psock *psock)

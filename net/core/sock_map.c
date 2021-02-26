@@ -121,7 +121,7 @@ static void sock_map_del_link(struct sock *sk,
 			struct bpf_map *map = link->map;
 			struct sk_psock_progs *progs = sock_map_progs(map);
 
-			if (psock->parser.enabled && progs->skb_parser)
+			if (psock->saved_data_ready && progs->skb_parser)
 				strp_stop = true;
 			list_del(&link->list);
 			sk_psock_free_link(link);
@@ -220,7 +220,7 @@ static int sock_map_link(struct bpf_map *map, struct sk_psock_progs *progs,
 	}
 
 	write_lock_bh(&sk->sk_callback_lock);
-	if (skb_progs && !psock->parser.enabled) {
+	if (skb_progs && !psock->saved_data_ready) {
 		ret = sk_psock_init_strp(sk, psock);
 		if (ret) {
 			write_unlock_bh(&sk->sk_callback_lock);
