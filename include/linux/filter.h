@@ -486,6 +486,9 @@ static inline bool insn_is_zext(const struct bpf_insn *insn)
 #define BPF_CALL_4(name, ...)	BPF_CALL_x(4, name, __VA_ARGS__)
 #define BPF_CALL_5(name, ...)	BPF_CALL_x(5, name, __VA_ARGS__)
 
+#define BPF_CAST_CALL(x) \
+	((u64 (*)(u64, u64, u64, u64, u64))(x))
+
 #define bpf_ctx_range(TYPE, MEMBER)						\
 	offsetof(TYPE, MEMBER) ... offsetofend(TYPE, MEMBER) - 1
 #define bpf_ctx_range_till(TYPE, MEMBER1, MEMBER2)				\
