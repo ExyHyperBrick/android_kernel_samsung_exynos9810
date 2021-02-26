@@ -461,4 +461,47 @@ static inline void psock_progs_drop(struct sk_psock_progs *progs)
 	psock_set_prog(&progs->skb_verdict, NULL);
 }
 
+#if IS_ENABLED(CONFIG_NET_SOCK_MSG)
+#define BPF_F_STRPARSER BIT(1)
+#define BPF_F_PTR_MASK (~(unsigned long)(BPF_F_INGRESS | BPF_F_STRPARSER))
+
+static inline bool skb_bpf_ingress(const struct sk_buff *skb)
+{
+	return skb->_sk_redir & BPF_F_INGRESS;
+}
+
+static inline void skb_bpf_set_ingress(struct sk_buff *skb)
+{
+	skb->_sk_redir |= BPF_F_INGRESS;
+}
+
+static inline bool skb_bpf_strparser(const struct sk_buff *skb)
+{
+	return skb->_sk_redir & BPF_F_STRPARSER;
+}
+
+static inline void skb_bpf_set_strparser(struct sk_buff *skb)
+{
+	skb->_sk_redir |= BPF_F_STRPARSER;
+}
+
+static inline void skb_bpf_set_redir(struct sk_buff *skb,
+				     struct sock *sk_redir, bool ingress)
+{
+	skb->_sk_redir = (unsigned long)sk_redir;
+	if (ingress)
+		skb->_sk_redir |= BPF_F_INGRESS;
+}
+
+static inline struct sock *skb_bpf_redirect_fetch(const struct sk_buff *skb)
+{
+	return (struct sock *)(skb->_sk_redir & BPF_F_PTR_MASK);
+}
+
+static inline void skb_bpf_redirect_clear(struct sk_buff *skb)
+{
+	skb->_sk_redir = 0;
+}
+#endif /* CONFIG_NET_SOCK_MSG */
+
 #endif /* _LINUX_SKMSG_H */

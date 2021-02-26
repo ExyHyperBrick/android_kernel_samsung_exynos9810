@@ -469,14 +469,15 @@ static void sk_psock_backlog(struct work_struct *work)
 	while ((skb = skb_dequeue(&psock->ingress_skb))) {
 		len = skb->len;
 		off = 0;
-		if (tcp_skb_bpf_strparser(skb)) {
+		if (skb_bpf_strparser(skb)) {
 			struct strp_msg *stm = strp_msg(skb);
 
 			off = stm->offset;
 			len = stm->full_len;
 		}
 start:
-		ingress = tcp_skb_bpf_ingress(skb);
+		ingress = skb_bpf_ingress(skb);
+		skb_bpf_redirect_clear(skb);
 		do {
 			ret = -EIO;
 			if (!sock_flag(psock->sk, SOCK_DEAD))
@@ -591,10 +592,17 @@ void __sk_psock_purge_ingress_msg(struct sk_psock *psock)
 
 static void __sk_psock_zap_ingress(struct sk_psock *psock)
 {
-	skb_queue_purge(&psock->ingress_skb);
-	kfree_skb(psock->work_state.skb);
-	/* Prevent backlog work from picking up the freed skb. */
-	psock->work_state.skb = NULL;
+	struct sk_buff *skb;
+
+	while ((skb = skb_dequeue(&psock->ingress_skb)) != NULL) {
+		skb_bpf_redirect_clear(skb);
+		kfree_skb(skb);
+	}
+	if (psock->work_state.skb) {
+		skb_bpf_redirect_clear(psock->work_state.skb);
+		kfree_skb(psock->work_state.skb);
+		psock->work_state.skb = NULL;
+	}
 	__sk_psock_purge_ingress_msg(psock);
 }
 
@@ -726,7 +734,6 @@ static int sk_psock_bpf_run(struct sk_psock *psock, struct bpf_prog *prog,
 static void sk_psock_verdict_apply(struct sk_psock *psock,
 				   struct sk_buff *skb, int verdict)
 {
-	struct tcp_skb_cb *tcp;
 	struct sk_psock *psock_other;
 	struct sock *sk_other;
 	u32 len, off;
@@ -740,8 +747,7 @@ static void sk_psock_verdict_apply(struct sk_psock *psock,
 			goto out_free;
 		}
 
-		tcp = TCP_SKB_CB(skb);
-		tcp->bpf.flags |= BPF_F_INGRESS;
+		skb_bpf_set_ingress(skb);
 
 		/* If the queue is empty then we can submit directly
 		 * into the msg queue. If its not empty we have to
@@ -752,7 +758,7 @@ static void sk_psock_verdict_apply(struct sk_psock *psock,
 		if (skb_queue_empty(&psock->ingress_skb)) {
 			len = skb->len;
 			off = 0;
-			if (tcp_skb_bpf_strparser(skb)) {
+			if (skb_bpf_strparser(skb)) {
 				struct strp_msg *stm = strp_msg(skb);
 
 				off = stm->offset;
@@ -769,13 +775,13 @@ static void sk_psock_verdict_apply(struct sk_psock *psock,
 			}
 			spin_unlock_bh(&psock->ingress_lock);
 			if (err < 0) {
-				tcp_skb_bpf_redirect_clear(skb);
+				skb_bpf_redirect_clear(skb);
 				goto out_free;
 			}
 		}
 		break;
 	case __SK_REDIRECT:
-		sk_other = tcp_skb_bpf_redirect_fetch(skb);
+		sk_other = skb_bpf_redirect_fetch(skb);
 		/* This error is a buggy BPF program, it returned a redirect
 		 * return code, but then didn't set a redirect interface.
 		 */
@@ -823,11 +829,12 @@ static void sk_psock_strp_read(struct strparser *strp, struct sk_buff *skb)
 	}
 	prog = READ_ONCE(psock->progs.skb_verdict);
 	if (likely(prog)) {
-		tcp_skb_bpf_redirect_clear(skb);
+		skb_dst_drop(skb);
+		skb_bpf_redirect_clear(skb);
 		ret = sk_psock_bpf_run(psock, prog, skb);
 		if (ret == SK_PASS)
-			tcp_skb_bpf_set_strparser(skb);
-		ret = sk_psock_map_verd(ret, tcp_skb_bpf_redirect_fetch(skb));
+			skb_bpf_set_strparser(skb);
+		ret = sk_psock_map_verd(ret, skb_bpf_redirect_fetch(skb));
 	}
 	sk_psock_verdict_apply(psock, skb, ret);
 out:
