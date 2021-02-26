@@ -57,6 +57,7 @@ struct bpf_reg_state {
 
 		u32 btf_id; /* for PTR_TO_BTF_ID */
 		u32 mem_size; /* for PTR_TO_MEM | PTR_TO_MEM_OR_NULL */
+		u32 subprogno; /* for PTR_TO_FUNC */
 		/* Max size from any of the above. */
 		unsigned long raw;
 	};
@@ -151,6 +152,7 @@ struct bpf_func_state {
 	 * zero == main subprog
 	 */
 	u32 subprogno;
+	bool in_callback_fn;
 	/* The following fields should be last. See copy_func_state() */
 	int acquired_refs;
 	struct bpf_reference_state *refs;
