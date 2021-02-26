@@ -228,6 +228,16 @@ enum bpf_link_type {
  */
 #define BPF_PSEUDO_MAP_FD	1
 #define BPF_PSEUDO_MAP_VALUE	2
+#define BPF_PSEUDO_BTF_ID	3
+/* insn[0].src_reg:  BPF_PSEUDO_FUNC
+ * insn[0].imm:      insn offset to the func
+ * insn[1].imm:      0
+ * insn[0].off:      0
+ * insn[1].off:      0
+ * ldimm64 rewrite:  address of the function
+ * verifier type:    PTR_TO_FUNC.
+ */
+#define BPF_PSEUDO_FUNC		4
 
 /* flags for BPF_MAP_UPDATE_ELEM command */
 #define BPF_ANY		0 /* create new element or update existing */
@@ -841,7 +851,37 @@ union bpf_attr {
 	FN(ringbuf_reserve),		\
 	FN(ringbuf_submit),		\
 	FN(ringbuf_discard),		\
-	FN(ringbuf_query),
+	FN(ringbuf_query),		\
+	FN(csum_level),			\
+	FN(skc_to_tcp6_sock),		\
+	FN(skc_to_tcp_sock),		\
+	FN(skc_to_tcp_timewait_sock),	\
+	FN(skc_to_tcp_request_sock),	\
+	FN(skc_to_udp6_sock),		\
+	FN(get_task_stack),		\
+	FN(load_hdr_opt),		\
+	FN(store_hdr_opt),		\
+	FN(reserve_hdr_opt),		\
+	FN(inode_storage_get),		\
+	FN(inode_storage_delete),	\
+	FN(d_path),			\
+	FN(copy_from_user),		\
+	FN(snprintf_btf),		\
+	FN(seq_printf_btf),		\
+	FN(skb_cgroup_classid),		\
+	FN(redirect_neigh),		\
+	FN(per_cpu_ptr),		\
+	FN(this_cpu_ptr),		\
+	FN(redirect_peer),		\
+	FN(task_storage_get),		\
+	FN(task_storage_delete),	\
+	FN(get_current_task_btf),	\
+	FN(bprm_opts_set),		\
+	FN(ktime_get_coarse_ns),	\
+	FN(ima_inode_hash),		\
+	FN(sock_from_file),		\
+	FN(check_mtu),			\
+	FN(for_each_map_elem),
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
  * function eBPF program intends to call
