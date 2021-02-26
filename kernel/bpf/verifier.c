@@ -1354,9 +1354,9 @@ static int add_subprog(struct bpf_verifier_env *env, int off)
 
 	ret = find_subprog(env, off);
 	if (ret >= 0)
-		return 0;
+		return ret;
 
-	if (env->subprog_cnt > BPF_MAX_SUBPROGS) {
+	if (env->subprog_cnt >= BPF_MAX_SUBPROGS) {
 		verbose(env, "too many subprograms\n");
 		return -E2BIG;
 	}
@@ -1365,7 +1365,7 @@ static int add_subprog(struct bpf_verifier_env *env, int off)
 	sort(env->subprog_info, env->subprog_cnt,
 	     sizeof(env->subprog_info[0]), cmp_subprogs, NULL);
 
-	return 0;
+	return find_subprog(env, off);
 }
 static int check_subprogs(struct bpf_verifier_env *env)
 {
