@@ -62,13 +62,6 @@ struct sk_psock_link {
 	void				*link_raw;
 };
 
-struct sk_psock_parser {
-#if IS_ENABLED(CONFIG_BPF_STREAM_PARSER)
-	struct strparser		strp;
-#endif
-	bool				enabled;
-	void (*saved_data_ready)(struct sock *sk);
-};
 
 struct sk_psock_work_state {
 	struct sk_buff			*skb;
@@ -86,7 +79,9 @@ struct sk_psock {
 	bool				redir_ingress;
 	struct sk_msg			*cork;
 	struct sk_psock_progs		progs;
-	struct sk_psock_parser		parser;
+#if IS_ENABLED(CONFIG_BPF_STREAM_PARSER)
+	struct strparser		strp;
+#endif
 	struct sk_buff_head		ingress_skb;
 	struct list_head		ingress_msg;
 	/* Protects ingress queues and associated work state. */
@@ -97,6 +92,7 @@ struct sk_psock {
 	refcount_t			refcnt;
 	void (*saved_close)(struct sock *sk, long timeout);
 	void (*saved_write_space)(struct sock *sk);
+	void (*saved_data_ready)(struct sock *sk);
 	struct proto			*sk_proto;
 	/* Serializes backlog processing for this psock. */
 	struct mutex			work_mutex;
@@ -439,6 +435,15 @@ static inline void sk_psock_put(struct sock *sk, struct sk_psock *psock)
 {
 	if (refcount_dec_and_test(&psock->refcnt))
 		sk_psock_drop(sk, psock);
+}
+
+static inline void sk_psock_data_ready(struct sock *sk,
+				       struct sk_psock *psock)
+{
+	if (psock->saved_data_ready)
+		psock->saved_data_ready(sk);
+	else
+		sk->sk_data_ready(sk);
 }
 
 static inline void psock_set_prog(struct bpf_prog **pprog,
