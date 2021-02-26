@@ -1353,7 +1353,7 @@ static inline void bpf_map_offload_map_free(struct bpf_map *map)
 }
 #endif /* CONFIG_NET && CONFIG_BPF_SYSCALL */
 
-#if defined(CONFIG_BPF_STREAM_PARSER)
+#if defined(CONFIG_INET) && defined(CONFIG_BPF_SYSCALL)
 int sock_map_prog_update(struct bpf_map *map, struct bpf_prog *prog, u32 which);
 int sock_map_get_from_fd(const union bpf_attr *attr, struct bpf_prog *prog);
 int sock_map_update_elem_sys(struct bpf_map *map, void *key, void *value,
@@ -1377,7 +1377,7 @@ static inline int sock_map_update_elem_sys(struct bpf_map *map, void *key,
 {
 	return -EOPNOTSUPP;
 }
-#endif /* CONFIG_BPF_STREAM_PARSER */
+#endif /* CONFIG_INET && CONFIG_BPF_SYSCALL */
 
 #if defined(CONFIG_INET) && defined(CONFIG_BPF_SYSCALL)
 void bpf_sk_reuseport_detach(struct sock *sk);

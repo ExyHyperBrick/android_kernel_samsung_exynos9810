@@ -617,13 +617,14 @@ void sk_psock_stop(struct sk_psock *psock)
 	spin_unlock_bh(&psock->ingress_lock);
 }
 
+static void sk_psock_done_strp(struct sk_psock *psock);
+
 static void sk_psock_destroy_deferred(struct work_struct *gc)
 {
 	struct sk_psock *psock = container_of(gc, struct sk_psock, gc);
 
 	/* No sk_callback_lock since already detached. */
-	if (sk_psock_test_state(psock, SK_PSOCK_RX_STRP_ENABLED))
-		strp_done(&psock->parser.strp);
+	sk_psock_done_strp(psock);
 
 	cancel_delayed_work_sync(&psock->work);
 	mutex_destroy(&psock->work_mutex);
@@ -722,6 +723,7 @@ static int sk_psock_bpf_run(struct sk_psock *psock, struct bpf_prog *prog,
 	return bpf_prog_run_pin_on_cpu(prog, skb);
 }
 
+#if IS_ENABLED(CONFIG_BPF_STREAM_PARSER)
 static struct sk_psock *sk_psock_from_strp(struct strparser *strp)
 {
 	struct sk_psock_parser *parser;
@@ -878,20 +880,26 @@ static void sk_psock_data_ready(struct sock *sk)
 	rcu_read_unlock();
 }
 
+#endif /* CONFIG_BPF_STREAM_PARSER */
+
 static void sk_psock_write_space(struct sock *sk)
 {
 	struct sk_psock *psock;
-	void (*write_space)(struct sock *sk);
+	void (*write_space)(struct sock *sk) = NULL;
 
 	rcu_read_lock();
 	psock = sk_psock(sk);
-	if (likely(psock && sk_psock_test_state(psock, SK_PSOCK_TX_ENABLED)))
-		schedule_delayed_work(&psock->work, 0);
-	write_space = psock->saved_write_space;
+	if (likely(psock)) {
+		if (sk_psock_test_state(psock, SK_PSOCK_TX_ENABLED))
+			schedule_delayed_work(&psock->work, 0);
+		write_space = psock->saved_write_space;
+	}
 	rcu_read_unlock();
-	write_space(sk);
+	if (write_space)
+		write_space(sk);
 }
 
+#if IS_ENABLED(CONFIG_BPF_STREAM_PARSER)
 int sk_psock_init_strp(struct sock *sk, struct sk_psock *psock)
 {
 	static const struct strp_callbacks cb = {
@@ -937,3 +945,15 @@ void sk_psock_stop_strp(struct sock *sk, struct sk_psock *psock)
 	strp_stop(&parser->strp);
 	parser->enabled = false;
 }
+
+
+static void sk_psock_done_strp(struct sk_psock *psock)
+{
+	if (sk_psock_test_state(psock, SK_PSOCK_RX_STRP_ENABLED))
+		strp_done(&psock->parser.strp);
+}
+#else
+static void sk_psock_done_strp(struct sk_psock *psock)
+{
+}
+#endif /* CONFIG_BPF_STREAM_PARSER */
