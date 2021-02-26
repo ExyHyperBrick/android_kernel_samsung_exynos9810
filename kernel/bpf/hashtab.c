@@ -1508,6 +1508,61 @@ htab_lru_map_lookup_and_delete_batch(struct bpf_map *map,
 						  true, false);
 }
 
+static int bpf_for_each_hash_elem(struct bpf_map *map, void *callback_fn,
+				  void *callback_ctx, u64 flags)
+{
+	struct bpf_htab *htab = container_of(map, struct bpf_htab, map);
+	struct hlist_nulls_head *head;
+	struct hlist_nulls_node *n;
+	u32 roundup_key_size;
+	struct htab_elem *elem;
+	int i, num_elems = 0;
+	void __percpu *pptr;
+	struct bucket *b;
+	void *key, *val;
+	bool is_percpu;
+	u64 ret = 0;
+
+	if (flags)
+		return -EINVAL;
+
+	is_percpu = htab_is_percpu(htab);
+	roundup_key_size = round_up(map->key_size, 8);
+
+	/* Keep the per-CPU value selected here on the same CPU used by
+	 * bpf_map_lookup_elem() from the callback.
+	 */
+	if (is_percpu)
+		preempt_disable();
+	for (i = 0; i < htab->n_buckets; i++) {
+		b = &htab->buckets[i];
+		rcu_read_lock();
+		head = &b->head;
+		hlist_nulls_for_each_entry_rcu(elem, n, head, hash_node) {
+			key = elem->key;
+			if (is_percpu) {
+				pptr = htab_elem_get_ptr(elem, map->key_size);
+				val = this_cpu_ptr(pptr);
+			} else {
+				val = elem->key + roundup_key_size;
+			}
+			num_elems++;
+			ret = BPF_CAST_CALL(callback_fn)(
+				(u64)(long)map, (u64)(long)key,
+				(u64)(long)val, (u64)(long)callback_ctx, 0);
+			if (ret) {
+				rcu_read_unlock();
+				goto out;
+			}
+		}
+		rcu_read_unlock();
+	}
+out:
+	if (is_percpu)
+		preempt_enable();
+	return num_elems;
+}
+
 const struct bpf_map_ops htab_map_ops = {
 	.map_alloc = htab_map_alloc,
 	.map_free = htab_map_free,
@@ -1516,6 +1571,8 @@ const struct bpf_map_ops htab_map_ops = {
 	.map_update_elem = htab_map_update_elem,
 	.map_delete_elem = htab_map_delete_elem,
 	.map_gen_lookup = htab_map_gen_lookup,
+	.map_set_for_each_callback_args = map_set_for_each_callback_args,
+	.map_for_each_callback = bpf_for_each_hash_elem,
 	BATCH_OPS(htab),
 };
 
@@ -1528,6 +1585,8 @@ const struct bpf_map_ops htab_lru_map_ops = {
 	.map_update_elem = htab_lru_map_update_elem,
 	.map_delete_elem = htab_lru_map_delete_elem,
 	.map_gen_lookup = htab_lru_map_gen_lookup,
+	.map_set_for_each_callback_args = map_set_for_each_callback_args,
+	.map_for_each_callback = bpf_for_each_hash_elem,
 	BATCH_OPS(htab_lru),
 };
 
@@ -1611,6 +1670,8 @@ const struct bpf_map_ops htab_percpu_map_ops = {
 	.map_lookup_elem = htab_percpu_map_lookup_elem,
 	.map_update_elem = htab_percpu_map_update_elem,
 	.map_delete_elem = htab_map_delete_elem,
+	.map_set_for_each_callback_args = map_set_for_each_callback_args,
+	.map_for_each_callback = bpf_for_each_hash_elem,
 	BATCH_OPS(htab_percpu),
 };
 
@@ -1621,6 +1682,8 @@ const struct bpf_map_ops htab_lru_percpu_map_ops = {
 	.map_lookup_elem = htab_lru_percpu_map_lookup_elem,
 	.map_update_elem = htab_lru_percpu_map_update_elem,
 	.map_delete_elem = htab_lru_map_delete_elem,
+	.map_set_for_each_callback_args = map_set_for_each_callback_args,
+	.map_for_each_callback = bpf_for_each_hash_elem,
 	BATCH_OPS(htab_lru_percpu),
 };
 
