@@ -1729,6 +1729,7 @@ enum {
 #define BPF_F_ADJ_ROOM_ENCAP_L4_GRE	(1ULL << 3)
 #define BPF_F_ADJ_ROOM_ENCAP_L4_UDP	(1ULL << 4)
 #define BPF_F_ADJ_ROOM_NO_CSUM_RESET	(1ULL << 5)
+#define BPF_F_ADJ_ROOM_ENCAP_L2_ETH	(1ULL << 6)
 #define BPF_F_ADJ_ROOM_ENCAP_L2(len)	(((__u64)(len) & \
 					  BPF_ADJ_ROOM_ENCAP_L2_MASK) \
 					 << BPF_ADJ_ROOM_ENCAP_L2_SHIFT)
