@@ -11,6 +11,9 @@
 #include <linux/filter.h>
 #include <linux/sched.h>
 #include <net/bpf_sk_storage.h>
+#include <net/net_namespace.h>
+#include <net/sock.h>
+#include <linux/sock_diag.h>
 
 static __always_inline u32 bpf_test_run_one(struct bpf_prog *prog, void *ctx)
 {
@@ -318,5 +321,114 @@ int bpf_prog_test_run_xdp(struct bpf_prog *prog, const union bpf_attr *kattr,
 		size = xdp.data_end - xdp.data;
 	ret = bpf_test_finish(kattr, uattr, xdp.data, size, retval, duration);
 	kfree(data);
+	return ret;
+}
+
+int bpf_prog_test_run_sk_lookup(struct bpf_prog *prog,
+				const union bpf_attr *kattr,
+				union bpf_attr __user *uattr)
+{
+	struct bpf_prog_array *progs = NULL;
+	struct bpf_sk_lookup_kern ctx = {};
+	u32 repeat = kattr->test.repeat;
+	struct bpf_sk_lookup *user_ctx;
+	u64 time_start, time_spent = 0;
+	u32 retval = 0, duration;
+	int ret = -EINVAL;
+	u32 i;
+
+	if (prog->type != BPF_PROG_TYPE_SK_LOOKUP)
+		return -EINVAL;
+
+	if (kattr->test.data_in || kattr->test.data_size_in ||
+	    kattr->test.data_out || kattr->test.data_size_out)
+		return -EINVAL;
+
+	if (!repeat)
+		repeat = 1;
+
+	user_ctx = bpf_ctx_init(kattr, sizeof(*user_ctx));
+	if (IS_ERR(user_ctx))
+		return PTR_ERR(user_ctx);
+	if (!user_ctx)
+		return -EINVAL;
+	if (user_ctx->sk)
+		goto out;
+	if (!range_is_zero(user_ctx,
+			   offsetofend(typeof(*user_ctx), local_port),
+			   sizeof(*user_ctx)))
+		goto out;
+	if (user_ctx->local_port > U16_MAX ||
+	    user_ctx->remote_port > U16_MAX) {
+		ret = -ERANGE;
+		goto out;
+	}
+
+	ctx.family = (u16)user_ctx->family;
+	ctx.protocol = (u16)user_ctx->protocol;
+	ctx.dport = (u16)user_ctx->local_port;
+	ctx.sport = (__force __be16)user_ctx->remote_port;
+
+	switch (ctx.family) {
+	case AF_INET:
+		ctx.v4.daddr = (__force __be32)user_ctx->local_ip4;
+		ctx.v4.saddr = (__force __be32)user_ctx->remote_ip4;
+		break;
+#if IS_ENABLED(CONFIG_IPV6)
+	case AF_INET6:
+		ctx.v6.daddr = (struct in6_addr *)user_ctx->local_ip6;
+		ctx.v6.saddr = (struct in6_addr *)user_ctx->remote_ip6;
+		break;
+#endif
+	default:
+		ret = -EAFNOSUPPORT;
+		goto out;
+	}
+
+	progs = bpf_prog_array_alloc(1, GFP_KERNEL);
+	if (!progs) {
+		ret = -ENOMEM;
+		goto out;
+	}
+	progs->items[0].prog = prog;
+
+	time_start = ktime_get_ns();
+	for (i = 0; i < repeat; i++) {
+		ctx.selected_sk = NULL;
+		rcu_read_lock();
+		retval = BPF_PROG_SK_LOOKUP_RUN_ARRAY(progs, &ctx,
+							bpf_prog_run);
+		rcu_read_unlock();
+
+		if (signal_pending(current)) {
+			ret = -EINTR;
+			goto out;
+		}
+		if (need_resched()) {
+			time_spent += ktime_get_ns() - time_start;
+			cond_resched();
+			time_start = ktime_get_ns();
+		}
+	}
+	time_spent += ktime_get_ns() - time_start;
+	do_div(time_spent, repeat);
+	duration = time_spent > U32_MAX ? U32_MAX : (u32)time_spent;
+
+	user_ctx->cookie = 0;
+	if (ctx.selected_sk) {
+		if (ctx.selected_sk->sk_reuseport && !ctx.no_reuseport) {
+			ret = -EOPNOTSUPP;
+			goto out;
+		}
+		user_ctx->cookie = sock_gen_cookie(ctx.selected_sk);
+	}
+
+	ret = bpf_test_finish(kattr, uattr, NULL, 0, retval, duration);
+	if (!ret)
+		ret = bpf_ctx_finish(kattr, uattr, user_ctx,
+				     sizeof(*user_ctx));
+out:
+	bpf_prog_array_free(progs);
+	kfree(user_ctx);
 	return ret;
 }
