@@ -4524,7 +4524,7 @@ BPF_CALL_5(bpf_skb_check_mtu, struct sk_buff *, skb,
 	if (unlikely(flags & ~BPF_MTU_CHK_SEGS))
 		return -EINVAL;
 
-	if (unlikely(flags & BPF_MTU_CHK_SEGS && len_diff))
+	if (unlikely(flags & BPF_MTU_CHK_SEGS && (len_diff || *mtu_len)))
 		return -EINVAL;
 
 	dev = __dev_via_ifindex(dev, ifindex);
@@ -4533,7 +4533,8 @@ BPF_CALL_5(bpf_skb_check_mtu, struct sk_buff *, skb,
 
 	mtu = READ_ONCE(dev->mtu);
 	dev_len = mtu + dev->hard_header_len;
-	skb_len = skb->len + len_diff;
+	skb_len = *mtu_len ? *mtu_len + dev->hard_header_len : skb->len;
+	skb_len += len_diff;
 	if (skb_len <= dev_len) {
 		ret = BPF_MTU_CHK_RET_SUCCESS;
 		goto out;
@@ -4567,6 +4568,8 @@ BPF_CALL_5(bpf_xdp_check_mtu, struct xdp_buff *, xdp,
 
 	mtu = READ_ONCE(dev->mtu);
 	dev_len = mtu + dev->hard_header_len;
+	if (*mtu_len)
+		xdp_len = *mtu_len + dev->hard_header_len;
 	xdp_len += len_diff;
 	if (xdp_len > dev_len)
 		ret = BPF_MTU_CHK_RET_FRAG_NEEDED;
