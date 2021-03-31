@@ -44,8 +44,7 @@ static bool is_next_msg_fin(struct sk_psock *psock)
 	struct sk_msg *msg_rx;
 	int i;
 
-	msg_rx = list_first_entry_or_null(&psock->ingress_msg,
-					  struct sk_msg, list);
+	msg_rx = sk_psock_peek_msg(psock);
 	if (!msg_rx)
 		return false;
 	i = msg_rx->sg.start;
@@ -69,8 +68,7 @@ int __tcp_bpf_recvmsg(struct sock *sk, struct sk_psock *psock,
 		struct scatterlist *sge;
 		struct sk_msg *msg_rx;
 
-		msg_rx = list_first_entry_or_null(&psock->ingress_msg,
-						  struct sk_msg, list);
+		msg_rx = sk_psock_peek_msg(psock);
 		if (unlikely(!msg_rx))
 			break;
 
@@ -112,10 +110,8 @@ int __tcp_bpf_recvmsg(struct sock *sk, struct sk_psock *psock,
 
 		msg_rx->sg.start = i;
 		if (!sge->length && msg_rx->sg.start == msg_rx->sg.end) {
-			list_del(&msg_rx->list);
-			if (msg_rx->skb)
-				consume_skb(msg_rx->skb);
-			kfree(msg_rx);
+			msg_rx = sk_psock_dequeue_msg(psock);
+			kfree_sk_msg(msg_rx);
 		}
 	}
 
