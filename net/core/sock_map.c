@@ -1294,10 +1294,6 @@ static void sock_map_remove(struct sock *sk, struct sk_psock *psock)
 {
 	struct sk_psock_link *link;
 
-	sk_psock_cork_free(psock);
-	spin_lock_bh(&psock->ingress_lock);
-	__sk_psock_purge_ingress_msg(psock);
-	spin_unlock_bh(&psock->ingress_lock);
 	while ((link = sk_psock_link_pop(psock))) {
 		sock_map_unlink(sk, link);
 		sk_psock_free_link(link);
@@ -1342,6 +1338,7 @@ void sock_map_close(struct sock *sk, long timeout)
 	saved_close = psock->saved_close;
 	sock_map_remove(sk, psock);
 	rcu_read_unlock();
+	sk_psock_stop(psock, true);
 	release_sock(sk);
 	saved_close(sk, timeout);
 }
