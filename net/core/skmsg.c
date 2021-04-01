@@ -347,6 +347,25 @@ out:
 }
 EXPORT_SYMBOL_GPL(sk_msg_memcopy_from_iter);
 
+static struct sk_msg *sk_psock_create_ingress_msg(struct sock *sk,
+						  struct sk_buff *skb)
+{
+	struct sk_msg *msg;
+
+	if (atomic_read(&sk->sk_rmem_alloc) > sk->sk_rcvbuf)
+		return NULL;
+
+	if (!sk_rmem_schedule(sk, skb, skb->truesize))
+		return NULL;
+
+	msg = kzalloc(sizeof(*msg), __GFP_NOWARN | GFP_KERNEL);
+	if (unlikely(!msg))
+		return NULL;
+
+	sk_msg_init(msg);
+	return msg;
+}
+
 static int __sk_psock_skb_ingress(struct sk_psock *psock,
 				  struct sk_buff *skb, u32 off, u32 len,
 				  bool self)
@@ -355,19 +374,16 @@ static int __sk_psock_skb_ingress(struct sk_psock *psock,
 	int copied = 0, num_sge;
 	struct sk_msg *msg;
 
-	/* The source socket already owns and accounts self-redirected data. */
-	if (!self && atomic_read(&sk->sk_rmem_alloc) > sk->sk_rcvbuf)
-		return -EAGAIN;
-
-	msg = kzalloc(sizeof(*msg), __GFP_NOWARN | GFP_ATOMIC);
-	if (unlikely(!msg))
-		return -EAGAIN;
-	if (!self && !sk_rmem_schedule(sk, skb, skb->truesize)) {
-		kfree(msg);
-		return -EAGAIN;
+	if (self) {
+		msg = kzalloc(sizeof(*msg), __GFP_NOWARN | GFP_ATOMIC);
+		if (unlikely(!msg))
+			return -EAGAIN;
+		sk_msg_init(msg);
+	} else {
+		msg = sk_psock_create_ingress_msg(sk, skb);
+		if (!msg)
+			return -EAGAIN;
 	}
-
-	sk_msg_init(msg);
 	/* Linearize so skb_to_sgvec() cannot fail on a frag_list skb. */
 	if (skb_linearize(skb)) {
 		kfree(msg);
