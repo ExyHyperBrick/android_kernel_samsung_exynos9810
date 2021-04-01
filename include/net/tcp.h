@@ -2127,8 +2127,6 @@ int tcp_bpf_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,
 int tcp_bpf_recvmsg_parser(struct sock *sk, struct msghdr *msg, size_t len,
 			   int nonblock, int flags, int *addr_len);
 
-int __tcp_bpf_recvmsg(struct sock *sk, struct sk_psock *psock,
-		      struct msghdr *msg, int len);
 
 /* Call BPF_SOCK_OPS program that returns an int. If the return value
  * is < 0, then the BPF op failed (for example if the loaded BPF
