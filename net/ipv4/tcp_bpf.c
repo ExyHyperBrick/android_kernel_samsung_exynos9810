@@ -22,22 +22,6 @@ static bool tcp_bpf_stream_read(const struct sock *sk)
 	return !empty;
 }
 
-static int tcp_bpf_wait_data(struct sock *sk, struct sk_psock *psock,
-			     int flags, long timeo, int *err)
-{
-	DEFINE_WAIT_FUNC(wait, woken_wake_function);
-	int ret;
-
-	add_wait_queue(sk_sleep(sk), &wait);
-	sk_set_bit(SOCKWQ_ASYNC_WAITDATA, sk);
-	ret = sk_wait_event(sk, &timeo,
-			    !list_empty(&psock->ingress_msg) ||
-			    !skb_queue_empty(&sk->sk_receive_queue));
-	sk_clear_bit(SOCKWQ_ASYNC_WAITDATA, sk);
-	remove_wait_queue(sk_sleep(sk), &wait);
-	return ret;
-}
-
 static bool is_next_msg_fin(struct sk_psock *psock)
 {
 	struct scatterlist *sge;
@@ -58,67 +42,6 @@ static bool is_next_msg_fin(struct sk_psock *psock)
 	return false;
 }
 
-int __tcp_bpf_recvmsg(struct sock *sk, struct sk_psock *psock,
-		      struct msghdr *msg, int len)
-{
-	struct iov_iter *iter = &msg->msg_iter;
-	int i, copied = 0;
-
-	while (copied != len) {
-		struct scatterlist *sge;
-		struct sk_msg *msg_rx;
-
-		msg_rx = sk_psock_peek_msg(psock);
-		if (unlikely(!msg_rx))
-			break;
-
-		i = msg_rx->sg.start;
-		do {
-			struct page *page;
-			int copy;
-
-			sge = sk_msg_elem(msg_rx, i);
-			copy = sge->length;
-			page = sg_page(sge);
-			if (copied + copy > len)
-				copy = len - copied;
-			if (copy)
-				copy = copy_page_to_iter(page, sge->offset,
-							 copy, iter);
-			if (!copy)
-				return copied ? copied : -EFAULT;
-
-			copied += copy;
-			sge->offset += copy;
-			sge->length -= copy;
-			if (!msg_rx->skb) {
-				sk_mem_uncharge(sk, copy);
-				atomic_sub(copy, &sk->sk_rmem_alloc);
-			}
-			msg_rx->sg.size -= copy;
-			if (!sge->length) {
-				i++;
-				if (i == MAX_SKB_FRAGS)
-					i = 0;
-				if (!msg_rx->skb)
-					put_page(page);
-			}
-
-			if (copied == len)
-				break;
-		} while (i != msg_rx->sg.end);
-
-		msg_rx->sg.start = i;
-		if (!sge->length && msg_rx->sg.start == msg_rx->sg.end) {
-			msg_rx = sk_psock_dequeue_msg(psock);
-			kfree_sk_msg(msg_rx);
-		}
-	}
-
-	return copied;
-}
-EXPORT_SYMBOL_GPL(__tcp_bpf_recvmsg);
-
 int tcp_bpf_recvmsg_parser(struct sock *sk, struct msghdr *msg, size_t len,
 			   int nonblock, int flags, int *addr_len)
 {
@@ -137,7 +60,7 @@ int tcp_bpf_recvmsg_parser(struct sock *sk, struct msghdr *msg, size_t len,
 
 	lock_sock(sk);
 msg_bytes_ready:
-	copied = __tcp_bpf_recvmsg(sk, psock, msg, len);
+	copied = sk_msg_recvmsg(sk, psock, msg, len, flags);
 	/* The typical case for EFAULT is a graceful shutdown with a FIN.
 	 * The other case is an unexpected copy_page_to_iter() error.
 	 */
@@ -180,7 +103,7 @@ msg_bytes_ready:
 			goto out;
 		}
 
-		data = tcp_bpf_wait_data(sk, psock, flags, timeo, &err);
+		data = sk_msg_wait_data(sk, psock, flags, timeo, &err);
 		if (data && !sk_psock_queue_empty(psock))
 			goto msg_bytes_ready;
 		copied = -EAGAIN;
@@ -213,13 +136,13 @@ int tcp_bpf_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,
 	}
 	lock_sock(sk);
 msg_bytes_ready:
-	copied = __tcp_bpf_recvmsg(sk, psock, msg, len);
+	copied = sk_msg_recvmsg(sk, psock, msg, len, flags);
 	if (!copied) {
 		int data, err = 0;
 		long timeo;
 
 		timeo = sock_rcvtimeo(sk, nonblock);
-		data = tcp_bpf_wait_data(sk, psock, flags, timeo, &err);
+		data = sk_msg_wait_data(sk, psock, flags, timeo, &err);
 		if (data) {
 			if (!sk_psock_queue_empty(psock))
 				goto msg_bytes_ready;
