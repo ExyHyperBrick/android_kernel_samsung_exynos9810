@@ -338,10 +338,10 @@ out:
 }
 EXPORT_SYMBOL_GPL(sk_msg_memcopy_from_iter);
 
-static int sk_psock_skb_ingress(struct sk_psock *psock, struct sk_buff *skb)
+static int __sk_psock_skb_ingress(struct sk_psock *psock,
+				  struct sk_buff *skb, bool self)
 {
 	struct sock *sk = psock->sk;
-	bool self = skb->sk == sk;
 	int copied = 0, num_sge;
 	struct sk_msg *msg;
 
@@ -375,7 +375,7 @@ static int sk_psock_skb_ingress(struct sk_psock *psock, struct sk_buff *skb)
 	 * from skb_consume found in __tcp_bpf_recvmsg() after its been copied
 	 * into user buffers.
 	 */
-	if (!self)
+	if (!self || skb->sk != sk)
 		skb_set_owner_r(skb, sk);
 
 	copied = skb->len;
@@ -387,6 +387,17 @@ static int sk_psock_skb_ingress(struct sk_psock *psock, struct sk_buff *skb)
 	sk_psock_queue_msg(psock, msg);
 	sk->sk_data_ready(sk);
 	return copied;
+}
+
+static int sk_psock_skb_ingress(struct sk_psock *psock, struct sk_buff *skb)
+{
+	return __sk_psock_skb_ingress(psock, skb, skb->sk == psock->sk);
+}
+
+static int sk_psock_skb_ingress_self(struct sk_psock *psock,
+				     struct sk_buff *skb)
+{
+	return __sk_psock_skb_ingress(psock, skb, true);
 }
 
 static int sk_psock_handle_skb(struct sk_psock *psock, struct sk_buff *skb,
@@ -698,7 +709,7 @@ static void sk_psock_verdict_apply(struct sk_psock *psock,
 		 * retrying later from workqueue.
 		 */
 		if (skb_queue_empty(&psock->ingress_skb))
-			err = sk_psock_skb_ingress(psock, skb);
+			err = sk_psock_skb_ingress_self(psock, skb);
 		if (err < 0) {
 			spin_lock_bh(&psock->ingress_lock);
 			if (sk_psock_test_state(psock, SK_PSOCK_TX_ENABLED)) {
@@ -755,7 +766,6 @@ static void sk_psock_strp_read(struct strparser *strp, struct sk_buff *skb)
 		kfree_skb(skb);
 		goto out;
 	}
-	skb_set_owner_r(skb, sk);
 	prog = READ_ONCE(psock->progs.skb_verdict);
 	if (likely(prog)) {
 		tcp_skb_bpf_redirect_clear(skb);
