@@ -671,7 +671,7 @@ static void tcp_bpf_update_sk_prot(struct sock *sk, struct sk_psock *psock)
 	int family = sk->sk_family == AF_INET6 ? TCP_BPF_IPV6 : TCP_BPF_IPV4;
 	int config = psock->progs.msg_parser   ? TCP_BPF_TX   : TCP_BPF_BASE;
 
-	if (psock->progs.skb_verdict)
+	if (psock->progs.stream_verdict || psock->progs.skb_verdict)
 		config = config == TCP_BPF_TX ? TCP_BPF_TXRX : TCP_BPF_RX;
 
 	sk_psock_update_proto(sk, psock, &tcp_bpf_prots[family][config]);
@@ -682,7 +682,7 @@ static void tcp_bpf_reinit_sk_prot(struct sock *sk, struct sk_psock *psock)
 	int family = sk->sk_family == AF_INET6 ? TCP_BPF_IPV6 : TCP_BPF_IPV4;
 	int config = psock->progs.msg_parser   ? TCP_BPF_TX   : TCP_BPF_BASE;
 
-	if (psock->progs.skb_verdict)
+	if (psock->progs.stream_verdict || psock->progs.skb_verdict)
 		config = config == TCP_BPF_TX ? TCP_BPF_TXRX : TCP_BPF_RX;
 
 	/* Reinit occurs when program types change e.g. TCP_BPF_TX is removed

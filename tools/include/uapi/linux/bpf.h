@@ -221,6 +221,7 @@ enum bpf_attach_type {
 	BPF_XDP_CPUMAP = 35,
 	BPF_SK_LOOKUP = 36,
 	BPF_XDP = 37,
+	BPF_SK_SKB_VERDICT,
 	BPF_PERF_EVENT = 41,
 	__MAX_BPF_ATTACH_TYPE
 };
