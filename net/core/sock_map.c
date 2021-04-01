@@ -139,7 +139,8 @@ static void sock_map_del_link(struct sock *sk,
 			sk_psock_stop_strp(sk, psock);
 		else
 			sk_psock_stop_verdict(sk, psock);
-		tcp_bpf_reinit(sk);
+		if (psock->psock_update_sk_prot)
+			psock->psock_update_sk_prot(sk, false);
 		write_unlock_bh(&sk->sk_callback_lock);
 	}
 }
@@ -152,6 +153,15 @@ static void sock_map_unref(struct sock *sk, void *link_raw)
 		sock_map_del_link(sk, psock, link_raw);
 		sk_psock_put(sk, psock);
 	}
+}
+
+static int sock_map_init_proto(struct sock *sk, struct sk_psock *psock)
+{
+	if (!sk->sk_prot->psock_update_sk_prot)
+		return -EINVAL;
+
+	psock->psock_update_sk_prot = sk->sk_prot->psock_update_sk_prot;
+	return sk->sk_prot->psock_update_sk_prot(sk, false);
 }
 
 static int sock_map_link(struct bpf_map *map, struct sk_psock_progs *progs,
@@ -234,14 +244,15 @@ static int sock_map_link(struct bpf_map *map, struct sk_psock_progs *progs,
 		psock_set_prog(&psock->progs.skb_verdict, skb_verdict);
 
 	/* Program references are tracked by psock after this point. */
-	if (sk_psock_is_new) {
-		ret = tcp_bpf_init(sk);
-		if (ret < 0) {
-			sk_psock_put(sk, psock);
-			goto out;
-		}
-	} else {
-		tcp_bpf_reinit(sk);
+	if (sk_psock_is_new)
+		ret = sock_map_init_proto(sk, psock);
+	else if (psock->psock_update_sk_prot)
+		ret = psock->psock_update_sk_prot(sk, false);
+	else
+		ret = -EINVAL;
+	if (ret < 0) {
+		sk_psock_put(sk, psock);
+		goto out;
 	}
 
 	write_lock_bh(&sk->sk_callback_lock);
@@ -448,8 +459,7 @@ static bool sock_map_op_okay(const struct bpf_sock_ops_kern *ops)
 
 static bool sock_map_sk_is_suitable(const struct sock *sk)
 {
-	return sk->sk_type == SOCK_STREAM &&
-	       sk->sk_protocol == IPPROTO_TCP;
+	return !!sk->sk_prot->psock_update_sk_prot;
 }
 
 static int sock_hash_update_common(struct bpf_map *map, void *key,

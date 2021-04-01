@@ -94,6 +94,7 @@ struct sk_psock {
 	void (*saved_close)(struct sock *sk, long timeout);
 	void (*saved_write_space)(struct sock *sk);
 	void (*saved_data_ready)(struct sock *sk);
+	int (*psock_update_sk_prot)(struct sock *sk, bool restore);
 	struct proto			*sk_proto;
 	/* Serializes backlog processing for this psock. */
 	struct mutex			work_mutex;
@@ -401,23 +402,11 @@ static inline void sk_psock_cork_free(struct sk_psock *psock)
 	}
 }
 
-static inline void sk_psock_update_proto(struct sock *sk,
-					 struct sk_psock *psock,
-					 struct proto *ops)
-{
-	/* Pairs with the lockless read in sk_clone_lock(). */
-	WRITE_ONCE(sk->sk_prot, ops);
-}
-
 static inline void sk_psock_restore_proto(struct sock *sk,
 					  struct sk_psock *psock)
 {
-	sk->sk_write_space = psock->saved_write_space;
-
-	if (psock->sk_proto) {
-		sk->sk_prot = psock->sk_proto;
-		psock->sk_proto = NULL;
-	}
+	if (psock->psock_update_sk_prot)
+		psock->psock_update_sk_prot(sk, true);
 }
 
 static inline struct sk_psock *sk_psock_get(struct sock *sk)
