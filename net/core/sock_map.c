@@ -140,7 +140,7 @@ static void sock_map_del_link(struct sock *sk,
 		else
 			sk_psock_stop_verdict(sk, psock);
 		if (psock->psock_update_sk_prot)
-			psock->psock_update_sk_prot(sk, false);
+			psock->psock_update_sk_prot(sk, psock, false);
 		write_unlock_bh(&sk->sk_callback_lock);
 	}
 }
@@ -161,7 +161,7 @@ static int sock_map_init_proto(struct sock *sk, struct sk_psock *psock)
 		return -EINVAL;
 
 	psock->psock_update_sk_prot = sk->sk_prot->psock_update_sk_prot;
-	return sk->sk_prot->psock_update_sk_prot(sk, false);
+	return sk->sk_prot->psock_update_sk_prot(sk, psock, false);
 }
 
 static int sock_map_link(struct bpf_map *map, struct sk_psock_progs *progs,
@@ -247,7 +247,7 @@ static int sock_map_link(struct bpf_map *map, struct sk_psock_progs *progs,
 	if (sk_psock_is_new)
 		ret = sock_map_init_proto(sk, psock);
 	else if (psock->psock_update_sk_prot)
-		ret = psock->psock_update_sk_prot(sk, false);
+		ret = psock->psock_update_sk_prot(sk, psock, false);
 	else
 		ret = -EINVAL;
 	if (ret < 0) {

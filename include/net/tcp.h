@@ -2116,7 +2116,8 @@ void tcp_cleanup_ulp(struct sock *sk);
 struct sk_msg;
 struct sk_psock;
 
-int tcp_bpf_update_proto(struct sock *sk, bool restore);
+int tcp_bpf_update_proto(struct sock *sk, struct sk_psock *psock,
+			 bool restore);
 
 int tcp_bpf_sendmsg_redir(struct sock *sk, bool ingress,
 			  struct sk_msg *msg, u32 bytes, int flags);
