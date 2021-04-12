@@ -94,7 +94,8 @@ struct sk_psock {
 	void (*saved_close)(struct sock *sk, long timeout);
 	void (*saved_write_space)(struct sock *sk);
 	void (*saved_data_ready)(struct sock *sk);
-	int (*psock_update_sk_prot)(struct sock *sk, bool restore);
+	int (*psock_update_sk_prot)(struct sock *sk,
+				    struct sk_psock *psock, bool restore);
 	struct proto			*sk_proto;
 	/* Serializes backlog processing for this psock. */
 	struct mutex			work_mutex;
@@ -406,7 +407,7 @@ static inline void sk_psock_restore_proto(struct sock *sk,
 					  struct sk_psock *psock)
 {
 	if (psock->psock_update_sk_prot)
-		psock->psock_update_sk_prot(sk, true);
+		psock->psock_update_sk_prot(sk, psock, true);
 }
 
 static inline struct sk_psock *sk_psock_get(struct sock *sk)

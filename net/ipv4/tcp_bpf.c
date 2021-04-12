@@ -673,9 +673,9 @@ static int tcp_bpf_assert_proto_ops(struct proto *ops)
 	       ops->sendpage == tcp_sendpage ? 0 : -ENOTSUPP;
 }
 
-int tcp_bpf_update_proto(struct sock *sk, bool restore)
+int tcp_bpf_update_proto(struct sock *sk, struct sk_psock *psock,
+			 bool restore)
 {
-	struct sk_psock *psock = sk_psock(sk);
 	int family;
 	int config;
 
