@@ -946,7 +946,8 @@ union bpf_attr {
 	FN(ima_inode_hash),		\
 	FN(sock_from_file),		\
 	FN(check_mtu),			\
-	FN(for_each_map_elem),
+	FN(for_each_map_elem),		\
+	FN(snprintf),
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
  * function eBPF program intends to call

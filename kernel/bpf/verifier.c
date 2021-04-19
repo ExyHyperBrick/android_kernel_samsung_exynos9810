@@ -4693,6 +4693,39 @@ static int check_reference_leak(struct bpf_verifier_env *env)
 	return refs_lingering ? -EINVAL : 0;
 }
 
+static int check_bpf_snprintf_call(struct bpf_verifier_env *env,
+				   struct bpf_reg_state *regs)
+{
+	struct bpf_reg_state *fmt_reg = &regs[BPF_REG_3];
+	struct bpf_reg_state *data_len_reg = &regs[BPF_REG_5];
+	struct bpf_map *fmt_map = fmt_reg->map_ptr;
+	int err, fmt_map_off, num_args;
+	u64 fmt_addr;
+	char *fmt;
+
+	/* Data must be an array of u64 values. */
+	if (data_len_reg->var_off.value % 8)
+		return -EINVAL;
+	num_args = data_len_reg->var_off.value / 8;
+
+	/*
+	 * ARG_PTR_TO_CONST_STR guarantees a constant offset and direct map
+	 * value access.
+	 */
+	fmt_map_off = fmt_reg->off + fmt_reg->var_off.value;
+	err = fmt_map->ops->map_direct_value_addr(fmt_map, &fmt_addr,
+						  fmt_map_off);
+	if (err)
+		return err;
+	fmt = (char *)(long)fmt_addr + fmt_map_off;
+
+	err = bpf_printf_prepare(fmt, UINT_MAX, NULL, NULL, NULL, num_args);
+	if (err < 0)
+		verbose(env, "invalid format string\n");
+
+	return err;
+}
+
 static void do_refine_retval_range(struct bpf_reg_state *regs, int ret_type,
 				   int func_id,
 				   struct bpf_call_arg_meta *meta)
@@ -4811,6 +4844,12 @@ static int check_helper_call(struct bpf_verifier_env *env,
 		err = __check_func_call(env, insn_idx_p, meta.subprogno,
 					set_map_elem_callback_state);
 		if (err)
+			return err;
+	}
+
+	if (func_id == BPF_FUNC_snprintf) {
+		err = check_bpf_snprintf_call(env, regs);
+		if (err < 0)
 			return err;
 	}
 
