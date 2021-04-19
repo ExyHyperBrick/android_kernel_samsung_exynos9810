@@ -3687,6 +3687,10 @@ static const struct bpf_reg_types stack_types = {
 	.types = { PTR_TO_STACK },
 };
 
+static const struct bpf_reg_types const_str_types = {
+	.types = { PTR_TO_MAP_VALUE },
+};
+
 static const struct bpf_reg_types *compatible_reg_types[__BPF_ARG_TYPE_MAX] = {
 	[ARG_PTR_TO_MAP_KEY]		= &map_key_value_types,
 	[ARG_PTR_TO_MAP_VALUE]		= &map_key_value_types,
@@ -3711,6 +3715,7 @@ static const struct bpf_reg_types *compatible_reg_types[__BPF_ARG_TYPE_MAX] = {
 	[ARG_PTR_TO_FUNC]		= &func_types,
 	[ARG_PTR_TO_STACK_OR_NULL]	= &stack_types,
 	[ARG_PTR_TO_PERCPU_BTF_ID]	= &percpu_btf_ptr_types,
+	[ARG_PTR_TO_CONST_STR]		= &const_str_types,
 };
 
 static int check_reg_type(struct bpf_verifier_env *env, u32 regno,
@@ -3974,6 +3979,48 @@ skip_type_check:
 		if (err)
 			return err;
 		err = check_ptr_alignment(env, reg, 0, size, true);
+	} else if (arg_type == ARG_PTR_TO_CONST_STR) {
+		struct bpf_map *map = reg->map_ptr;
+		int map_off;
+		u64 map_addr;
+		char *str_ptr;
+
+		if (reg->type != PTR_TO_MAP_VALUE || !map ||
+		    !bpf_map_is_rdonly(map)) {
+			verbose(env, "R%d does not point to a read-only map\n",
+				regno);
+			return -EACCES;
+		}
+
+		if (!tnum_is_const(reg->var_off)) {
+			verbose(env, "R%d is not a constant address\n", regno);
+			return -EACCES;
+		}
+
+		if (!map->ops->map_direct_value_addr) {
+			verbose(env,
+				"map type does not support direct value access\n");
+			return -EACCES;
+		}
+
+		err = check_map_access(env, regno, reg->off,
+				       map->value_size - reg->off, false);
+		if (err)
+			return err;
+
+		map_off = reg->off + reg->var_off.value;
+		err = map->ops->map_direct_value_addr(map, &map_addr, map_off);
+		if (err) {
+			verbose(env, "direct string access failed\n");
+			return err;
+		}
+
+		str_ptr = (char *)(long)map_addr;
+		if (!strnchr(str_ptr + map_off, map->value_size - map_off,
+			     '\0')) {
+			verbose(env, "string is not NUL-terminated\n");
+			return -EINVAL;
+		}
 	}
 
 	return err;
