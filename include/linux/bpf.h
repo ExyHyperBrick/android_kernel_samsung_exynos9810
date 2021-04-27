@@ -1291,22 +1291,8 @@ enum bpf_text_poke_type {
 int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type t,
 		       void *old_addr, void *new_addr);
 
-enum bpf_printf_mod_type {
-	BPF_PRINTF_INT,
-	BPF_PRINTF_LONG,
-	BPF_PRINTF_LONG_LONG,
-};
-
-/* Work around va_list argument layouts that differ on 32- and 64-bit. */
-#define BPF_CAST_FMT_ARG(arg_nb, args, mod)				\
-	(mod[arg_nb] == BPF_PRINTF_LONG_LONG ||				\
-	 (mod[arg_nb] == BPF_PRINTF_LONG && __BITS_PER_LONG == 64)	\
-	  ? (u64)args[arg_nb]						\
-	  : (u32)args[arg_nb])
-
-int bpf_printf_prepare(char *fmt, u32 fmt_size, const u64 *raw_args,
-		       u64 *final_args, enum bpf_printf_mod_type *mod,
-		       u32 num_args);
-void bpf_printf_cleanup(void);
+int bpf_bprintf_prepare(char *fmt, u32 fmt_size, const u64 *raw_args,
+			u32 **bin_buf, u32 num_args);
+void bpf_bprintf_cleanup(void);
 
 #endif /* _LINUX_BPF_H */
