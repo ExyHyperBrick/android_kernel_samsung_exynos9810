@@ -4720,7 +4720,7 @@ static int check_bpf_snprintf_call(struct bpf_verifier_env *env,
 	}
 	fmt = (char *)(long)fmt_addr + fmt_map_off;
 
-	err = bpf_printf_prepare(fmt, UINT_MAX, NULL, NULL, NULL, num_args);
+	err = bpf_bprintf_prepare(fmt, UINT_MAX, NULL, NULL, num_args);
 	if (err < 0)
 		verbose(env, "invalid format string\n");
 

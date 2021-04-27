@@ -1862,6 +1862,7 @@ config EVENTFD
 config BPF_SYSCALL
 	bool "Enable bpf() system call"
 	select BPF
+	select BINARY_PRINTF
 	default n
 	help
 	  Enable the bpf() system call that allows to manipulate eBPF
