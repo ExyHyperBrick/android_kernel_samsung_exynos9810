@@ -187,12 +187,14 @@ static int bpf_trace_copy_string(char *buf, void *unsafe_ptr, char fmt_ptype,
 	return -EINVAL;
 }
 
-/* Per-CPU temporary storage for printf-like helpers using %s or %p. */
-#define MAX_PRINTF_BUF_LEN	512
+/*
+ * Per-CPU storage for the binary arguments used by printf-like helpers.
+ */
+#define MAX_BPRINTF_BUF_LEN	512
 
 /* Support three nested bprintf helper calls on one CPU. */
 struct bpf_bprintf_buffers {
-	char tmp_bufs[3][MAX_PRINTF_BUF_LEN];
+	char tmp_bufs[3][MAX_BPRINTF_BUF_LEN];
 };
 
 static DEFINE_PER_CPU(struct bpf_bprintf_buffers, bpf_bprintf_bufs);
@@ -255,7 +257,7 @@ int bpf_bprintf_prepare(char *fmt, u32 fmt_size, const u64 *raw_args,
 		if (num_args && try_get_fmt_tmp_buf(&tmp_buf))
 			return -EBUSY;
 
-		tmp_buf_end = tmp_buf + MAX_PRINTF_BUF_LEN;
+		tmp_buf_end = tmp_buf + MAX_BPRINTF_BUF_LEN;
 		*bin_args = (u32 *)tmp_buf;
 	}
 
