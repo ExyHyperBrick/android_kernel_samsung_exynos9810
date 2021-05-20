@@ -10904,12 +10904,6 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr,
 	if (attr->prog_flags & BPF_F_ANY_ALIGNMENT)
 		env->strict_alignment = false;
 
-	if (bpf_prog_is_dev_bound(env->prog->aux)) {
-		ret = bpf_prog_offload_verifier_prep(env);
-		if (ret)
-			goto err_unlock;
-	}
-
 	env->allow_ptr_leaks = is_priv;
 
 	if (is_priv)
@@ -10937,6 +10931,12 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr,
 	ret = resolve_pseudo_ldimm64(env);
 	if (ret < 0)
 		goto skip_full_check;
+
+	if (bpf_prog_is_dev_bound(env->prog->aux)) {
+		ret = bpf_prog_offload_verifier_prep(env);
+		if (ret)
+			goto skip_full_check;
+	}
 
 	ret = do_check_subprogs(env);
 	if (!ret)
