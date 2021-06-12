@@ -17,6 +17,8 @@ DEFINE_SPINLOCK(reuseport_lock);
 
 #define REUSEPORT_MIN_ID 1
 static DEFINE_IDA(reuseport_ida);
+static int reuseport_resurrect(struct sock *sk, struct sock_reuseport *old_reuse,
+			       struct sock_reuseport *reuse, bool bind_inany);
 
 static int reuseport_sock_index(struct sock *sk,
 				const struct sock_reuseport *reuse,
@@ -95,6 +97,29 @@ int reuseport_get_id(struct sock_reuseport *reuse)
 	return reuse->reuseport_id;
 }
 
+static void __reuseport_add_closed_sock(struct sock *sk,
+					struct sock_reuseport *reuse)
+{
+	reuse->socks[reuse->max_socks - reuse->num_closed_socks - 1] = sk;
+	/* paired with READ_ONCE() in inet_csk_bind_conflict() */
+	WRITE_ONCE(reuse->num_closed_socks, reuse->num_closed_socks + 1);
+}
+
+static bool __reuseport_detach_closed_sock(struct sock *sk,
+					   struct sock_reuseport *reuse)
+{
+	int i = reuseport_sock_index(sk, reuse, true);
+
+	if (i == -1)
+		return false;
+
+	reuse->socks[i] = reuse->socks[reuse->max_socks - reuse->num_closed_socks];
+	/* paired with READ_ONCE() in inet_csk_bind_conflict() */
+	WRITE_ONCE(reuse->num_closed_socks, reuse->num_closed_socks - 1);
+
+	return true;
+}
+
 static struct sock_reuseport *__reuseport_alloc(u16 max_socks)
 {
 	size_t size = sizeof(struct sock_reuseport) +
@@ -113,6 +138,7 @@ static struct sock_reuseport *__reuseport_alloc(u16 max_socks)
 int reuseport_alloc(struct sock *sk, bool bind_inany)
 {
 	struct sock_reuseport *reuse;
+	int ret = 0;
 
 	/* bh lock used since this function call may precede hlist lock in
 	 * soft irq of receive path or setsockopt from process context
@@ -125,6 +151,12 @@ int reuseport_alloc(struct sock *sk, bool bind_inany)
 	reuse = rcu_dereference_protected(sk->sk_reuseport_cb,
 					  lockdep_is_held(&reuseport_lock));
 	if (reuse) {
+		if (reuse->num_closed_socks) {
+			/* sk was shutdown()ed before */
+			ret = reuseport_resurrect(sk, reuse, NULL, bind_inany);
+			goto out;
+		}
+
 		/* Only set reuse->bind_inany if the bind_inany is true.
 		 * Otherwise, it will overwrite the reuse->bind_inany
 		 * which was set by the bind/hash path.
@@ -148,7 +180,7 @@ int reuseport_alloc(struct sock *sk, bool bind_inany)
 out:
 	spin_unlock_bh(&reuseport_lock);
 
-	return 0;
+	return ret;
 }
 EXPORT_SYMBOL(reuseport_alloc);
 
@@ -158,8 +190,23 @@ static struct sock_reuseport *reuseport_grow(struct sock_reuseport *reuse)
 	u32 more_socks_size, i;
 
 	more_socks_size = reuse->max_socks * 2U;
-	if (more_socks_size > U16_MAX)
+	if (more_socks_size > U16_MAX) {
+		if (reuse->num_closed_socks) {
+			/* Make room by removing a closed sk.
+			 * The child has already been migrated.
+			 * Only reqsk left at this point.
+			 */
+			struct sock *sk;
+
+			sk = reuse->socks[reuse->max_socks - reuse->num_closed_socks];
+			RCU_INIT_POINTER(sk->sk_reuseport_cb, NULL);
+			__reuseport_detach_closed_sock(sk, reuse);
+
+			return reuse;
+		}
+
 		return NULL;
+	}
 
 	more_reuse = __reuseport_alloc(more_socks_size);
 	if (!more_reuse)
@@ -226,7 +273,16 @@ int reuseport_add_sock(struct sock *sk, struct sock *sk2, bool bind_inany)
 	reuse = rcu_dereference_protected(sk2->sk_reuseport_cb,
 					  lockdep_is_held(&reuseport_lock));
 	old_reuse = rcu_dereference_protected(sk->sk_reuseport_cb,
-					     lockdep_is_held(&reuseport_lock));
+					      lockdep_is_held(&reuseport_lock));
+	if (old_reuse && old_reuse->num_closed_socks) {
+		/* sk was shutdown()ed before */
+		int err = reuseport_resurrect(sk, old_reuse, reuse,
+					    reuse->bind_inany);
+
+		spin_unlock_bh(&reuseport_lock);
+		return err;
+	}
+
 	if (old_reuse && old_reuse->num_socks != 1) {
 		spin_unlock_bh(&reuseport_lock);
 		return -EBUSY;
@@ -250,6 +306,41 @@ int reuseport_add_sock(struct sock *sk, struct sock *sk2, bool bind_inany)
 	return 0;
 }
 
+static int reuseport_resurrect(struct sock *sk,
+			       struct sock_reuseport *old_reuse,
+			       struct sock_reuseport *reuse, bool bind_inany)
+{
+	if (old_reuse == reuse) {
+		/* Move sk from the closed section back to the active section. */
+		__reuseport_detach_closed_sock(sk, old_reuse);
+		__reuseport_add_sock(sk, old_reuse);
+		return 0;
+	}
+
+	if (!reuse) {
+		/* Do not carry an attached program across a new listen cycle. */
+		reuse = __reuseport_alloc(INIT_SOCKS);
+		if (!reuse)
+			return -ENOMEM;
+
+		reuse->bind_inany = bind_inany;
+	} else if (reuse->num_socks + reuse->num_closed_socks ==
+		   reuse->max_socks) {
+		reuse = reuseport_grow(reuse);
+		if (!reuse)
+			return -ENOMEM;
+	}
+
+	__reuseport_detach_closed_sock(sk, old_reuse);
+	__reuseport_add_sock(sk, reuse);
+	rcu_assign_pointer(sk->sk_reuseport_cb, reuse);
+
+	if (old_reuse->num_socks + old_reuse->num_closed_socks == 0)
+		call_rcu(&old_reuse->rcu, reuseport_free_rcu);
+
+	return 0;
+}
+
 void reuseport_detach_sock(struct sock *sk)
 {
 	struct sock_reuseport *reuse;
@@ -257,6 +348,10 @@ void reuseport_detach_sock(struct sock *sk)
 	spin_lock_bh(&reuseport_lock);
 	reuse = rcu_dereference_protected(sk->sk_reuseport_cb,
 					  lockdep_is_held(&reuseport_lock));
+
+	/* reuseport_grow() may have detached a closed socket. */
+	if (!reuse)
+		goto out;
 
 	/* At least one of the sk in this reuseport group is added to
 	 * a bpf map.  Notify the bpf side.  The bpf map logic will
@@ -266,14 +361,43 @@ void reuseport_detach_sock(struct sock *sk)
 		bpf_sk_reuseport_detach(sk);
 
 	rcu_assign_pointer(sk->sk_reuseport_cb, NULL);
-	__reuseport_detach_sock(sk, reuse);
+
+	if (!__reuseport_detach_closed_sock(sk, reuse))
+		__reuseport_detach_sock(sk, reuse);
 
 	if (reuse->num_socks + reuse->num_closed_socks == 0)
 		call_rcu(&reuse->rcu, reuseport_free_rcu);
 
+out:
 	spin_unlock_bh(&reuseport_lock);
 }
 EXPORT_SYMBOL(reuseport_detach_sock);
+
+void reuseport_stop_listen_sock(struct sock *sk)
+{
+	if (sk->sk_protocol == IPPROTO_TCP) {
+		struct sock_reuseport *reuse;
+
+		spin_lock_bh(&reuseport_lock);
+		reuse = rcu_dereference_protected(sk->sk_reuseport_cb,
+						  lockdep_is_held(&reuseport_lock));
+
+		if (sock_net(sk)->ipv4.sysctl_tcp_migrate_req) {
+			/* Keep the closed listener reachable by its requests. */
+			if (reuse->reuseport_id)
+				bpf_sk_reuseport_detach(sk);
+			__reuseport_detach_sock(sk, reuse);
+			__reuseport_add_closed_sock(sk, reuse);
+			spin_unlock_bh(&reuseport_lock);
+			return;
+		}
+
+		spin_unlock_bh(&reuseport_lock);
+	}
+
+	reuseport_detach_sock(sk);
+}
+EXPORT_SYMBOL(reuseport_stop_listen_sock);
 
 static struct sock *run_bpf_filter(struct sock_reuseport *reuse, u16 socks,
 				   struct bpf_prog *prog, struct sk_buff *skb,
@@ -381,9 +505,13 @@ int reuseport_attach_prog(struct sock *sk, struct bpf_prog *prog)
 	struct sock_reuseport *reuse;
 	struct bpf_prog *old_prog;
 
-	if (sk_unhashed(sk) && sk->sk_reuseport) {
-		int err = reuseport_alloc(sk, false);
+	if (sk_unhashed(sk)) {
+		int err;
 
+		if (!sk->sk_reuseport)
+			return -EINVAL;
+
+		err = reuseport_alloc(sk, false);
 		if (err)
 			return err;
 	} else if (!rcu_access_pointer(sk->sk_reuseport_cb)) {

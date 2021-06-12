@@ -56,10 +56,19 @@ EXPORT_SYMBOL(inet_get_local_port_range);
 int inet_csk_bind_conflict(const struct sock *sk,
 			   const struct inet_bind_bucket *tb, bool relax)
 {
+	struct sock_reuseport *reuseport_cb;
+	bool reuseport_cb_ok;
 	struct sock *sk2;
 	int reuse = sk->sk_reuse;
 	int reuseport = sk->sk_reuseport;
 	kuid_t uid = sock_i_uid((struct sock *)sk);
+
+	rcu_read_lock();
+	reuseport_cb = rcu_dereference(sk->sk_reuseport_cb);
+	/* paired with WRITE_ONCE() in the closed-socket helpers */
+	reuseport_cb_ok = !reuseport_cb ||
+		READ_ONCE(reuseport_cb->num_closed_socks);
+	rcu_read_unlock();
 
 	/*
 	 * Unlike other sk lookup places we do not check
@@ -77,7 +86,7 @@ int inet_csk_bind_conflict(const struct sock *sk,
 			if ((!reuse || !sk2->sk_reuse ||
 			    sk2->sk_state == TCP_LISTEN) &&
 			    (!reuseport || !sk2->sk_reuseport ||
-			     rcu_access_pointer(sk->sk_reuseport_cb) ||
+			     !reuseport_cb_ok ||
 			     (sk2->sk_state != TCP_TIME_WAIT &&
 			     !uid_eq(uid, sock_i_uid(sk2))))) {
 
