@@ -576,10 +576,22 @@ static struct request_sock *inet_reqsk_clone(struct request_sock *req,
 	return nreq;
 }
 
+static void reqsk_queue_migrated(struct request_sock_queue *queue,
+				 const struct request_sock *req)
+{
+	if (req->num_timeout == 0)
+		atomic_inc(&queue->young);
+	atomic_inc(&queue->qlen);
+}
+
 static void reqsk_migrate_reset(struct request_sock *req)
 {
+	req->saved_syn = NULL;
 #if IS_ENABLED(CONFIG_IPV6)
 	inet_rsk(req)->ipv6_opt = NULL;
+	inet_rsk(req)->pktopts = NULL;
+#else
+	inet_rsk(req)->ireq_opt = NULL;
 #endif
 }
 
@@ -621,18 +633,41 @@ EXPORT_SYMBOL(inet_csk_reqsk_queue_drop_and_put);
 static void reqsk_timer_handler(unsigned long data)
 {
 	struct request_sock *req = (struct request_sock *)data;
+	struct request_sock *nreq = NULL, *oreq = req;
 	struct sock *sk_listener = req->rsk_listener;
-	struct net *net = sock_net(sk_listener);
-	struct inet_connection_sock *icsk = inet_csk(sk_listener);
-	struct request_sock_queue *queue = &icsk->icsk_accept_queue;
+	struct inet_connection_sock *icsk;
+	struct request_sock_queue *queue = NULL;
+	struct net *net;
 	int qlen, expire = 0, resend = 0;
 	int max_retries, thresh;
 	u8 defer_accept;
 
-	if (sk_state_load(sk_listener) != TCP_LISTEN)
-		goto drop;
+	if (sk_state_load(sk_listener) != TCP_LISTEN) {
+		struct sock *nsk;
 
-	max_retries = icsk->icsk_syn_retries ? : net->ipv4.sysctl_tcp_synack_retries;
+		nsk = reuseport_migrate_sock(sk_listener, req_to_sk(req), NULL);
+		if (!nsk)
+			goto drop;
+
+		nreq = inet_reqsk_clone(req, nsk);
+		if (!nreq)
+			goto drop;
+
+		/* Keep ehash, timer, and this callback references separate. */
+		atomic_set(&nreq->rsk_refcnt, 2 + 1);
+		setup_pinned_timer(&nreq->rsk_timer, reqsk_timer_handler,
+				   (unsigned long)nreq);
+		reqsk_queue_migrated(&inet_csk(nsk)->icsk_accept_queue, req);
+
+		req = nreq;
+		sk_listener = nsk;
+	}
+
+	icsk = inet_csk(sk_listener);
+	net = sock_net(sk_listener);
+	queue = &icsk->icsk_accept_queue;
+	max_retries = icsk->icsk_syn_retries ? :
+		net->ipv4.sysctl_tcp_synack_retries;
 	thresh = max_retries;
 	/* Normally all the openreqs are young and become mature
 	 * (i.e. converted to established socket) for first timeout.
@@ -641,15 +676,6 @@ static void reqsk_timer_handler(unsigned long data)
 	 * rtt is high or nobody planned to ack (i.e. synflood).
 	 * When server is a bit loaded, queue is populated with old
 	 * open requests, reducing effective size of queue.
-	 * When server is well loaded, queue size reduces to zero
-	 * after several minutes of work. It is not synflood,
-	 * it is normal operation. The solution is pruning
-	 * too old entries overriding normal timeout, when
-	 * situation becomes dangerous.
-	 *
-	 * Essentially, we reserve half of room for young
-	 * embrions; and abort old ones without pity, if old
-	 * ones are about to clog our table.
 	 */
 	qlen = reqsk_queue_len(queue);
 	if ((qlen << 1) > max(8U, sk_listener->sk_max_ack_backlog)) {
@@ -678,10 +704,35 @@ static void reqsk_timer_handler(unsigned long data)
 			atomic_dec(&queue->young);
 		timeo = min(TCP_TIMEOUT_INIT << req->num_timeout, TCP_RTO_MAX);
 		mod_timer(&req->rsk_timer, jiffies + timeo);
+
+		if (!nreq)
+			return;
+
+		if (!inet_ehash_insert(req_to_sk(nreq), req_to_sk(oreq))) {
+			inet_csk_reqsk_queue_drop(sk_listener, nreq);
+			goto drop;
+		}
+
+		reqsk_migrate_reset(oreq);
+		reqsk_queue_removed(
+			&inet_csk(oreq->rsk_listener)->icsk_accept_queue, oreq);
+		reqsk_put(oreq);
+		reqsk_put(nreq);
 		return;
 	}
+
 drop:
-	inet_csk_reqsk_queue_drop_and_put(sk_listener, req);
+	if (nreq) {
+		reqsk_migrate_reset(nreq);
+		if (queue)
+			reqsk_queue_removed(queue, nreq);
+		if (timer_pending(&nreq->rsk_timer))
+			del_timer_sync(&nreq->rsk_timer);
+		atomic_set(&nreq->rsk_refcnt, 0);
+		reqsk_free(nreq);
+	}
+
+	inet_csk_reqsk_queue_drop_and_put(oreq->rsk_listener, oreq);
 }
 
 static void reqsk_queue_hash_req(struct request_sock *req,
