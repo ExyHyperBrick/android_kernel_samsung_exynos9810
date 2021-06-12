@@ -589,8 +589,12 @@ void inet_unhash(struct sock *sk)
 		lock = inet_ehash_lockp(hashinfo, sk->sk_hash);
 	}
 	spin_lock_bh(lock);
-	if (rcu_access_pointer(sk->sk_reuseport_cb))
-		reuseport_detach_sock(sk);
+	if (rcu_access_pointer(sk->sk_reuseport_cb)) {
+		if (listener)
+			reuseport_stop_listen_sock(sk);
+		else
+			reuseport_detach_sock(sk);
+	}
 	done = __sk_nulls_del_node_init_rcu(sk);
 	if (done)
 		sock_prot_inuse_add(sock_net(sk), sk->sk_prot, -1);
