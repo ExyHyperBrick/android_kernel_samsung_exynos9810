@@ -896,6 +896,7 @@ static void sk_psock_verdict_apply(struct sk_psock *psock,
 		/* fall-through */
 	default:
 out_free:
+		skb_bpf_redirect_clear(skb);
 		kfree_skb(skb);
 	}
 }
