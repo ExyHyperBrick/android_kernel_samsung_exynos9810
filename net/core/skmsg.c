@@ -818,16 +818,17 @@ static int sk_psock_bpf_run(struct sk_psock *psock, struct bpf_prog *prog,
 	return bpf_prog_run_pin_on_cpu(prog, skb);
 }
 
-static void sk_psock_verdict_apply(struct sk_psock *psock,
-				   struct sk_buff *skb, int verdict)
+static int sk_psock_verdict_apply(struct sk_psock *psock,
+				  struct sk_buff *skb, int verdict)
 {
 	struct sk_psock *psock_other;
 	struct sock *sk_other;
 	u32 len, off;
-	int err = -EIO;
+	int err = 0;
 
 	switch (verdict) {
 	case __SK_PASS:
+		err = -EIO;
 		sk_other = psock->sk;
 		if (sock_flag(sk_other, SOCK_DEAD) ||
 		    !sk_psock_test_state(psock, SK_PSOCK_TX_ENABLED)) {
@@ -868,6 +869,7 @@ static void sk_psock_verdict_apply(struct sk_psock *psock,
 		}
 		break;
 	case __SK_REDIRECT:
+		err = -EIO;
 		sk_other = skb_bpf_redirect_fetch(skb);
 		/* This error is a buggy BPF program, it returned a redirect
 		 * return code, but then didn't set a redirect interface.
@@ -891,6 +893,7 @@ static void sk_psock_verdict_apply(struct sk_psock *psock,
 		skb_queue_tail(&psock_other->ingress_skb, skb);
 		schedule_delayed_work(&psock_other->work, 0);
 		spin_unlock_bh(&psock_other->ingress_lock);
+		err = 0;
 		break;
 	case __SK_DROP:
 		/* fall-through */
@@ -899,6 +902,8 @@ out_free:
 		skb_bpf_redirect_clear(skb);
 		kfree_skb(skb);
 	}
+
+	return err;
 }
 
 #if IS_ENABLED(CONFIG_BPF_STREAM_PARSER)
@@ -1002,7 +1007,8 @@ static int sk_psock_verdict_recv(read_descriptor_t *desc, struct sk_buff *skb,
 		ret = sk_psock_bpf_run(psock, prog, skb);
 		ret = sk_psock_map_verd(ret, skb_bpf_redirect_fetch(skb));
 	}
-	sk_psock_verdict_apply(psock, skb, ret);
+	if (sk_psock_verdict_apply(psock, skb, ret) < 0)
+		len = 0;
 out:
 	rcu_read_unlock();
 	return len;
