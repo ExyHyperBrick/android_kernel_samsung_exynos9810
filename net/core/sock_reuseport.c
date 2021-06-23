@@ -5,6 +5,7 @@
  * selecting the socket index from the array of available sockets.
  */
 
+#include <net/ip.h>
 #include <net/sock_reuseport.h>
 #include <linux/bpf.h>
 #include <linux/filter.h>
@@ -531,7 +532,7 @@ struct sock *reuseport_migrate_sock(struct sock *sk,
 
 	socks = READ_ONCE(reuse->num_socks);
 	if (unlikely(!socks))
-		goto out;
+		goto failure;
 
 	/* paired with smp_wmb() in __reuseport_add_sock() */
 	smp_rmb();
@@ -542,13 +543,13 @@ struct sock *reuseport_migrate_sock(struct sock *sk,
 	    BPF_SK_REUSEPORT_SELECT_OR_MIGRATE) {
 		if (sock_net(sk)->ipv4.sysctl_tcp_migrate_req)
 			goto select_by_hash;
-		goto out;
+		goto failure;
 	}
 
 	if (!skb) {
 		skb = alloc_skb(0, GFP_ATOMIC);
 		if (!skb)
-			goto out;
+			goto failure;
 		allocated = true;
 	}
 
@@ -562,12 +563,18 @@ select_by_hash:
 		nsk = reuseport_select_sock_by_hash(reuse, hash, socks);
 
 	if (IS_ERR_OR_NULL(nsk) ||
-	    unlikely(!atomic_inc_not_zero(&nsk->sk_refcnt)))
+	    unlikely(!atomic_inc_not_zero(&nsk->sk_refcnt))) {
 		nsk = NULL;
+		goto failure;
+	}
 
 out:
 	rcu_read_unlock();
 	return nsk;
+
+failure:
+	__NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPMIGRATEREQFAILURE);
+	goto out;
 }
 EXPORT_SYMBOL(reuseport_migrate_sock);
 
