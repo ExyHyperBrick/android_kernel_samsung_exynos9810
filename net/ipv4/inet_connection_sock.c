@@ -550,6 +550,8 @@ static struct request_sock *inet_reqsk_clone(struct request_sock *req,
 
 	nreq = kmem_cache_alloc(req->rsk_ops->slab, GFP_ATOMIC | __GFP_NOWARN);
 	if (!nreq) {
+		__NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPMIGRATEREQFAILURE);
+
 		/* paired with atomic_inc_not_zero() in reuseport_migrate_sock() */
 		sock_put(sk);
 		return NULL;
@@ -710,9 +712,10 @@ static void reqsk_timer_handler(unsigned long data)
 
 		if (!inet_ehash_insert(req_to_sk(nreq), req_to_sk(oreq))) {
 			inet_csk_reqsk_queue_drop(sk_listener, nreq);
-			goto drop;
+			goto no_ownership;
 		}
 
+		__NET_INC_STATS(net, LINUX_MIB_TCPMIGRATEREQSUCCESS);
 		reqsk_migrate_reset(oreq);
 		reqsk_queue_removed(
 			&inet_csk(oreq->rsk_listener)->icsk_accept_queue, oreq);
@@ -721,8 +724,9 @@ static void reqsk_timer_handler(unsigned long data)
 		return;
 	}
 
-drop:
 	if (nreq) {
+		__NET_INC_STATS(net, LINUX_MIB_TCPMIGRATEREQFAILURE);
+no_ownership:
 		reqsk_migrate_reset(nreq);
 		if (queue)
 			reqsk_queue_removed(queue, nreq);
@@ -732,6 +736,7 @@ drop:
 		reqsk_free(nreq);
 	}
 
+drop:
 	inet_csk_reqsk_queue_drop_and_put(oreq->rsk_listener, oreq);
 }
 
@@ -961,11 +966,15 @@ struct sock *inet_csk_complete_hashdance(struct sock *sk, struct sock *child,
 
 			atomic_set(&nreq->rsk_refcnt, 1);
 			if (inet_csk_reqsk_queue_add(sk, nreq, child)) {
+				__NET_INC_STATS(sock_net(sk),
+						LINUX_MIB_TCPMIGRATEREQSUCCESS);
 				reqsk_migrate_reset(req);
 				reqsk_put(req);
 				return child;
 			}
 
+			__NET_INC_STATS(sock_net(sk),
+					LINUX_MIB_TCPMIGRATEREQFAILURE);
 			reqsk_migrate_reset(nreq);
 			reqsk_put(nreq);
 		} else if (inet_csk_reqsk_queue_add(sk, req, child)) {
@@ -1014,8 +1023,12 @@ void inet_csk_listen_stop(struct sock *sk)
 				atomic_set(&nreq->rsk_refcnt, 1);
 
 				if (inet_csk_reqsk_queue_add(nsk, nreq, child)) {
+					__NET_INC_STATS(sock_net(nsk),
+							LINUX_MIB_TCPMIGRATEREQSUCCESS);
 					reqsk_migrate_reset(req);
 				} else {
+					__NET_INC_STATS(sock_net(nsk),
+							LINUX_MIB_TCPMIGRATEREQFAILURE);
 					reqsk_migrate_reset(nreq);
 					reqsk_put(nreq);
 				}
