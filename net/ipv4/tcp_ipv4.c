@@ -1976,10 +1976,36 @@ static bool seq_sk_match(struct seq_file *seq, const struct sock *sk)
 		net_eq(sock_net(sk), seq_file_net(seq));
 }
 
-/*
- * Get next listener socket follow cur.  If cur is NULL, get first socket
- * starting from bucket given in st->bucket; when st->bucket is zero the
- * very first socket in the hash table is returned.
+/* Find a non-empty bucket starting from st->bucket and return its
+ * first matching socket.
+ */
+static void *listening_get_first(struct seq_file *seq)
+{
+	struct tcp_iter_state *st = seq->private;
+
+	st->offset = 0;
+	for (; st->bucket < INET_LHTABLE_SIZE; st->bucket++) {
+		struct inet_listen_hashbucket *ilb;
+		struct hlist_nulls_node *node;
+		struct sock *sk;
+
+		ilb = &tcp_hashinfo.listening_hash[st->bucket];
+		if (hlist_nulls_empty(&ilb->nulls_head))
+			continue;
+
+		spin_lock_bh(&ilb->lock);
+		sk_nulls_for_each(sk, node, &ilb->nulls_head) {
+			if (seq_sk_match(seq, sk))
+				return sk;
+		}
+		spin_unlock_bh(&ilb->lock);
+	}
+
+	return NULL;
+}
+
+/* Find the next matching socket in the current listener bucket. If the
+ * bucket is exhausted, return the first socket in a later bucket.
  */
 static void *listening_get_next(struct seq_file *seq, void *cur)
 {
@@ -1988,29 +2014,19 @@ static void *listening_get_next(struct seq_file *seq, void *cur)
 	struct hlist_nulls_node *node;
 	struct sock *sk = cur;
 
-	if (!sk) {
-get_head:
-		ilb = &tcp_hashinfo.listening_hash[st->bucket];
-		spin_lock_bh(&ilb->lock);
-		sk = sk_nulls_head(&ilb->nulls_head);
-		st->offset = 0;
-		goto get_sk;
-	}
-	ilb = &tcp_hashinfo.listening_hash[st->bucket];
 	++st->num;
 	++st->offset;
 
 	sk = sk_nulls_next(sk);
-get_sk:
 	sk_nulls_for_each_from(sk, node) {
 		if (seq_sk_match(seq, sk))
 			return sk;
 	}
+
+	ilb = &tcp_hashinfo.listening_hash[st->bucket];
 	spin_unlock_bh(&ilb->lock);
-	st->offset = 0;
-	if (++st->bucket < INET_LHTABLE_SIZE)
-		goto get_head;
-	return NULL;
+	++st->bucket;
+	return listening_get_first(seq);
 }
 
 static void *listening_get_idx(struct seq_file *seq, loff_t *pos)
@@ -2020,7 +2036,7 @@ static void *listening_get_idx(struct seq_file *seq, loff_t *pos)
 
 	st->bucket = 0;
 	st->offset = 0;
-	rc = listening_get_next(seq, NULL);
+	rc = listening_get_first(seq);
 
 	while (rc && *pos) {
 		rc = listening_get_next(seq, rc);
@@ -2131,7 +2147,7 @@ static void *tcp_seek_last_pos(struct seq_file *seq)
 		if (st->bucket >= INET_LHTABLE_SIZE)
 			break;
 		st->state = TCP_SEQ_STATE_LISTENING;
-		rc = listening_get_next(seq, NULL);
+		rc = listening_get_first(seq);
 		while (offset-- && rc && bucket == st->bucket)
 			rc = listening_get_next(seq, rc);
 		if (rc)
