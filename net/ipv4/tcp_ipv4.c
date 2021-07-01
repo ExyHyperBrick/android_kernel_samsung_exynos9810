@@ -1966,12 +1966,7 @@ EXPORT_SYMBOL(tcp_v4_destroy_sock);
 #ifdef CONFIG_PROC_FS
 /* Proc filesystem TCP sock list dumping. */
 
-static unsigned short seq_file_family(const struct seq_file *seq)
-{
-	const struct tcp_iter_state *st = seq->private;
-
-	return st->family;
-}
+static unsigned short seq_file_family(const struct seq_file *seq);
 
 static bool seq_sk_match(struct seq_file *seq, const struct sock *sk)
 {
@@ -2468,6 +2463,17 @@ static const struct seq_operations bpf_iter_tcp_seq_ops = {
 };
 #endif
 
+static unsigned short seq_file_family(const struct seq_file *seq)
+{
+	const struct tcp_iter_state *st = seq->private;
+
+#ifdef CONFIG_BPF_SYSCALL
+	if (seq->op == &bpf_iter_tcp_seq_ops)
+		return AF_UNSPEC;
+#endif
+	return st->family;
+}
+
 static const struct file_operations tcp_afinfo_seq_fops = {
 	.owner   = THIS_MODULE,
 	.open    = tcp_seq_open,
@@ -2675,10 +2681,6 @@ DEFINE_BPF_ITER_FUNC(tcp, struct bpf_iter_meta *meta,
 static int bpf_iter_init_tcp(void *priv_data,
 			     struct bpf_iter_aux_info *aux)
 {
-	struct tcp_iter_state *st = priv_data;
-
-	st->family = AF_UNSPEC;
-	st->last_pos = 0;
 	return bpf_iter_init_seq_net(priv_data, aux);
 }
 
