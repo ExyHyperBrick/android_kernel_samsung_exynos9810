@@ -6138,8 +6138,8 @@ void tcp_finish_connect(struct sock *sk, struct sk_buff *skb)
 	icsk->icsk_af_ops->rebuild_header(sk);
 
 	tcp_init_metrics(sk);
-	icsk->icsk_ca_initialized = 0;
 	tcp_call_bpf(sk, BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB);
+	/* Initialize congestion control unless BPF initialized it already. */
 	if (!icsk->icsk_ca_initialized)
 		tcp_init_congestion_control(sk);
 
@@ -6554,8 +6554,8 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		} else {
 			/* Make sure socket is routed, for correct metrics. */
 			icsk->icsk_af_ops->rebuild_header(sk);
-			icsk->icsk_ca_initialized = 0;
 			tcp_call_bpf(sk, BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB);
+			/* Initialize CC unless BPF initialized it already. */
 			if (!icsk->icsk_ca_initialized)
 				tcp_init_congestion_control(sk);
 
