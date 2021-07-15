@@ -2980,6 +2980,8 @@ continue_func:
 	else
 		subprog_end = subprog[idx + 1].start;
 	for (; i < subprog_end; i++) {
+		int next_insn;
+
 		if (!bpf_pseudo_func(insn + i) &&
 		    (insn[i].code != (BPF_JMP | BPF_CALL) ||
 		     insn[i].src_reg != BPF_PSEUDO_CALL))
@@ -2988,13 +2990,23 @@ continue_func:
 		ret_insn[frame] = i + 1;
 		ret_prog[frame] = idx;
 		/* find the callee */
-		i = i + insn[i].imm + 1;
-		idx = find_subprog(env, i);
+		next_insn = i + insn[i].imm + 1;
+		idx = find_subprog(env, next_insn);
 		if (idx < 0) {
 			WARN_ONCE(1, "verifier bug. No program starts at insn %d\n",
-				  i);
+				  next_insn);
 			return -EFAULT;
 		}
+		if (subprog[idx].is_async_cb) {
+			if (subprog[idx].has_tail_call) {
+				verbose(env,
+					"verifier bug. subprog has tail_call and async cb\n");
+				return -EFAULT;
+			}
+			/* Async callbacks don't increase BPF program stack size. */
+			continue;
+		}
+		i = next_insn;
 		frame++;
 		if (frame >= MAX_CALL_FRAMES) {
 			verbose(env, "the call stack of %d frames is too deep !\n",
@@ -4855,6 +4867,7 @@ static int __check_func_call(struct bpf_verifier_env *env, int *insn_idx,
 		struct bpf_verifier_state *async_cb;
 
 		/* There is no real recursion here. Timer callbacks are async. */
+		env->subprog_info[subprog].is_async_cb = true;
 		async_cb = push_async_cb(env, env->subprog_info[subprog].start,
 					 *insn_idx, subprog);
 		if (!async_cb)
