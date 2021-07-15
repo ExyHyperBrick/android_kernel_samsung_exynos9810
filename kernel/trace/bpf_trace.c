@@ -1086,7 +1086,7 @@ tracing_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 	case BPF_FUNC_get_func_ip:
 		return &bpf_get_func_ip_proto_tracing;
 	default:
-		return NULL;
+		return bpf_base_func_proto(func_id);
 	}
 }
 

@@ -18,6 +18,10 @@
 #define __BPF_FUNC_STR_FN(x) [BPF_FUNC_ ## x] = __stringify(bpf_ ## x)
 static const char * const func_id_str[] = {
 	__BPF_FUNC_MAPPER(__BPF_FUNC_STR_FN)
+	[BPF_FUNC_timer_init] = "bpf_timer_init",
+	[BPF_FUNC_timer_set_callback] = "bpf_timer_set_callback",
+	[BPF_FUNC_timer_start] = "bpf_timer_start",
+	[BPF_FUNC_timer_cancel] = "bpf_timer_cancel",
 	[BPF_FUNC_get_func_ip] = "bpf_get_func_ip",
 	[BPF_FUNC_get_attach_cookie] = "bpf_get_attach_cookie",
 	[BPF_FUNC_task_pt_regs] = "bpf_task_pt_regs",
