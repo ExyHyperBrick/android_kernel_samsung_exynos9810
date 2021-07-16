@@ -82,6 +82,7 @@ static int bpf_trampoline_update(struct bpf_trampoline *tr)
 	struct bpf_prog **progs, **fentry, **fexit;
 	u32 flags = BPF_TRAMP_F_RESTORE_REGS;
 	struct bpf_prog_aux *aux;
+	bool ip_arg = false;
 	int err;
 
 	if (fentry_cnt + fexit_cnt == 0) {
@@ -93,16 +94,22 @@ static int bpf_trampoline_update(struct bpf_trampoline *tr)
 
 	fentry = progs = progs_to_run;
 	hlist_for_each_entry(aux, &tr->progs_hlist[BPF_TRAMP_FENTRY],
-			     tramp_hlist)
+			     tramp_hlist) {
+		ip_arg |= aux->prog->call_get_func_ip;
 		*progs++ = aux->prog;
+	}
 
 	fexit = progs;
 	hlist_for_each_entry(aux, &tr->progs_hlist[BPF_TRAMP_FEXIT],
-			     tramp_hlist)
+			     tramp_hlist) {
+		ip_arg |= aux->prog->call_get_func_ip;
 		*progs++ = aux->prog;
+	}
 
 	if (fexit_cnt)
 		flags = BPF_TRAMP_F_CALL_ORIG | BPF_TRAMP_F_SKIP_FRAME;
+	if (ip_arg)
+		flags |= BPF_TRAMP_F_IP_ARG;
 
 	err = arch_prepare_bpf_trampoline(new_image, &tr->func.model, flags,
 					  fentry, fentry_cnt,

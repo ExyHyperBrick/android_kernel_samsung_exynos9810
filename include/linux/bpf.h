@@ -466,6 +466,8 @@ struct btf_func_model {
 #define BPF_TRAMP_F_CALL_ORIG		BIT(1)
 /* Skip the current frame and return to the parent. */
 #define BPF_TRAMP_F_SKIP_FRAME		BIT(2)
+/* Store the traced function IP before the program context. */
+#define BPF_TRAMP_F_IP_ARG		BIT(3)
 
 int arch_prepare_bpf_trampoline(void *image, struct btf_func_model *m,
 				u32 flags, struct bpf_prog **fentry_progs,

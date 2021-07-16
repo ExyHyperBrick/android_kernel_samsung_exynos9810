@@ -554,7 +554,8 @@ struct bpf_prog {
 				cb_access:1,	/* Is control block accessed? */
 				dst_needed:1,	/* Do we need dst entry? */
 				blinded:1,	/* Was blinded */
-				is_func:1;	/* program is a bpf function */
+				is_func:1,	/* program is a bpf function */
+				call_get_func_ip:1; /* Uses bpf_get_func_ip() */
 	kmemcheck_bitfield_end(meta);
 	enum bpf_prog_type	type;		/* Type of BPF program */
 	enum bpf_attach_type	expected_attach_type; /* For some prog types */
