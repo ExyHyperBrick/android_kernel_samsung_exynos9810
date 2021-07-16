@@ -133,6 +133,7 @@ struct perf_event_context;
 struct blk_plug;
 struct filename;
 struct nameidata;
+struct bpf_run_ctx;
 
 #define VMACACHE_BITS 2
 #define VMACACHE_SIZE (1U << VMACACHE_BITS)
@@ -2193,6 +2194,10 @@ struct task_struct {
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 	/* A live task holds one reference. */
 	atomic_t stack_refcount;
+#endif
+#ifdef CONFIG_BPF_SYSCALL
+	/* Ambient context for the currently running BPF program. */
+	struct bpf_run_ctx *bpf_ctx;
 #endif
 
 	/*

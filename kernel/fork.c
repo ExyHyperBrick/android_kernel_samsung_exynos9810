@@ -1710,6 +1710,9 @@ static __latent_entropy struct task_struct *copy_process(
 	p = dup_task_struct(current, node);
 	if (!p)
 		goto fork_out;
+#ifdef CONFIG_BPF_SYSCALL
+	p->bpf_ctx = NULL;
+#endif
 
 	cpufreq_task_times_init(p);
 

@@ -24,7 +24,6 @@ struct ctl_table_header;
 extern struct static_key_false cgroup_bpf_enabled_key;
 #define cgroup_bpf_enabled static_branch_unlikely(&cgroup_bpf_enabled_key)
 
-DECLARE_PER_CPU(void*, bpf_cgroup_storage[MAX_BPF_CGROUP_STORAGE_TYPE]);
 #define for_each_cgroup_storage_type(stype) \
 	for (stype = 0; stype < MAX_BPF_CGROUP_STORAGE_TYPE; stype++)
 
@@ -147,19 +146,6 @@ static inline enum bpf_cgroup_storage_type cgroup_storage_type(
 
 	return BPF_CGROUP_STORAGE_SHARED;
 }
-static inline void bpf_cgroup_storage_set(struct bpf_cgroup_storage
-					  *storage[MAX_BPF_CGROUP_STORAGE_TYPE])
-{
-	enum bpf_cgroup_storage_type stype;
-	struct bpf_storage_buffer *buf;
-	for_each_cgroup_storage_type(stype) {
-		if (!storage[stype])
-			continue;
-		buf = READ_ONCE(storage[stype]->buf);
-		this_cpu_write(bpf_cgroup_storage[stype], &buf->data[0]);
-	}
-}
-
 struct bpf_cgroup_storage *bpf_cgroup_storage_alloc(struct bpf_prog *prog,
 					enum bpf_cgroup_storage_type stype);
 void bpf_cgroup_storage_free(struct bpf_cgroup_storage *storage);
@@ -353,8 +339,6 @@ int bpf_percpu_cgroup_storage_update(struct bpf_map *map, void *key,
 
 #else
 
-static inline void bpf_cgroup_storage_set(
-	struct bpf_cgroup_storage *storage[MAX_BPF_CGROUP_STORAGE_TYPE]) {}
 static inline int bpf_cgroup_storage_assign(struct bpf_prog *prog,
 					    struct bpf_map *map) { return 0; }
 static inline void bpf_cgroup_storage_release(struct bpf_prog *prog,
