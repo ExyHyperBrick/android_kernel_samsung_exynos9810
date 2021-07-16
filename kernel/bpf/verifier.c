@@ -4913,6 +4913,26 @@ static void do_refine_retval_range(struct bpf_reg_state *regs, int ret_type,
 	reg_bounds_sync(ret_reg);
 }
 
+static int check_get_func_ip(struct bpf_verifier_env *env)
+{
+	enum bpf_attach_type eatype = env->prog->expected_attach_type;
+	int func_id = BPF_FUNC_get_func_ip;
+
+	if (env->prog->type == BPF_PROG_TYPE_TRACING) {
+		if (eatype != BPF_TRACE_FENTRY && eatype != BPF_TRACE_FEXIT) {
+			verbose(env,
+				"func %s#%d supported only for fentry/fexit programs\n",
+				func_id_name(func_id), func_id);
+			return -ENOTSUPP;
+		}
+		return 0;
+	}
+
+	verbose(env, "func %s#%d not supported for program type %d\n",
+		func_id_name(func_id), func_id, env->prog->type);
+	return -ENOTSUPP;
+}
+
 static int check_helper_call(struct bpf_verifier_env *env,
 			     struct bpf_insn *insn, int *insn_idx_p)
 {
@@ -5020,6 +5040,13 @@ static int check_helper_call(struct bpf_verifier_env *env,
 		err = check_bpf_snprintf_call(env, regs);
 		if (err < 0)
 			return err;
+	}
+
+	if (func_id == BPF_FUNC_get_func_ip) {
+		err = check_get_func_ip(env);
+		if (err)
+			return err;
+		env->prog->call_get_func_ip = true;
 	}
 
 	/* reset caller saved regs */
@@ -10463,6 +10490,20 @@ static int fixup_bpf_calls(struct bpf_verifier_env *env)
 			delta += cnt - 1;
 			prog = new_prog;
 			env->prog = prog;
+			insn = new_prog->insnsi + i + delta;
+			continue;
+		}
+
+		/* Implement bpf_get_func_ip inline for trampoline programs. */
+		if (prog->type == BPF_PROG_TYPE_TRACING &&
+		    insn->imm == BPF_FUNC_get_func_ip) {
+			insn_buf[0] = BPF_LDX_MEM(BPF_DW, BPF_REG_0,
+					       BPF_REG_1, -8);
+			new_prog = bpf_patch_insn_data(env, i + delta,
+					      insn_buf, 1);
+			if (!new_prog)
+				return -ENOMEM;
+			env->prog = prog = new_prog;
 			insn = new_prog->insnsi + i + delta;
 			continue;
 		}

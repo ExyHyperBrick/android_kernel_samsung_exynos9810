@@ -836,6 +836,13 @@ union bpf_attr {
  *	Return
  *		A pointer to the per-CPU kernel variable on the current CPU.
  */
+/*
+ * u64 bpf_get_func_ip(void *ctx)
+ *	Description
+ *		Get address of the traced function (for tracing programs).
+ *	Return
+ *		Address of the traced function.
+ */
 #define __BPF_FUNC_MAPPER(FN)		\
 	FN(unspec),			\
 	FN(map_lookup_elem),		\
@@ -1010,6 +1017,8 @@ union bpf_attr {
 #define __BPF_ENUM_FN(x) BPF_FUNC_ ## x
 enum bpf_func_id {
 	__BPF_FUNC_MAPPER(__BPF_ENUM_FN)
+	/* IDs 166-172 belong to feature families not carried yet. */
+	BPF_FUNC_get_func_ip = 173,
 	__BPF_FUNC_MAX_ID,
 };
 #undef __BPF_ENUM_FN
