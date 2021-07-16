@@ -20,6 +20,7 @@
 #include <linux/mutex.h>
 #include <linux/refcount.h>
 #include <linux/u64_stats_sync.h>
+#include <linux/sched.h>
 
 struct bpf_verifier_env;
 struct bpf_verifier_log;
@@ -753,6 +754,31 @@ int bpf_prog_array_copy(struct bpf_prog_array __rcu *old_array,
 			struct bpf_prog *include_prog,
 			struct bpf_prog_array **new_array);
 
+struct bpf_run_ctx {};
+
+struct bpf_cg_run_ctx {
+	struct bpf_run_ctx run_ctx;
+	const struct bpf_prog_array_item *prog_item;
+};
+
+static inline struct bpf_run_ctx *bpf_set_run_ctx(struct bpf_run_ctx *new_ctx)
+{
+	struct bpf_run_ctx *old_ctx = NULL;
+
+#ifdef CONFIG_BPF_SYSCALL
+	old_ctx = current->bpf_ctx;
+	current->bpf_ctx = new_ctx;
+#endif
+	return old_ctx;
+}
+
+static inline void bpf_reset_run_ctx(struct bpf_run_ctx *old_ctx)
+{
+#ifdef CONFIG_BPF_SYSCALL
+	current->bpf_ctx = old_ctx;
+#endif
+}
+
 /* BPF program asks to bypass CAP_NET_BIND_SERVICE in bind. */
 #define BPF_RET_BIND_NO_CAP_NET_BIND_SERVICE			(1 << 0)
 /* BPF program asks to set CN on the packet. */
@@ -763,41 +789,49 @@ int bpf_prog_array_copy(struct bpf_prog_array __rcu *old_array,
 		struct bpf_prog_array_item *_item;	\
 		struct bpf_prog *_prog;			\
 		struct bpf_prog_array *_array;		\
+		struct bpf_run_ctx *_old_run_ctx;	\
+		struct bpf_cg_run_ctx _run_ctx;		\
 		u32 _ret = 1;				\
 		u32 _func_ret;				\
 		preempt_disable();			\
 		rcu_read_lock();			\
 		_array = rcu_dereference(array);	\
 		_item = &_array->items[0];		\
-		while ((_prog = READ_ONCE(_item->prog))) {	\
-			bpf_cgroup_storage_set(_item->cgroup_storage);	\
+		_old_run_ctx = bpf_set_run_ctx(&_run_ctx.run_ctx); \
+		while ((_prog = READ_ONCE(_item->prog))) { \
+			_run_ctx.prog_item = _item;		\
 			_func_ret = func(_prog, ctx);	\
 			_ret &= (_func_ret & 1);		\
 			*(ret_flags) |= (_func_ret >> 1);	\
 			_item++;			\
 		}					\
+		bpf_reset_run_ctx(_old_run_ctx);		\
 		rcu_read_unlock();			\
 		preempt_enable_no_resched();		\
 		_ret;					\
 	 })
 
-#define __BPF_PROG_RUN_ARRAY(array, ctx, func, check_non_null)	\
+#define __BPF_PROG_RUN_ARRAY(array, ctx, func, check_non_null) \
 	({						\
 		struct bpf_prog_array_item *_item;	\
 		struct bpf_prog *_prog;			\
 		struct bpf_prog_array *_array;		\
+		struct bpf_run_ctx *_old_run_ctx = NULL; \
+		struct bpf_cg_run_ctx _run_ctx;		\
 		u32 _ret = 1;				\
 		preempt_disable();			\
 		rcu_read_lock();			\
 		_array = rcu_dereference(array);	\
-		if (unlikely(check_non_null && !_array))\
+		if (unlikely(check_non_null && !_array)) \
 			goto _out;			\
 		_item = &_array->items[0];		\
-		while ((_prog = READ_ONCE(_item->prog))) {	\
-			bpf_cgroup_storage_set(_item->cgroup_storage);	\
-			_ret &= func(_prog, ctx);	\
+		_old_run_ctx = bpf_set_run_ctx(&_run_ctx.run_ctx); \
+		while ((_prog = READ_ONCE(_item->prog))) { \
+			_run_ctx.prog_item = _item;		\
+			_ret &= func(_prog, ctx);		\
 			_item++;			\
 		}					\
+		bpf_reset_run_ctx(_old_run_ctx);		\
 _out:							\
 		rcu_read_unlock();			\
 		preempt_enable_no_resched();		\

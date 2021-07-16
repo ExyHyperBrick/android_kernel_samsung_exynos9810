@@ -9,8 +9,6 @@
 #include <linux/slab.h>
 #include <uapi/linux/btf.h>
 
-DEFINE_PER_CPU(void*, bpf_cgroup_storage[MAX_BPF_CGROUP_STORAGE_TYPE]);
-
 #ifdef CONFIG_CGROUP_BPF
 
 #define LOCAL_STORAGE_CREATE_FLAG_MASK					\
