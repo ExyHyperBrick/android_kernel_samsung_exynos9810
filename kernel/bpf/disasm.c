@@ -18,6 +18,7 @@
 #define __BPF_FUNC_STR_FN(x) [BPF_FUNC_ ## x] = __stringify(bpf_ ## x)
 static const char * const func_id_str[] = {
 	__BPF_FUNC_MAPPER(__BPF_FUNC_STR_FN)
+	[BPF_FUNC_get_func_ip] = "bpf_get_func_ip",
 };
 #undef __BPF_FUNC_STR_FN
 
