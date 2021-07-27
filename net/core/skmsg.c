@@ -606,13 +606,14 @@ void sk_psock_drop(struct sock *sk, struct sk_psock *psock)
 	sock_owned_by_me(sk);
 
 	rcu_assign_sk_user_data(sk, NULL);
-	sk_psock_stop(psock, false);
 	sk_psock_restore_proto(sk, psock);
 
 	write_lock_bh(&sk->sk_callback_lock);
 	if (psock->progs.skb_parser)
 		sk_psock_stop_strp(sk, psock);
 	write_unlock_bh(&sk->sk_callback_lock);
+
+	sk_psock_stop(psock, false);
 
 	call_rcu_sched(&psock->rcu, sk_psock_destroy);
 }
