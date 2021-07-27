@@ -248,11 +248,45 @@ static inline bool sk_has_psock(struct sock *sk)
 		sk->sk_prot->recvmsg == tcp_bpf_recvmsg_parser);
 }
 
+static inline void sk_psock_set_state(struct sk_psock *psock,
+				      enum sk_psock_state_bits bit)
+{
+	set_bit(bit, &psock->state);
+}
+
+static inline void sk_psock_clear_state(struct sk_psock *psock,
+					enum sk_psock_state_bits bit)
+{
+	clear_bit(bit, &psock->state);
+}
+
+static inline bool sk_psock_test_state(const struct sk_psock *psock,
+				       enum sk_psock_state_bits bit)
+{
+	return test_bit(bit, &psock->state);
+}
+
+static inline void sock_drop(struct sock *sk, struct sk_buff *skb)
+{
+	sk_drops_add(sk, skb);
+	kfree_skb(skb);
+}
+
+static inline void drop_sk_msg(struct sk_psock *psock, struct sk_msg *msg)
+{
+	if (msg->skb)
+		sock_drop(psock->sk, msg->skb);
+	kfree(msg);
+}
+
 static inline void sk_psock_queue_msg(struct sk_psock *psock,
 				      struct sk_msg *msg)
 {
 	spin_lock_bh(&psock->ingress_lock);
-	list_add_tail(&msg->list, &psock->ingress_msg);
+	if (sk_psock_test_state(psock, SK_PSOCK_TX_ENABLED))
+		list_add_tail(&msg->list, &psock->ingress_msg);
+	else
+		drop_sk_msg(psock, msg);
 	spin_unlock_bh(&psock->ingress_lock);
 }
 
@@ -365,24 +399,6 @@ static inline void sk_psock_restore_proto(struct sock *sk,
 		sk->sk_prot = psock->sk_proto;
 		psock->sk_proto = NULL;
 	}
-}
-
-static inline void sk_psock_set_state(struct sk_psock *psock,
-				      enum sk_psock_state_bits bit)
-{
-	set_bit(bit, &psock->state);
-}
-
-static inline void sk_psock_clear_state(struct sk_psock *psock,
-					enum sk_psock_state_bits bit)
-{
-	clear_bit(bit, &psock->state);
-}
-
-static inline bool sk_psock_test_state(const struct sk_psock *psock,
-				       enum sk_psock_state_bits bit)
-{
-	return test_bit(bit, &psock->state);
 }
 
 static inline struct sk_psock *sk_psock_get(struct sock *sk)
