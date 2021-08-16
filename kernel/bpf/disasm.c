@@ -19,6 +19,7 @@
 static const char * const func_id_str[] = {
 	__BPF_FUNC_MAPPER(__BPF_FUNC_STR_FN)
 	[BPF_FUNC_get_func_ip] = "bpf_get_func_ip",
+	[BPF_FUNC_get_attach_cookie] = "bpf_get_attach_cookie",
 };
 #undef __BPF_FUNC_STR_FN
 
