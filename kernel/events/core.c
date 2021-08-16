@@ -3880,7 +3880,6 @@ errout:
 }
 
 static void perf_event_free_filter(struct perf_event *event);
-static void perf_event_free_bpf_prog(struct perf_event *event);
 
 static void free_event_rcu(struct rcu_head *head)
 {
@@ -4677,8 +4676,6 @@ static inline int perf_fget_light(int fd, struct fd *p)
 static int perf_event_set_output(struct perf_event *event,
 				 struct perf_event *output_event);
 static int perf_event_set_filter(struct perf_event *event, void __user *arg);
-static int perf_event_set_bpf_prog(struct perf_event *event,
-				   struct bpf_prog *prog);
 
 static long _perf_ioctl(struct perf_event *event, unsigned int cmd, unsigned long arg)
 {
@@ -7949,8 +7946,8 @@ static void perf_event_free_bpf_handler(struct perf_event *event)
 }
 #endif
 
-static int perf_event_set_bpf_prog(struct perf_event *event,
-				   struct bpf_prog *prog)
+int perf_event_set_bpf_prog(struct perf_event *event,
+			    struct bpf_prog *prog)
 {
 	bool is_kprobe, is_tracepoint, is_syscall_tp;
 
@@ -7979,7 +7976,7 @@ static int perf_event_set_bpf_prog(struct perf_event *event,
 	return perf_event_attach_bpf_prog(event, prog);
 }
 
-static void perf_event_free_bpf_prog(struct perf_event *event)
+void perf_event_free_bpf_prog(struct perf_event *event)
 {
 	if (event->attr.type != PERF_TYPE_TRACEPOINT) {
 		perf_event_free_bpf_handler(event);
@@ -7998,13 +7995,13 @@ static void perf_event_free_filter(struct perf_event *event)
 {
 }
 
-static int perf_event_set_bpf_prog(struct perf_event *event,
-				   struct bpf_prog *prog)
+int perf_event_set_bpf_prog(struct perf_event *event,
+			    struct bpf_prog *prog)
 {
 	return -ENOENT;
 }
 
-static void perf_event_free_bpf_prog(struct perf_event *event)
+void perf_event_free_bpf_prog(struct perf_event *event)
 {
 }
 #endif /* CONFIG_EVENT_TRACING */
