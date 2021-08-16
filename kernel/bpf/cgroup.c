@@ -839,7 +839,7 @@ int __cgroup_bpf_run_filter_skb(struct sock *sk,
 	/* compute pointers for the bpf prog */
 	bpf_compute_and_save_data_end(skb, &saved_data_end);
 
-	ret = BPF_PROG_RUN_ARRAY(cgrp->bpf.effective[type], skb,
+	ret = BPF_PROG_RUN_ARRAY_CG(cgrp->bpf.effective[type], skb,
 				 __bpf_prog_run_save_cb);
 	bpf_restore_data_end(skb, saved_data_end);
 	__skb_pull(skb, offset);
@@ -872,7 +872,7 @@ int __cgroup_bpf_run_filter_sk(struct sock *sk,
 
 	prog_array = rcu_dereference(cgrp->bpf.effective[type]);
 	if (prog_array)
-		ret = BPF_PROG_RUN_ARRAY(prog_array, sk, bpf_prog_run) == 1 ?
+		ret = BPF_PROG_RUN_ARRAY_CG(prog_array, sk, bpf_prog_run) == 1 ?
 			0 : -EPERM;
 
 	rcu_read_unlock();
@@ -923,7 +923,7 @@ int __cgroup_bpf_run_filter_sock_addr(struct sock *sk,
 	}
 
 	cgrp = sock_cgroup_ptr(&sk->sk_cgrp_data);
-	ret = BPF_PROG_RUN_ARRAY_FLAGS(cgrp->bpf.effective[type], &ctx,
+	ret = BPF_PROG_RUN_ARRAY_CG_FLAGS(cgrp->bpf.effective[type], &ctx,
 				       bpf_prog_run, flags);
 
 	return ret == 1 ? 0 : -EPERM;
@@ -953,7 +953,7 @@ int __cgroup_bpf_run_filter_sock_ops(struct sock *sk,
 	struct cgroup *cgrp = sock_cgroup_ptr(&sk->sk_cgrp_data);
 	int ret;
 
-	ret = BPF_PROG_RUN_ARRAY(cgrp->bpf.effective[type], sock_ops,
+	ret = BPF_PROG_RUN_ARRAY_CG(cgrp->bpf.effective[type], sock_ops,
 				 bpf_prog_run);
 	return ret == 1 ? 0 : -EPERM;
 }
@@ -972,7 +972,7 @@ int __cgroup_bpf_check_dev_permission(short dev_type, u32 major, u32 minor,
 
 	rcu_read_lock();
 	cgrp = task_dfl_cgroup(current);
-	allow = BPF_PROG_RUN_ARRAY(cgrp->bpf.effective[type], &ctx,
+	allow = BPF_PROG_RUN_ARRAY_CG(cgrp->bpf.effective[type], &ctx,
 				   bpf_prog_run);
 	rcu_read_unlock();
 
@@ -1071,7 +1071,7 @@ int __cgroup_bpf_run_filter_sysctl(struct ctl_table_header *head,
 
 	rcu_read_lock();
 	cgrp = task_dfl_cgroup(current);
-	ret = BPF_PROG_RUN_ARRAY(cgrp->bpf.effective[type], &ctx, bpf_prog_run);
+	ret = BPF_PROG_RUN_ARRAY_CG(cgrp->bpf.effective[type], &ctx, bpf_prog_run);
 	rcu_read_unlock();
 
 	return ret == 1 ? 0 : -EPERM;
@@ -1161,7 +1161,7 @@ int __cgroup_bpf_run_filter_setsockopt(struct sock *sk, int *level,
 	}
 
 	lock_sock(sk);
-	ret = BPF_PROG_RUN_ARRAY(cgrp->bpf.effective[BPF_CGROUP_SETSOCKOPT],
+	ret = BPF_PROG_RUN_ARRAY_CG(cgrp->bpf.effective[BPF_CGROUP_SETSOCKOPT],
 				 &ctx, bpf_prog_run);
 	release_sock(sk);
 	if (!ret) {
@@ -1255,7 +1255,7 @@ int __cgroup_bpf_run_filter_getsockopt(struct sock *sk, int level,
 	}
 
 	lock_sock(sk);
-	ret = BPF_PROG_RUN_ARRAY(cgrp->bpf.effective[BPF_CGROUP_GETSOCKOPT],
+	ret = BPF_PROG_RUN_ARRAY_CG(cgrp->bpf.effective[BPF_CGROUP_GETSOCKOPT],
 				 &ctx, bpf_prog_run);
 	release_sock(sk);
 	if (!ret) {
