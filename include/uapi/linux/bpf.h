@@ -528,8 +528,18 @@ union bpf_attr {
 		__u32		target_fd;
 		__u32		attach_type;
 		__u32		flags;
-		__aligned_u64	iter_info;	/* extra bpf_iter_link_info */
-		__u32		iter_info_len;	/* iter_info length */
+		union {
+			struct {
+				__aligned_u64	iter_info;
+				__u32		iter_info_len;
+			};
+			struct {
+				/* Black-box value available to the BPF
+				 * program through bpf_get_attach_cookie().
+				 */
+				__u64		bpf_cookie;
+			} perf_event;
+		};
 	} link_create;
 
 	struct { /* struct used by BPF_LINK_UPDATE command */

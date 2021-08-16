@@ -1254,7 +1254,7 @@ static DEFINE_MUTEX(bpf_event_mutex);
 #define BPF_TRACE_MAX_PROGS 64
 
 int perf_event_attach_bpf_prog(struct perf_event *event,
-			       struct bpf_prog *prog)
+			       struct bpf_prog *prog, u64 bpf_cookie)
 {
 	struct bpf_prog_array __rcu *old_array;
 	struct bpf_prog_array *new_array;
@@ -1271,7 +1271,8 @@ int perf_event_attach_bpf_prog(struct perf_event *event,
 		ret = -E2BIG;
 		goto unlock;
 	}
-	ret = bpf_prog_array_copy(old_array, NULL, prog, &new_array);
+	ret = bpf_prog_array_copy(old_array, NULL, prog, bpf_cookie,
+				  &new_array);
 	if (ret < 0)
 		goto unlock;
 
@@ -1297,7 +1298,8 @@ void perf_event_detach_bpf_prog(struct perf_event *event)
 		goto unlock;
 
 	old_array = event->tp_event->prog_array;
-	ret = bpf_prog_array_copy(old_array, event->prog, NULL, &new_array);
+	ret = bpf_prog_array_copy(old_array, event->prog, NULL, 0,
+				  &new_array);
 	if (ret < 0) {
 		bpf_prog_array_delete_safe(old_array, event->prog);
 	} else {

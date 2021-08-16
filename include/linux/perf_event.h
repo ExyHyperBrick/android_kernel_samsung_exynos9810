@@ -698,6 +698,7 @@ struct perf_event {
 #ifdef CONFIG_BPF_SYSCALL
 	perf_overflow_handler_t		orig_overflow_handler;
 	struct bpf_prog			*prog;
+	u64				bpf_cookie;
 #endif
 
 #ifdef CONFIG_EVENT_TRACING
@@ -814,6 +815,7 @@ struct perf_output_handle {
 struct bpf_perf_event_data_kern {
 	struct pt_regs *regs;
 	struct perf_sample_data *data;
+	struct perf_event *event;
 };
 
 #ifdef CONFIG_CGROUP_PERF

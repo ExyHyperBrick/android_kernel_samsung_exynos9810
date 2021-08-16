@@ -2251,13 +2251,13 @@ int bpf_prog_array_delete_safe_at(struct bpf_prog_array __rcu *array,
 int bpf_prog_array_copy(struct bpf_prog_array __rcu *old_array,
 			struct bpf_prog *exclude_prog,
 			struct bpf_prog *include_prog,
+			u64 bpf_cookie,
 			struct bpf_prog_array **new_array)
 {
 	int new_prog_cnt, carry_prog_cnt = 0;
-	struct bpf_prog_array_item *existing;
+	struct bpf_prog_array_item *existing, *new;
 	struct bpf_prog_array *array;
 	bool found_exclude = false;
-	int new_prog_idx = 0;
 
 	/* Figure out how many existing progs we need to carry over to
 	 * the new array.
@@ -2292,20 +2292,26 @@ int bpf_prog_array_copy(struct bpf_prog_array __rcu *old_array,
 	if (!array)
 		return -ENOMEM;
 
-	/* Fill in the new prog array */
+	/* Fill in the new prog array. */
+	new = array->items;
 	if (carry_prog_cnt) {
 		existing = old_array->items;
 		for (; existing->prog; existing++) {
-			if (existing->prog != exclude_prog &&
-			    existing->prog != &dummy_bpf_prog.prog) {
-				array->items[new_prog_idx++].prog =
-					existing->prog;
-			}
+			if (existing->prog == exclude_prog ||
+			    existing->prog == &dummy_bpf_prog.prog)
+				continue;
+
+			new->prog = existing->prog;
+			new->bpf_cookie = existing->bpf_cookie;
+			new++;
 		}
 	}
-	if (include_prog)
-		array->items[new_prog_idx++].prog = include_prog;
-	array->items[new_prog_idx].prog = NULL;
+	if (include_prog) {
+		new->prog = include_prog;
+		new->bpf_cookie = bpf_cookie;
+		new++;
+	}
+	new->prog = NULL;
 	*new_array = array;
 	return 0;
 }
