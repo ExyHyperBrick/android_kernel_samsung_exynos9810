@@ -1189,14 +1189,14 @@ isdn_ppp_push_higher(isdn_net_dev *net_dev, isdn_net_local *lp, struct sk_buff *
 	}
 
 	if (is->pass_filter
-	    && BPF_PROG_RUN(is->pass_filter, skb) == 0) {
+	    && bpf_prog_run(is->pass_filter, skb) == 0) {
 		if (is->debug & 0x2)
 			printk(KERN_DEBUG "IPPP: inbound frame filtered.\n");
 		kfree_skb(skb);
 		return;
 	}
 	if (!(is->active_filter
-	      && BPF_PROG_RUN(is->active_filter, skb) == 0)) {
+	      && bpf_prog_run(is->active_filter, skb) == 0)) {
 		if (is->debug & 0x2)
 			printk(KERN_DEBUG "IPPP: link-active filter: resetting huptimer.\n");
 		lp->huptimer = 0;
@@ -1335,14 +1335,14 @@ isdn_ppp_xmit(struct sk_buff *skb, struct net_device *netdev)
 	}
 
 	if (ipt->pass_filter
-	    && BPF_PROG_RUN(ipt->pass_filter, skb) == 0) {
+	    && bpf_prog_run(ipt->pass_filter, skb) == 0) {
 		if (ipt->debug & 0x4)
 			printk(KERN_DEBUG "IPPP: outbound frame filtered.\n");
 		kfree_skb(skb);
 		goto unlock;
 	}
 	if (!(ipt->active_filter
-	      && BPF_PROG_RUN(ipt->active_filter, skb) == 0)) {
+	      && bpf_prog_run(ipt->active_filter, skb) == 0)) {
 		if (ipt->debug & 0x4)
 			printk(KERN_DEBUG "IPPP: link-active filter: resetting huptimer.\n");
 		lp->huptimer = 0;
@@ -1532,9 +1532,9 @@ int isdn_ppp_autodial_filter(struct sk_buff *skb, isdn_net_local *lp)
 	}
 
 	drop |= is->pass_filter
-		&& BPF_PROG_RUN(is->pass_filter, skb) == 0;
+		&& bpf_prog_run(is->pass_filter, skb) == 0;
 	drop |= is->active_filter
-		&& BPF_PROG_RUN(is->active_filter, skb) == 0;
+		&& bpf_prog_run(is->active_filter, skb) == 0;
 
 	skb_push(skb, IPPP_MAX_HEADER - 4);
 	return drop;
