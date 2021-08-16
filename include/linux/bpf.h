@@ -784,65 +784,91 @@ static inline void bpf_reset_run_ctx(struct bpf_run_ctx *old_ctx)
 /* BPF program asks to set CN on the packet. */
 #define BPF_RET_SET_CN						(1 << 0)
 
-#define BPF_PROG_RUN_ARRAY_FLAGS(array, ctx, func, ret_flags)	\
-	({						\
-		struct bpf_prog_array_item *_item;	\
-		struct bpf_prog *_prog;			\
-		struct bpf_prog_array *_array;		\
-		struct bpf_run_ctx *_old_run_ctx;	\
-		struct bpf_cg_run_ctx _run_ctx;		\
-		u32 _ret = 1;				\
-		u32 _func_ret;				\
-		preempt_disable();			\
-		rcu_read_lock();			\
-		_array = rcu_dereference(array);	\
-		_item = &_array->items[0];		\
-		_old_run_ctx = bpf_set_run_ctx(&_run_ctx.run_ctx); \
-		while ((_prog = READ_ONCE(_item->prog))) { \
-			_run_ctx.prog_item = _item;		\
-			_func_ret = func(_prog, ctx);	\
-			_ret &= (_func_ret & 1);		\
-			*(ret_flags) |= (_func_ret >> 1);	\
-			_item++;			\
-		}					\
-		bpf_reset_run_ctx(_old_run_ctx);		\
-		rcu_read_unlock();			\
-		preempt_enable_no_resched();		\
-		_ret;					\
-	 })
+typedef u32 (*bpf_prog_run_fn)(const struct bpf_prog *prog,
+				 const void *ctx);
 
-#define __BPF_PROG_RUN_ARRAY(array, ctx, func, check_non_null) \
-	({						\
-		struct bpf_prog_array_item *_item;	\
-		struct bpf_prog *_prog;			\
-		struct bpf_prog_array *_array;		\
-		struct bpf_run_ctx *_old_run_ctx = NULL; \
-		struct bpf_cg_run_ctx _run_ctx;		\
-		u32 _ret = 1;				\
-		preempt_disable();			\
-		rcu_read_lock();			\
-		_array = rcu_dereference(array);	\
-		if (unlikely(check_non_null && !_array)) \
-			goto _out;			\
-		_item = &_array->items[0];		\
-		_old_run_ctx = bpf_set_run_ctx(&_run_ctx.run_ctx); \
-		while ((_prog = READ_ONCE(_item->prog))) { \
-			_run_ctx.prog_item = _item;		\
-			_ret &= func(_prog, ctx);		\
-			_item++;			\
-		}					\
-		bpf_reset_run_ctx(_old_run_ctx);		\
-_out:							\
-		rcu_read_unlock();			\
-		preempt_enable_no_resched();		\
-		_ret;					\
-	 })
+static __always_inline u32
+BPF_PROG_RUN_ARRAY_CG_FLAGS(const struct bpf_prog_array __rcu *array_rcu,
+			    const void *ctx, bpf_prog_run_fn run_prog,
+			    u32 *ret_flags)
+{
+	const struct bpf_prog_array_item *item;
+	const struct bpf_prog *prog;
+	const struct bpf_prog_array *array;
+	struct bpf_run_ctx *old_run_ctx;
+	struct bpf_cg_run_ctx run_ctx;
+	u32 ret = 1;
+	u32 func_ret;
 
-#define BPF_PROG_RUN_ARRAY(array, ctx, func)		\
-	__BPF_PROG_RUN_ARRAY(array, ctx, func, false)
+	preempt_disable();
+	rcu_read_lock();
+	array = rcu_dereference(array_rcu);
+	item = &array->items[0];
+	old_run_ctx = bpf_set_run_ctx(&run_ctx.run_ctx);
+	while ((prog = READ_ONCE(item->prog))) {
+		run_ctx.prog_item = item;
+		func_ret = run_prog(prog, ctx);
+		ret &= (func_ret & 1);
+		*ret_flags |= (func_ret >> 1);
+		item++;
+	}
+	bpf_reset_run_ctx(old_run_ctx);
+	rcu_read_unlock();
+	preempt_enable_no_resched();
+	return ret;
+}
 
-#define BPF_PROG_RUN_ARRAY_CHECK(array, ctx, func)	\
-	__BPF_PROG_RUN_ARRAY(array, ctx, func, true)
+static __always_inline u32
+BPF_PROG_RUN_ARRAY_CG(const struct bpf_prog_array __rcu *array_rcu,
+		      const void *ctx, bpf_prog_run_fn run_prog)
+{
+	const struct bpf_prog_array_item *item;
+	const struct bpf_prog *prog;
+	const struct bpf_prog_array *array;
+	struct bpf_run_ctx *old_run_ctx;
+	struct bpf_cg_run_ctx run_ctx;
+	u32 ret = 1;
+
+	preempt_disable();
+	rcu_read_lock();
+	array = rcu_dereference(array_rcu);
+	item = &array->items[0];
+	old_run_ctx = bpf_set_run_ctx(&run_ctx.run_ctx);
+	while ((prog = READ_ONCE(item->prog))) {
+		run_ctx.prog_item = item;
+		ret &= run_prog(prog, ctx);
+		item++;
+	}
+	bpf_reset_run_ctx(old_run_ctx);
+	rcu_read_unlock();
+	preempt_enable_no_resched();
+	return ret;
+}
+
+static __always_inline u32
+BPF_PROG_RUN_ARRAY(const struct bpf_prog_array __rcu *array_rcu,
+		   const void *ctx, bpf_prog_run_fn run_prog)
+{
+	const struct bpf_prog_array_item *item;
+	const struct bpf_prog *prog;
+	const struct bpf_prog_array *array;
+	u32 ret = 1;
+
+	preempt_disable();
+	rcu_read_lock();
+	array = rcu_dereference(array_rcu);
+	if (unlikely(!array))
+		goto out;
+	item = &array->items[0];
+	while ((prog = READ_ONCE(item->prog))) {
+		ret &= run_prog(prog, ctx);
+		item++;
+	}
+out:
+	rcu_read_unlock();
+	preempt_enable_no_resched();
+	return ret;
+}
 
 #ifdef CONFIG_BPF_SYSCALL
 DECLARE_PER_CPU(int, bpf_prog_active);
