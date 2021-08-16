@@ -618,4 +618,7 @@ perf_trace_buf_submit(void *raw_data, int size, int rctx, u16 type,
 
 #endif
 
+int perf_event_set_bpf_prog(struct perf_event *event, struct bpf_prog *prog);
+void perf_event_free_bpf_prog(struct perf_event *event);
+
 #endif /* _LINUX_TRACE_EVENT_H */
