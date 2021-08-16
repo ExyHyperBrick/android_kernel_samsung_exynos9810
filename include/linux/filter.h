@@ -580,25 +580,27 @@ struct sk_filter {
 
 DECLARE_STATIC_KEY_FALSE(bpf_stats_enabled_key);
 
-#define BPF_PROG_RUN(prog, ctx)	({					\
-	const struct bpf_prog *__prog = (prog);				\
-	const void *__ctx = (ctx);					\
-	u32 ret;							\
-	cant_sleep();							\
-	if (static_branch_unlikely(&bpf_stats_enabled_key)) {		\
-		struct bpf_prog_stats *stats;				\
-		u64 start = sched_clock();				\
-		ret = (*__prog->bpf_func)(__ctx, __prog->insnsi);	\
-		stats = this_cpu_ptr(__prog->aux->stats);		\
-		u64_stats_update_begin(&stats->syncp);			\
-		stats->cnt++;						\
-		stats->nsecs += sched_clock() - start;			\
-		u64_stats_update_end(&stats->syncp);			\
-	} else {							\
-		ret = (*__prog->bpf_func)(__ctx, __prog->insnsi);	\
-	}								\
-	ret;								\
-})
+static __always_inline u32 bpf_prog_run(const struct bpf_prog *prog,
+					const void *ctx)
+{
+	u32 ret;
+
+	cant_sleep();
+	if (static_branch_unlikely(&bpf_stats_enabled_key)) {
+		struct bpf_prog_stats *stats;
+		u64 start = sched_clock();
+
+		ret = prog->bpf_func(ctx, prog->insnsi);
+		stats = this_cpu_ptr(prog->aux->stats);
+		u64_stats_update_begin(&stats->syncp);
+		stats->cnt++;
+		stats->nsecs += sched_clock() - start;
+		u64_stats_update_end(&stats->syncp);
+	} else {
+		ret = prog->bpf_func(ctx, prog->insnsi);
+	}
+	return ret;
+}
 
 /*
  * Use in preemptible and therefore migratable context to make sure the
@@ -613,7 +615,7 @@ static inline u32 bpf_prog_run_pin_on_cpu(const struct bpf_prog *prog,
 	u32 ret;
 
 	preempt_disable();
-	ret = BPF_PROG_RUN(prog, ctx);
+	ret = bpf_prog_run(prog, ctx);
 	preempt_enable();
 	return ret;
 }
@@ -693,7 +695,7 @@ static inline u32 __bpf_prog_run_save_cb(const struct bpf_prog *prog,
 		memset(cb_data, 0, sizeof(cb_saved));
 	}
 
-	res = BPF_PROG_RUN(prog, skb);
+	res = bpf_prog_run(prog, skb);
 
 	if (unlikely(prog->cb_access))
 		memcpy(cb_data, cb_saved, sizeof(cb_saved));
@@ -734,7 +736,7 @@ static __always_inline u32 bpf_prog_run_xdp(const struct bpf_prog *prog,
 	 * already takes rcu_read_lock() when fetching the program, so
 	 * it's not necessary here anymore.
 	 */
-	return BPF_PROG_RUN(prog, xdp);
+	return bpf_prog_run(prog, xdp);
 }
 
 static inline u32 bpf_prog_insn_size(const struct bpf_prog *prog)
