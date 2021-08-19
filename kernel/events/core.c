@@ -7888,13 +7888,16 @@ static void bpf_overflow_handler(struct perf_event *event,
 		.data = data,
 		.regs = regs,
 	};
+	struct bpf_prog *prog;
 	int ret = 0;
 
 	preempt_disable();
 	if (unlikely(__this_cpu_inc_return(bpf_prog_active) != 1))
 		goto out;
 	rcu_read_lock();
-	ret = BPF_PROG_RUN(event->prog, &ctx);
+	prog = READ_ONCE(event->prog);
+	if (prog)
+		ret = BPF_PROG_RUN(prog, &ctx);
 	rcu_read_unlock();
 out:
 	__this_cpu_dec(bpf_prog_active);
