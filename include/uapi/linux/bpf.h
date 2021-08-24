@@ -1470,6 +1470,12 @@ union bpf_attr {
  *	Return
  *		Value specified by user at BPF link creation/attachment time
  *		or 0, if it was not specified.
+ *
+ * long bpf_task_pt_regs(struct task_struct *task)
+ *	Description
+ *		Get the struct pt_regs associated with **task**.
+ *	Return
+ *		A pointer to struct pt_regs.
  */
 #define __BPF_FUNC_MAPPER(FN)		\
 	FN(unspec),			\
@@ -1648,6 +1654,7 @@ enum bpf_func_id {
 	/* IDs 166-172 belong to feature families not carried yet. */
 	BPF_FUNC_get_func_ip = 173,
 	BPF_FUNC_get_attach_cookie = 174,
+	BPF_FUNC_task_pt_regs = 175,
 	__BPF_FUNC_MAX_ID,
 };
 #undef __BPF_ENUM_FN
