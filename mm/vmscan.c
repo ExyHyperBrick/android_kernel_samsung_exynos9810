@@ -2602,7 +2602,7 @@ out:
 				 */
 				cgroup_size = max(cgroup_size, protection);
 				scan = lruvec_size - lruvec_size * protection /
-					cgroup_size;
+					(cgroup_size + 1);
 
 				/* Keep reclaim progressing at this priority. */
 				scan = max(scan, SWAP_CLUSTER_MAX);
