@@ -2468,6 +2468,10 @@ unsigned int udp_poll(struct file *file, struct socket *sock, poll_table *wait)
 	    !(sk->sk_shutdown & RCV_SHUTDOWN) && first_packet_length(sk) == -1)
 		mask &= ~(POLLIN | POLLRDNORM);
 
+	/* psock ingress_msg queue should not contain bad checksums. */
+	if (sk_is_readable(sk))
+		mask |= POLLIN | POLLRDNORM;
+
 	return mask;
 
 }
