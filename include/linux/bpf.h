@@ -652,6 +652,7 @@ struct bpf_array {
 	 * in the map to make sure that all callers and callees have the same
 	 * prog_type and JITed flag
 	 */
+	spinlock_t owner_lock;
 	enum bpf_prog_type owner_prog_type;
 	bool owner_jited;
 	union {

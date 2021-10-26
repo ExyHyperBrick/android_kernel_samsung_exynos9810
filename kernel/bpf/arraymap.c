@@ -172,6 +172,7 @@ static struct bpf_map *array_map_alloc(union bpf_attr *attr)
 		return ERR_PTR(-ENOMEM);
 	array->index_mask = index_mask;
 	array->map.unpriv_array = unpriv;
+	spin_lock_init(&array->owner_lock);
 
 	/* copy mandatory map attributes */
 	array->map.map_type = attr->map_type;
