@@ -784,25 +784,28 @@ int inet_getname(struct socket *sock, struct sockaddr *uaddr,
 	DECLARE_SOCKADDR(struct sockaddr_in *, sin, uaddr);
 
 	sin->sin_family = AF_INET;
+	lock_sock(sk);
 	if (peer) {
 		if (!inet->inet_dport ||
 		    (((1 << sk->sk_state) & (TCPF_CLOSE | TCPF_SYN_SENT)) &&
-		     peer == 1))
+		     peer == 1)) {
+			release_sock(sk);
 			return -ENOTCONN;
+		}
 		sin->sin_port = inet->inet_dport;
 		sin->sin_addr.s_addr = inet->inet_daddr;
+		BPF_CGROUP_RUN_SA_PROG(sk, (struct sockaddr *)sin,
+				       BPF_CGROUP_INET4_GETPEERNAME);
 	} else {
 		__be32 addr = inet->inet_rcv_saddr;
 		if (!addr)
 			addr = inet->inet_saddr;
 		sin->sin_port = inet->inet_sport;
 		sin->sin_addr.s_addr = addr;
+		BPF_CGROUP_RUN_SA_PROG(sk, (struct sockaddr *)sin,
+				       BPF_CGROUP_INET4_GETSOCKNAME);
 	}
-	if (cgroup_bpf_enabled)
-		BPF_CGROUP_RUN_SA_PROG_LOCK(
-			sk, (struct sockaddr *)sin,
-			peer ? BPF_CGROUP_INET4_GETPEERNAME :
-			       BPF_CGROUP_INET4_GETSOCKNAME, NULL);
+	release_sock(sk);
 	memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
 	*uaddr_len = sizeof(*sin);
 	return 0;
