@@ -1237,7 +1237,7 @@ static void __reg_combine_32_into_64(struct bpf_reg_state *reg)
 
 static bool __reg64_bound_s32(s64 a)
 {
-	if (a > S32_MIN && a < S32_MAX)
+	if (a >= S32_MIN && a <= S32_MAX)
 		return true;
 	return false;
 }
