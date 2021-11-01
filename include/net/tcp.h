@@ -21,6 +21,7 @@
 #define FASTRETRANS_DEBUG 1
 
 #include <linux/list.h>
+#include <linux/bitops.h>
 #include <linux/tcp.h>
 #include <linux/bug.h>
 #include <linux/slab.h>
@@ -841,9 +842,21 @@ static inline void bpf_compute_data_end_sk_skb(struct sk_buff *skb)
 	TCP_SKB_CB(skb)->bpf.data_end = skb->data + skb_headlen(skb);
 }
 
+#define BPF_F_STRPARSER	BIT(1)
+
 static inline bool tcp_skb_bpf_ingress(const struct sk_buff *skb)
 {
 	return TCP_SKB_CB(skb)->bpf.flags & BPF_F_INGRESS;
+}
+
+static inline bool tcp_skb_bpf_strparser(const struct sk_buff *skb)
+{
+	return TCP_SKB_CB(skb)->bpf.flags & BPF_F_STRPARSER;
+}
+
+static inline void tcp_skb_bpf_set_strparser(struct sk_buff *skb)
+{
+	TCP_SKB_CB(skb)->bpf.flags |= BPF_F_STRPARSER;
 }
 
 static inline struct sock *tcp_skb_bpf_redirect_fetch(struct sk_buff *skb)
