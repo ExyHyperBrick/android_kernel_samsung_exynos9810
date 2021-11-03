@@ -93,7 +93,6 @@ struct sk_psock {
 	struct list_head		link;
 	spinlock_t			link_lock;
 	refcount_t			refcnt;
-	void (*saved_unhash)(struct sock *sk);
 	void (*saved_close)(struct sock *sk, long timeout);
 	void (*saved_write_space)(struct sock *sk);
 	struct proto			*sk_proto;
