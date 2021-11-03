@@ -2147,6 +2147,8 @@ int tcp_bpf_sendmsg_redir(struct sock *sk, bool ingress,
 
 int tcp_bpf_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,
 		    int nonblock, int flags, int *addr_len);
+int tcp_bpf_recvmsg_parser(struct sock *sk, struct msghdr *msg, size_t len,
+			   int nonblock, int flags, int *addr_len);
 
 int __tcp_bpf_recvmsg(struct sock *sk, struct sk_psock *psock,
 		      struct msghdr *msg, int len);

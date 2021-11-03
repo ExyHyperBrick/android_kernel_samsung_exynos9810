@@ -100,6 +100,37 @@ int __tcp_bpf_recvmsg(struct sock *sk, struct sk_psock *psock,
 }
 EXPORT_SYMBOL_GPL(__tcp_bpf_recvmsg);
 
+int tcp_bpf_recvmsg_parser(struct sock *sk, struct msghdr *msg, size_t len,
+			   int nonblock, int flags, int *addr_len)
+{
+	struct sk_psock *psock;
+	int copied;
+
+	if (unlikely(flags & MSG_ERRQUEUE))
+		return inet_recv_error(sk, msg, len, addr_len);
+
+	psock = sk_psock_get(sk);
+	if (unlikely(!psock))
+		return tcp_recvmsg(sk, msg, len, nonblock, flags, addr_len);
+
+	lock_sock(sk);
+msg_bytes_ready:
+	copied = __tcp_bpf_recvmsg(sk, psock, msg, len);
+	if (!copied) {
+		int data, err = 0;
+		long timeo;
+
+		timeo = sock_rcvtimeo(sk, nonblock);
+		data = tcp_bpf_wait_data(sk, psock, flags, timeo, &err);
+		if (data && !sk_psock_queue_empty(psock))
+			goto msg_bytes_ready;
+		copied = -EAGAIN;
+	}
+	release_sock(sk);
+	sk_psock_put(sk, psock);
+	return copied;
+}
+
 int tcp_bpf_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,
 		    int nonblock, int flags, int *addr_len)
 {
@@ -574,6 +605,8 @@ enum {
 enum {
 	TCP_BPF_BASE,
 	TCP_BPF_TX,
+	TCP_BPF_RX,
+	TCP_BPF_TXRX,
 	TCP_BPF_NUM_CFGS,
 };
 
@@ -593,6 +626,12 @@ static void tcp_bpf_rebuild_protos(struct proto prot[TCP_BPF_NUM_CFGS],
 	prot[TCP_BPF_TX]			= prot[TCP_BPF_BASE];
 	prot[TCP_BPF_TX].sendmsg		= tcp_bpf_sendmsg;
 	prot[TCP_BPF_TX].sendpage		= tcp_bpf_sendpage;
+
+	prot[TCP_BPF_RX]			= prot[TCP_BPF_BASE];
+	prot[TCP_BPF_RX].recvmsg		= tcp_bpf_recvmsg_parser;
+
+	prot[TCP_BPF_TXRX]			= prot[TCP_BPF_TX];
+	prot[TCP_BPF_TXRX].recvmsg		= tcp_bpf_recvmsg_parser;
 }
 
 static void tcp_bpf_check_v6_needs_rebuild(struct proto *ops)
@@ -620,6 +659,9 @@ static void tcp_bpf_update_sk_prot(struct sock *sk, struct sk_psock *psock)
 	int family = sk->sk_family == AF_INET6 ? TCP_BPF_IPV6 : TCP_BPF_IPV4;
 	int config = psock->progs.msg_parser   ? TCP_BPF_TX   : TCP_BPF_BASE;
 
+	if (psock->progs.skb_verdict)
+		config = config == TCP_BPF_TX ? TCP_BPF_TXRX : TCP_BPF_RX;
+
 	sk_psock_update_proto(sk, psock, &tcp_bpf_prots[family][config]);
 }
 
@@ -627,6 +669,9 @@ static void tcp_bpf_reinit_sk_prot(struct sock *sk, struct sk_psock *psock)
 {
 	int family = sk->sk_family == AF_INET6 ? TCP_BPF_IPV6 : TCP_BPF_IPV4;
 	int config = psock->progs.msg_parser   ? TCP_BPF_TX   : TCP_BPF_BASE;
+
+	if (psock->progs.skb_verdict)
+		config = config == TCP_BPF_TX ? TCP_BPF_TXRX : TCP_BPF_RX;
 
 	/* Reinit occurs when program types change e.g. TCP_BPF_TX is removed
 	 * or added requiring sk_prot hook updates. We keep original saved
