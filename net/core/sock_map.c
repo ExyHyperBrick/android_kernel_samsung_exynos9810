@@ -1300,27 +1300,6 @@ static void sock_map_remove(struct sock *sk, struct sk_psock *psock)
 	}
 }
 
-void sock_map_unhash(struct sock *sk)
-{
-	void (*saved_unhash)(struct sock *sk);
-	struct sk_psock *psock;
-
-	rcu_read_lock();
-	psock = sk_psock(sk);
-	if (unlikely(!psock)) {
-		rcu_read_unlock();
-		if (sk->sk_prot->unhash)
-			sk->sk_prot->unhash(sk);
-		return;
-	}
-
-	saved_unhash = psock->saved_unhash;
-	sock_map_remove(sk, psock);
-	rcu_read_unlock();
-	saved_unhash(sk);
-}
-EXPORT_SYMBOL_GPL(sock_map_unhash);
-
 void sock_map_close(struct sock *sk, long timeout)
 {
 	void (*saved_close)(struct sock *sk, long timeout);
