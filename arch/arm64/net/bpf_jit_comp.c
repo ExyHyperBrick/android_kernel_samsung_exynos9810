@@ -966,10 +966,15 @@ out:
 	return prog;
 }
 
+u64 bpf_jit_alloc_exec_limit(void)
+{
+	return VMALLOC_END - VMALLOC_START;
+}
+
 void *bpf_jit_alloc_exec(unsigned long size)
 {
-	return __vmalloc_node_range(size, PAGE_SIZE, BPF_JIT_REGION_START,
-				    BPF_JIT_REGION_END, GFP_KERNEL,
+	return __vmalloc_node_range(size, PAGE_SIZE, VMALLOC_START,
+				    VMALLOC_END, GFP_KERNEL,
 				    PAGE_KERNEL_EXEC, 0, NUMA_NO_NODE,
 				    __builtin_return_address(0));
 }
