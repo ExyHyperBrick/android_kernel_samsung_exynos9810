@@ -1428,8 +1428,6 @@ static int check_subprogs(struct bpf_verifier_env *env)
 			ret = add_subprog(env, i + insn[i].imm + 1);
 			if (ret < 0)
 				return ret;
-			/* Remember the callback subprogram number. */
-			insn[i + 1].imm = ret;
 			continue;
 		}
 		if (insn[i].code != (BPF_JMP | BPF_CALL))
@@ -7446,7 +7444,8 @@ static int check_ld_imm(struct bpf_verifier_env *env, struct bpf_insn *insn)
 	if (insn->src_reg == BPF_PSEUDO_FUNC) {
 		struct bpf_prog_aux *prog_aux = env->prog->aux;
 		const struct btf_type *type;
-		u32 subprogno = insn[1].imm;
+		u32 subprogno = find_subprog(env,
+					     env->insn_idx + insn->imm + 1);
 
 		if (!prog_aux->func_info ||
 		    subprogno >= prog_aux->func_info_cnt) {
@@ -9949,13 +9948,9 @@ static int jit_subprogs(struct bpf_verifier_env *env)
 		return 0;
 
 	for (i = 0, insn = prog->insnsi; i < prog->len; i++, insn++) {
-		if (bpf_pseudo_func(insn)) {
-			env->insn_aux_data[i].call_imm = insn->imm;
-			/* The callback subprogram is encoded in insn[1].imm. */
-			continue;
-		}
-		if (insn->code != (BPF_JMP | BPF_CALL) ||
-		    insn->src_reg != BPF_PSEUDO_CALL)
+		if (!bpf_pseudo_func(insn) &&
+		    (insn->code != (BPF_JMP | BPF_CALL) ||
+		     insn->src_reg != BPF_PSEUDO_CALL))
 			continue;
 		subprog = find_subprog(env, i + insn->imm + 1);
 		if (subprog < 0) {
@@ -9973,6 +9968,12 @@ static int jit_subprogs(struct bpf_verifier_env *env)
 		env->insn_aux_data[i].call_imm = insn->imm;
 		/* point imm to __bpf_call_base+1 from JITs point of view */
 		insn->imm = 1;
+		if (bpf_pseudo_func(insn))
+			/* The JIT may emit fewer instructions if it learns a
+			 * u32 immediate is the same as a u64 immediate.
+			 * Force a non-zero upper half here.
+			 */
+			insn[1].imm = 1;
 	}
 
 	err = bpf_prog_alloc_jited_linfo(prog);
@@ -10045,7 +10046,7 @@ static int jit_subprogs(struct bpf_verifier_env *env)
 			if (bpf_pseudo_func(insn)) {
 				u64 addr;
 
-				subprog = insn[1].imm;
+				subprog = insn->off;
 				addr = (u64)(unsigned long)
 					func[subprog]->bpf_func;
 				insn[0].imm = (u32)addr;
@@ -10100,7 +10101,8 @@ static int jit_subprogs(struct bpf_verifier_env *env)
 	for (i = 0, insn = prog->insnsi; i < prog->len; i++, insn++) {
 		if (bpf_pseudo_func(insn)) {
 			insn[0].imm = env->insn_aux_data[i].call_imm;
-			insn[1].imm = find_subprog(env, i + insn[0].imm + 1);
+			insn[1].imm = insn->off;
+			insn->off = 0;
 			continue;
 		}
 		if (insn->code != (BPF_JMP | BPF_CALL) ||
