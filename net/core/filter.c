@@ -57,6 +57,7 @@
 #include <net/dst_metadata.h>
 #include <net/dst.h>
 #include <net/sock_reuseport.h>
+#include <net/strparser.h>
 #include <net/busy_poll.h>
 #include <net/tcp.h>
 #include <linux/bpf_trace.h>
@@ -6668,6 +6669,27 @@ static u32 sk_skb_convert_ctx_access(enum bpf_access_type type,
 	case offsetof(struct __sk_buff, data_end):
 		insn = bpf_convert_data_end_access(si, insn);
 		break;
+	case offsetof(struct __sk_buff, cb[0]) ...
+	     offsetofend(struct __sk_buff, cb[4]) - 1: {
+		int off;
+
+		BUILD_BUG_ON(FIELD_SIZEOF(struct sk_skb_cb, data) < 20);
+		BUILD_BUG_ON((offsetof(struct sk_buff, cb) +
+			      offsetof(struct sk_skb_cb, data)) %
+			     sizeof(__u64));
+
+		prog->cb_access = 1;
+		off = si->off - offsetof(struct __sk_buff, cb[0]);
+		off += offsetof(struct sk_buff, cb);
+		off += offsetof(struct sk_skb_cb, data);
+		if (type == BPF_WRITE)
+			*insn++ = BPF_STX_MEM(BPF_SIZE(si->code),
+					      si->dst_reg, si->src_reg, off);
+		else
+			*insn++ = BPF_LDX_MEM(BPF_SIZE(si->code),
+					      si->dst_reg, si->src_reg, off);
+		break;
+	}
 	default:
 		return bpf_convert_ctx_access(type, si, insn_buf, prog,
 					      target_size);
