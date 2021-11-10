@@ -7583,7 +7583,8 @@ static void mark_ptr_or_null_reg(struct bpf_func_state *state,
 				/* Transfer reg's id, which is unique for every
 				 * map_lookup_elem, as UID of the inner map.
 				 */
-				reg->map_uid = reg->id;
+				if (map_value_has_timer(reg->map_ptr))
+					reg->map_uid = reg->id;
 			} else {
 				reg->type = PTR_TO_MAP_VALUE;
 			}
