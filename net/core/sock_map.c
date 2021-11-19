@@ -198,6 +198,10 @@ static int sock_map_link(struct bpf_map *map, struct sk_psock_progs *progs,
 
 	if (msg_parser)
 		psock_set_prog(&psock->progs.msg_parser, msg_parser);
+	if (skb_parser)
+		psock_set_prog(&psock->progs.skb_parser, skb_parser);
+	if (skb_verdict)
+		psock_set_prog(&psock->progs.skb_verdict, skb_verdict);
 	if (sk_psock_is_new) {
 		ret = tcp_bpf_init(sk);
 		if (ret < 0)
@@ -213,8 +217,6 @@ static int sock_map_link(struct bpf_map *map, struct sk_psock_progs *progs,
 			write_unlock_bh(&sk->sk_callback_lock);
 			goto out_drop;
 		}
-		psock_set_prog(&psock->progs.skb_verdict, skb_verdict);
-		psock_set_prog(&psock->progs.skb_parser, skb_parser);
 		sk_psock_start_strp(sk, psock);
 	}
 	write_unlock_bh(&sk->sk_callback_lock);
