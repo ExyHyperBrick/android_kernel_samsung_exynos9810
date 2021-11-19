@@ -130,6 +130,7 @@ static void sock_map_del_link(struct sock *sk,
 	if (strp_stop) {
 		write_lock_bh(&sk->sk_callback_lock);
 		sk_psock_stop_strp(sk, psock);
+		tcp_bpf_reinit(sk);
 		write_unlock_bh(&sk->sk_callback_lock);
 	}
 }
