@@ -826,6 +826,9 @@ void sk_psock_stop_strp(struct sock *sk, struct sk_psock *psock)
 {
 	struct sk_psock_parser *parser = &psock->parser;
 
+	psock_set_prog(&psock->progs.skb_parser, NULL);
+	psock_set_prog(&psock->progs.skb_verdict, NULL);
+
 	if (!parser->enabled)
 		return;
 
