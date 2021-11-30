@@ -60,7 +60,7 @@
 #include <linux/cpufreq.h>
 #endif /* ENABLE_ADAPTIVE_SCHED */
 #include <linux/rtc.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/unaligned.h>
 #include <dhd_linux_priv.h>
 

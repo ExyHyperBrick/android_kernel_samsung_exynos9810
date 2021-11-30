@@ -38,7 +38,7 @@
 #include <linux/log2.h>
 #include <linux/crc16.h>
 #include <linux/cleancache.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/unicode.h>
 
 #include <linux/kthread.h>
