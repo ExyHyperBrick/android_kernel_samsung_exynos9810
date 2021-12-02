@@ -2072,12 +2072,18 @@ static int fuse_bpf_rename(struct inode *olddir, struct dentry *oldent,
 		goto out_old_name;
 	}
 
-	if (flags & ~RENAME_NOREPLACE) {
-		ret = -EOPNOTSUPP;
+	if (flags & ~(RENAME_NOREPLACE | RENAME_EXCHANGE) ||
+	    ((flags & RENAME_NOREPLACE) &&
+	     (flags & RENAME_EXCHANGE))) {
+		ret = -EINVAL;
 		goto out_names;
 	}
 	if ((flags & RENAME_NOREPLACE) && target) {
 		ret = -EEXIST;
+		goto out_names;
+	}
+	if ((flags & RENAME_EXCHANGE) && !target) {
+		ret = -ENOENT;
 		goto out_names;
 	}
 	opcode = flags ? FUSE_RENAME2 : FUSE_RENAME;
@@ -2134,7 +2140,7 @@ retry_rename:
 	if (trap == paths.old_child.dentry)
 		ret = -EINVAL;
 	else if (trap == paths.new_child.dentry)
-		ret = -ENOTEMPTY;
+		ret = flags & RENAME_EXCHANGE ? -EINVAL : -ENOTEMPTY;
 	else
 		ret = fuse_bpf_rename_locked(oldent, newent, old_name,
 					     old_name_len, new_name,
@@ -2167,7 +2173,8 @@ retry_rename:
 	if (olddir != newdir)
 		fuse_bpf_copy_parent_attr(newdir,
 					  d_inode(paths.new_parent.dentry));
-	fuse_replace_backing_path(new_data, &empty_path);
+	if (!(flags & RENAME_EXCHANGE))
+		fuse_replace_backing_path(new_data, &empty_path);
 	fuse_invalidate_entry_cache(oldent);
 	fuse_invalidate_entry_cache(newent);
 
@@ -2251,18 +2258,25 @@ static int fuse_rename2(struct inode *olddir, struct dentry *oldent,
 		return -EINVAL;
 
 #ifdef CONFIG_FUSE_BPF
+	if ((flags & RENAME_NOREPLACE) && (flags & RENAME_EXCHANGE))
+		return -EINVAL;
+
 	if (fuse_inode_has_backing(olddir) ||
 	    fuse_inode_has_backing(newdir) ||
 	    (d_really_is_positive(oldent) &&
 	     fuse_inode_has_backing(d_inode(oldent))) ||
 	    (d_really_is_positive(newent) &&
 	     fuse_inode_has_backing(d_inode(newent)))) {
-		if ((flags & ~RENAME_NOREPLACE) ||
+		if ((flags & ~(RENAME_NOREPLACE | RENAME_EXCHANGE)) ||
 		    !fuse_inode_has_backing(olddir) ||
 		    !fuse_inode_has_backing(newdir) ||
 		    !d_really_is_positive(oldent) ||
 		    !fuse_inode_has_backing(d_inode(oldent)) ||
-		    (d_really_is_positive(newent) &&
+		    ((flags & RENAME_EXCHANGE) &&
+		     (!d_really_is_positive(newent) ||
+		      !fuse_inode_has_backing(d_inode(newent)))) ||
+		    (!(flags & RENAME_EXCHANGE) &&
+		     d_really_is_positive(newent) &&
 		     !fuse_inode_has_backing(d_inode(newent))))
 			return -EOPNOTSUPP;
 		return fuse_bpf_rename(olddir, oldent, newdir, newent,
