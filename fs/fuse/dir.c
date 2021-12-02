@@ -595,6 +595,11 @@ out_err:
 }
 
 static int fuse_mknod(struct inode *, struct dentry *, umode_t, dev_t);
+#ifdef CONFIG_FUSE_BPF
+static int fuse_bpf_create_open(struct inode *dir, struct dentry *entry,
+				struct file *file, unsigned int flags,
+				umode_t mode, int *opened);
+#endif
 static int fuse_atomic_open(struct inode *dir, struct dentry *entry,
 			    struct file *file, unsigned flags,
 			    umode_t mode, int *opened)
@@ -621,7 +626,8 @@ static int fuse_atomic_open(struct inode *dir, struct dentry *entry,
 	/* Only creates */
 #ifdef CONFIG_FUSE_BPF
 	if (fuse_inode_has_backing(dir)) {
-		err = -EOPNOTSUPP;
+		err = fuse_bpf_create_open(dir, entry, file, flags,
+					   mode, opened);
 		goto out_dput;
 	}
 #endif
@@ -1139,6 +1145,178 @@ out_write:
 	if (ret && created) {
 		rollback = fuse_bpf_rollback_create(&parent_path,
 					    &child_path, true);
+		if (rollback)
+			fuse_invalidate_entry_cache(entry);
+		fuse_bpf_copy_parent_attr(dir, backing_dir);
+	}
+	mnt_drop_write(parent_path.mnt);
+out_paths:
+	fuse_put_backing_path(&child_path);
+	fuse_put_backing_path(&parent_path);
+out_name:
+	kfree(name);
+	return ret;
+}
+
+static int fuse_bpf_open_created(struct inode *inode, struct file *file)
+{
+	struct fuse_open_in in = { };
+	struct fuse_open_out out = { };
+	struct fuse_bpf_args args = { };
+	int ret;
+
+	ret = generic_file_open(inode, file);
+	if (ret)
+		return ret;
+
+	in.flags = file->f_flags &
+		~(O_CREAT | O_EXCL | O_NOCTTY | O_TRUNC);
+	args.nodeid = get_node_id(inode);
+	args.opcode = FUSE_OPEN;
+	args.in_numargs = 1;
+	args.out_numargs = 1;
+	args.in_args[0].size = sizeof(in);
+	args.in_args[0].value = &in;
+	args.out_args[0].size = sizeof(out);
+	args.out_args[0].value = &out;
+	return fuse_open_backing(&args, inode, file, false);
+}
+
+static int fuse_bpf_create_open(struct inode *dir, struct dentry *entry,
+				struct file *file, unsigned int flags,
+				umode_t mode, int *opened)
+{
+	struct fuse_conn *fc = get_fuse_conn(dir);
+	struct fuse_create_in inarg = { };
+	struct fuse_create_in original;
+	struct fuse_entry_out outentry = { };
+	struct fuse_open_out outopen = { };
+	struct fuse_bpf_args args = { };
+	struct fuse_bpf_args backup = { };
+	struct path parent_path = { };
+	struct path child_path = { };
+	struct inode *backing_dir;
+	struct inode *backing_inode;
+	struct fuse_file *ff;
+	char *name;
+	size_t name_len;
+	bool created = false;
+	int rollback;
+	int ret;
+
+	if ((mode & S_IFMT) != S_IFREG)
+		return -EINVAL;
+	if (!fc->dont_mask)
+		mode &= ~current_umask();
+
+	name = fuse_bpf_create_name(entry, &name_len);
+	if (IS_ERR(name))
+		return PTR_ERR(name);
+	inarg.flags = file->f_flags & ~(O_CREAT | O_EXCL | O_NOCTTY);
+	if (!fc->atomic_o_trunc)
+		inarg.flags &= ~O_TRUNC;
+	inarg.mode = mode;
+	inarg.umask = current_umask();
+	original = inarg;
+
+	args.nodeid = get_node_id(dir);
+	args.opcode = FUSE_CREATE;
+	args.in_numargs = 2;
+	args.out_numargs = 2;
+	args.in_args[0].size = sizeof(inarg);
+	args.in_args[0].value = &inarg;
+	args.in_args[1].size = name_len;
+	args.in_args[1].value = name;
+	args.out_args[0].size = sizeof(outentry);
+	args.out_args[0].value = &outentry;
+	args.out_args[1].size = sizeof(outopen);
+	args.out_args[1].value = &outopen;
+
+	ret = fuse_bpf_prepare_lower_only(dir, &args, &backup);
+	if (ret)
+		goto out_name;
+	if (args.opcode != FUSE_CREATE ||
+	    args.nodeid != get_node_id(dir) || args.flags ||
+	    args.in_numargs != 2 || args.out_numargs != 2 ||
+	    args.error_in || args.in_args[0].value != &inarg ||
+	    args.in_args[1].value != name ||
+	    args.out_args[0].value != &outentry ||
+	    args.out_args[1].value != &outopen ||
+	    args.in_args[0].size != sizeof(inarg) ||
+	    args.in_args[1].size != name_len ||
+	    args.out_args[0].size != sizeof(outentry) ||
+	    args.out_args[1].size != sizeof(outopen) ||
+	    args.in_args[0].end_offset !=
+			(char *)&inarg + sizeof(inarg) ||
+	    args.in_args[1].end_offset != name + name_len ||
+	    args.out_args[0].end_offset !=
+			(char *)&outentry + sizeof(outentry) ||
+	    args.out_args[1].end_offset !=
+			(char *)&outopen + sizeof(outopen) ||
+	    memcmp(&inarg, &original, sizeof(inarg)) ||
+	    name[name_len - 1] ||
+	    memcmp(name, entry->d_name.name, name_len - 1)) {
+		ret = -EOPNOTSUPP;
+		goto out_name;
+	}
+
+	ret = fuse_bpf_create_paths(dir, entry, &parent_path,
+				    &child_path);
+	if (ret)
+		goto out_name;
+	backing_dir = d_inode(parent_path.dentry);
+	ret = mnt_want_write(parent_path.mnt);
+	if (ret)
+		goto out_paths;
+
+	inode_lock_nested(backing_dir, I_MUTEX_PARENT);
+	backing_inode = d_inode(child_path.dentry);
+	if (backing_inode) {
+		if (flags & O_EXCL)
+			ret = -EEXIST;
+		else if (!S_ISREG(backing_inode->i_mode))
+			ret = S_ISDIR(backing_inode->i_mode) ?
+				-EISDIR : -EOPNOTSUPP;
+		else
+			ret = 0;
+	} else {
+		ret = vfs_create2(parent_path.mnt, backing_dir,
+				  child_path.dentry, mode,
+				  !!(flags & O_EXCL));
+		if (!ret)
+			created = true;
+	}
+	inode_unlock(backing_dir);
+	if (ret)
+		goto out_write;
+
+	ret = fuse_bpf_finish_create(dir, entry, &parent_path,
+				     &child_path, S_IFREG);
+	if (ret)
+		goto out_write;
+
+	mnt_drop_write(parent_path.mnt);
+	fuse_put_backing_path(&child_path);
+	fuse_put_backing_path(&parent_path);
+	kfree(name);
+
+	if (created)
+		*opened |= FILE_CREATED;
+	ret = finish_open(file, entry, fuse_bpf_open_created, opened);
+	if (ret)
+		return ret;
+
+	ff = file->private_data;
+	ff->fh = outopen.fh;
+	ff->nodeid = get_node_id(d_inode(entry));
+	ff->open_flags = outopen.open_flags;
+	fuse_finish_open(d_inode(entry), file);
+	return 0;
+
+out_write:
+	if (ret && created) {
+		rollback = fuse_bpf_rollback_create(&parent_path,
+					    &child_path, false);
 		if (rollback)
 			fuse_invalidate_entry_cache(entry);
 		fuse_bpf_copy_parent_attr(dir, backing_dir);
