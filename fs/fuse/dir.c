@@ -1518,6 +1518,201 @@ static int parse_dirplusfile(char *buf, size_t nbytes, struct file *file,
 	return 0;
 }
 
+#ifdef CONFIG_FUSE_BPF
+struct fuse_bpf_readdir_io {
+	struct fuse_read_in in;
+	struct fuse_read_out out;
+	char *page;
+	loff_t original_pos;
+	loff_t lower_end;
+	size_t bytes;
+	bool executed;
+};
+
+struct fuse_bpf_readdir_ctx {
+	struct dir_context ctx;
+	char *page;
+	size_t bytes;
+	int error;
+};
+
+static int fuse_bpf_readdir_fill(struct dir_context *ctx, const char *name,
+				 int namelen, loff_t offset, u64 ino,
+				 unsigned int type)
+{
+	struct fuse_bpf_readdir_ctx *buffer =
+		container_of(ctx, struct fuse_bpf_readdir_ctx, ctx);
+	struct fuse_dirent *dirent;
+	size_t reclen;
+
+	if (namelen <= 0 || namelen > FUSE_NAME_MAX ||
+	    memchr(name, '/', namelen)) {
+		buffer->error = -EIO;
+		return -EIO;
+	}
+
+	reclen = FUSE_DIRENT_ALIGN(FUSE_NAME_OFFSET + namelen);
+	if (reclen > PAGE_SIZE - buffer->bytes)
+		return 1;
+
+	dirent = (struct fuse_dirent *)(buffer->page + buffer->bytes);
+	memset(dirent, 0, reclen);
+	dirent->ino = ino;
+	dirent->off = offset;
+	dirent->namelen = namelen;
+	dirent->type = type;
+	memcpy(dirent->name, name, namelen);
+	buffer->bytes += reclen;
+	return 0;
+}
+
+static int fuse_bpf_readdir_lower(struct file *file,
+				  struct fuse_bpf_args *args,
+				  struct fuse_bpf_readdir_io *io)
+{
+	struct fuse_file *ff = file->private_data;
+	struct file *backing_file = ff ? ff->backing_file : NULL;
+	struct fuse_read_in *in;
+	struct fuse_read_out *out;
+	struct fuse_bpf_readdir_ctx buffer = {
+		.ctx.actor = fuse_bpf_readdir_fill,
+		.ctx.pos = io->original_pos,
+		.page = io->page,
+	};
+	int ret;
+
+	if (!backing_file || !S_ISDIR(file_inode(backing_file)->i_mode))
+		return -EBADF;
+	if (file_inode(backing_file) == file_inode(file))
+		return -ELOOP;
+	if (args->opcode != FUSE_READDIR || args->nodeid != ff->nodeid ||
+	    args->flags != FUSE_BPF_OUT_ARGVAR ||
+	    args->in_numargs != 1 || args->out_numargs != 2 ||
+	    !args->in_args[0].value || !args->out_args[0].value ||
+	    args->out_args[1].value != io->page ||
+	    args->in_args[0].size != sizeof(*in) ||
+	    args->out_args[0].size != sizeof(*out) ||
+	    args->out_args[1].size != PAGE_SIZE)
+		return -EINVAL;
+
+	in = (struct fuse_read_in *)args->in_args[0].value;
+	out = args->out_args[0].value;
+	if (in != &io->in || out != &io->out || in->fh != ff->fh ||
+	    in->offset != (u64)io->original_pos || in->size != PAGE_SIZE ||
+	    in->read_flags || in->lock_owner || in->flags || in->padding ||
+	    out->offset != (u64)io->original_pos || out->again || out->padding)
+		return -EOPNOTSUPP;
+
+	backing_file->f_pos = io->original_pos;
+	io->executed = true;
+	ret = iterate_dir(backing_file, &buffer.ctx);
+	if (!ret && buffer.error)
+		ret = buffer.error;
+	if (!ret && buffer.ctx.pos < 0)
+		ret = -EIO;
+
+	io->lower_end = buffer.ctx.pos;
+	io->bytes = buffer.bytes;
+	io->out.offset = (u64)buffer.ctx.pos;
+	args->out_args[1].size = buffer.bytes;
+	args->out_args[1].end_offset = io->page + buffer.bytes;
+	return ret;
+}
+
+static int fuse_bpf_readdir(struct file *file, struct dir_context *ctx)
+{
+	struct inode *inode = file_inode(file);
+	struct fuse_inode *fi = get_fuse_inode(inode);
+	struct fuse_conn *fc = get_fuse_conn(inode);
+	struct fuse_file *ff = file->private_data;
+	struct fuse_bpf_readdir_io io = { };
+	struct fuse_bpf_args args = { };
+	struct fuse_bpf_args backup = { };
+	struct bpf_prog *prog;
+	int actions;
+	int ret;
+
+	if (!ff || !ff->backing_file)
+		return -EBADF;
+	if (ctx->pos < 0)
+		return -EINVAL;
+
+	io.page = (char *)get_zeroed_page(GFP_KERNEL);
+	if (!io.page)
+		return -ENOMEM;
+	io.original_pos = ctx->pos;
+	io.out.offset = ctx->pos;
+	io.in.fh = ff->fh;
+	io.in.offset = ctx->pos;
+	io.in.size = PAGE_SIZE;
+
+	args.nodeid = ff->nodeid;
+	args.opcode = FUSE_READDIR;
+	args.in_numargs = 1;
+	args.out_numargs = 2;
+	args.flags = FUSE_BPF_OUT_ARGVAR;
+	args.in_args[0].size = sizeof(io.in);
+	args.in_args[0].value = &io.in;
+	args.out_args[0].size = sizeof(io.out);
+	args.out_args[0].value = &io.out;
+	args.out_args[1].size = PAGE_SIZE;
+	args.out_args[1].value = io.page;
+
+	prog = fuse_bpf_get_prog(fc, fi);
+	ret = fuse_bpf_prepare_prefilter(&args, &backup);
+	if (ret)
+		goto out;
+
+	actions = prog ? fuse_bpf_run_filter(prog, &args) :
+			 FUSE_BPF_BACKING;
+	if (actions < 0) {
+		ret = actions;
+		goto out;
+	}
+	/* Result rewriting and daemon continuation are added separately. */
+	if (actions != FUSE_BPF_BACKING) {
+		ret = -EOPNOTSUPP;
+		goto out;
+	}
+
+	ret = fuse_bpf_prepare_backing(&args, &backup);
+	if (ret)
+		goto out;
+	ret = fuse_bpf_readdir_lower(file, &args, &io);
+	if (ret)
+		goto out_rewind;
+
+	if (args.opcode != FUSE_READDIR || args.nodeid != ff->nodeid ||
+	    args.flags != FUSE_BPF_OUT_ARGVAR ||
+	    args.in_numargs != 1 || args.out_numargs != 2 ||
+	    args.out_args[0].value != &io.out ||
+	    args.out_args[0].size != sizeof(io.out) ||
+	    args.out_args[1].value != io.page ||
+	    args.out_args[1].size != io.bytes ||
+	    io.out.offset != (u64)io.lower_end || io.out.again ||
+	    io.out.padding) {
+		ret = -EIO;
+		goto out_rewind;
+	}
+
+	ret = fuse_parse_dirfile(io.page, io.bytes, file, ctx);
+	if (ret)
+		goto out_rewind;
+	ff->backing_file->f_pos = ctx->pos;
+	goto out;
+
+out_rewind:
+	ff->backing_file->f_pos = io.original_pos;
+out:
+	if (prog)
+		bpf_prog_put(prog);
+	free_page((unsigned long)io.page);
+	if (io.executed)
+		fuse_invalidate_atime(inode);
+	return ret;
+}
+#endif
+
 static int fuse_readdir(struct file *file, struct dir_context *ctx)
 {
 	int plus, err;
@@ -1534,7 +1729,7 @@ static int fuse_readdir(struct file *file, struct dir_context *ctx)
 
 #ifdef CONFIG_FUSE_BPF
 	if (fuse_file_has_backing(file))
-		return -EOPNOTSUPP;
+		return fuse_bpf_readdir(file, ctx);
 #endif
 
 	req = fuse_get_req(fc, 1);
