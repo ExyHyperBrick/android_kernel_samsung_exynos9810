@@ -707,6 +707,13 @@ static int create_new_entry(struct fuse_conn *fc, struct fuse_args *args,
 	return err;
 }
 
+#ifdef CONFIG_FUSE_BPF
+static int fuse_bpf_mknod(struct inode *dir, struct dentry *entry,
+			  umode_t mode, dev_t rdev, bool excl);
+static int fuse_bpf_mkdir(struct inode *dir, struct dentry *entry,
+			  umode_t mode);
+#endif
+
 static int fuse_mknod(struct inode *dir, struct dentry *entry, umode_t mode,
 		      dev_t rdev)
 {
@@ -716,6 +723,11 @@ static int fuse_mknod(struct inode *dir, struct dentry *entry, umode_t mode,
 
 	if (!fc->dont_mask)
 		mode &= ~current_umask();
+
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(dir))
+		return fuse_bpf_mknod(dir, entry, mode, rdev, true);
+#endif
 
 	memset(&inarg, 0, sizeof(inarg));
 	inarg.mode = mode;
@@ -733,6 +745,10 @@ static int fuse_mknod(struct inode *dir, struct dentry *entry, umode_t mode,
 static int fuse_create(struct inode *dir, struct dentry *entry, umode_t mode,
 		       bool excl)
 {
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(dir))
+		return fuse_bpf_mknod(dir, entry, mode, 0, excl);
+#endif
 	return fuse_mknod(dir, entry, mode, 0);
 }
 
@@ -744,6 +760,11 @@ static int fuse_mkdir(struct inode *dir, struct dentry *entry, umode_t mode)
 
 	if (!fc->dont_mask)
 		mode &= ~current_umask();
+
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(dir))
+		return fuse_bpf_mkdir(dir, entry, mode);
+#endif
 
 	memset(&inarg, 0, sizeof(inarg));
 	inarg.mode = mode;
@@ -886,6 +907,248 @@ static int fuse_bpf_rollback_create(const struct path *parent_path,
 		ret = vfs_unlink2(parent_path->mnt, backing_dir,
 				  child_path->dentry, NULL);
 	inode_unlock(backing_dir);
+	return ret;
+}
+
+static int fuse_bpf_finish_create(struct inode *dir, struct dentry *entry,
+				  const struct path *parent_path,
+				  const struct path *child_path,
+				  umode_t type)
+{
+	struct inode *backing_dir = d_inode(parent_path->dentry);
+	struct inode *backing_inode = d_inode(child_path->dentry);
+	struct fuse_entry_bpf bpf_entry = { };
+	struct inode *inode;
+	int ret;
+
+	if (!backing_dir || !backing_inode ||
+	    (backing_inode->i_mode & S_IFMT) != type ||
+	    unlikely(d_unhashed(child_path->dentry)))
+		return -EIO;
+
+	inode = fuse_iget_backing(dir->i_sb, 0, backing_inode,
+				  child_path->mnt);
+	if (!inode)
+		return -ENOMEM;
+	ret = fuse_handle_bpf_prog(&bpf_entry, dir,
+				   &get_fuse_inode(inode)->bpf);
+	if (ret) {
+		iput(inode);
+		return ret;
+	}
+	ret = d_instantiate_no_diralias(entry, inode);
+	if (ret)
+		return ret;
+
+	fuse_bpf_copy_parent_attr(dir, backing_dir);
+	fuse_invalidate_entry_cache(entry);
+	return 0;
+}
+
+static char *fuse_bpf_create_name(struct dentry *entry, size_t *name_len)
+{
+	char *name;
+
+	if (!entry->d_name.len || entry->d_name.len > FUSE_NAME_MAX)
+		return ERR_PTR(-ENAMETOOLONG);
+	*name_len = entry->d_name.len + 1;
+	name = kmalloc(*name_len, GFP_KERNEL);
+	if (!name)
+		return ERR_PTR(-ENOMEM);
+	memcpy(name, entry->d_name.name, entry->d_name.len);
+	name[entry->d_name.len] = '\0';
+	return name;
+}
+
+static int fuse_bpf_mknod(struct inode *dir, struct dentry *entry,
+			  umode_t mode, dev_t rdev, bool excl)
+{
+	struct fuse_conn *fc = get_fuse_conn(dir);
+	struct fuse_mknod_in inarg = { };
+	struct fuse_mknod_in original;
+	struct fuse_bpf_args args = { };
+	struct fuse_bpf_args backup = { };
+	struct path parent_path = { };
+	struct path child_path = { };
+	struct inode *backing_dir;
+	char *name;
+	size_t name_len;
+	bool created = false;
+	int rollback;
+	int ret;
+
+	if (!fc->dont_mask)
+		mode &= ~current_umask();
+	switch (mode & S_IFMT) {
+	case S_IFREG:
+	case S_IFCHR:
+	case S_IFBLK:
+	case S_IFIFO:
+	case S_IFSOCK:
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	name = fuse_bpf_create_name(entry, &name_len);
+	if (IS_ERR(name))
+		return PTR_ERR(name);
+	inarg.mode = mode;
+	inarg.rdev = new_encode_dev(rdev);
+	inarg.umask = current_umask();
+	original = inarg;
+	args.nodeid = get_node_id(dir);
+	args.opcode = FUSE_MKNOD;
+	args.in_numargs = 2;
+	args.in_args[0].size = sizeof(inarg);
+	args.in_args[0].value = &inarg;
+	args.in_args[1].size = name_len;
+	args.in_args[1].value = name;
+
+	ret = fuse_bpf_prepare_lower_only(dir, &args, &backup);
+	if (ret)
+		goto out_name;
+	if (args.opcode != FUSE_MKNOD ||
+	    args.nodeid != get_node_id(dir) || args.flags ||
+	    args.in_numargs != 2 || args.out_numargs || args.error_in ||
+	    args.in_args[0].value != &inarg ||
+	    args.in_args[1].value != name ||
+	    args.in_args[0].size != sizeof(inarg) ||
+	    args.in_args[1].size != name_len ||
+	    args.in_args[0].end_offset != (char *)&inarg + sizeof(inarg) ||
+	    args.in_args[1].end_offset != name + name_len ||
+	    memcmp(&inarg, &original, sizeof(inarg)) ||
+	    name[name_len - 1] ||
+	    memcmp(name, entry->d_name.name, name_len - 1)) {
+		ret = -EOPNOTSUPP;
+		goto out_name;
+	}
+
+	ret = fuse_bpf_create_paths(dir, entry, &parent_path,
+				    &child_path);
+	if (ret)
+		goto out_name;
+	backing_dir = d_inode(parent_path.dentry);
+	ret = mnt_want_write(parent_path.mnt);
+	if (ret)
+		goto out_paths;
+
+	inode_lock_nested(backing_dir, I_MUTEX_PARENT);
+	if (S_ISREG(mode))
+		ret = vfs_create2(parent_path.mnt, backing_dir,
+				  child_path.dentry, mode, excl);
+	else
+		ret = vfs_mknod2(parent_path.mnt, backing_dir,
+				 child_path.dentry, mode, rdev);
+	inode_unlock(backing_dir);
+	if (ret)
+		goto out_write;
+	created = true;
+
+	ret = fuse_bpf_finish_create(dir, entry, &parent_path,
+				     &child_path, mode & S_IFMT);
+out_write:
+	if (ret && created) {
+		rollback = fuse_bpf_rollback_create(&parent_path,
+					    &child_path, false);
+		if (rollback)
+			fuse_invalidate_entry_cache(entry);
+		fuse_bpf_copy_parent_attr(dir, backing_dir);
+	}
+	mnt_drop_write(parent_path.mnt);
+out_paths:
+	fuse_put_backing_path(&child_path);
+	fuse_put_backing_path(&parent_path);
+out_name:
+	kfree(name);
+	return ret;
+}
+
+static int fuse_bpf_mkdir(struct inode *dir, struct dentry *entry,
+			  umode_t mode)
+{
+	struct fuse_conn *fc = get_fuse_conn(dir);
+	struct fuse_mkdir_in inarg = { };
+	struct fuse_mkdir_in original;
+	struct fuse_bpf_args args = { };
+	struct fuse_bpf_args backup = { };
+	struct path parent_path = { };
+	struct path child_path = { };
+	struct inode *backing_dir;
+	char *name;
+	size_t name_len;
+	bool created = false;
+	int rollback;
+	int ret;
+
+	if (!fc->dont_mask)
+		mode &= ~current_umask();
+	name = fuse_bpf_create_name(entry, &name_len);
+	if (IS_ERR(name))
+		return PTR_ERR(name);
+	inarg.mode = mode;
+	inarg.umask = current_umask();
+	original = inarg;
+	args.nodeid = get_node_id(dir);
+	args.opcode = FUSE_MKDIR;
+	args.in_numargs = 2;
+	args.in_args[0].size = sizeof(inarg);
+	args.in_args[0].value = &inarg;
+	args.in_args[1].size = name_len;
+	args.in_args[1].value = name;
+
+	ret = fuse_bpf_prepare_lower_only(dir, &args, &backup);
+	if (ret)
+		goto out_name;
+	if (args.opcode != FUSE_MKDIR ||
+	    args.nodeid != get_node_id(dir) || args.flags ||
+	    args.in_numargs != 2 || args.out_numargs || args.error_in ||
+	    args.in_args[0].value != &inarg ||
+	    args.in_args[1].value != name ||
+	    args.in_args[0].size != sizeof(inarg) ||
+	    args.in_args[1].size != name_len ||
+	    args.in_args[0].end_offset != (char *)&inarg + sizeof(inarg) ||
+	    args.in_args[1].end_offset != name + name_len ||
+	    memcmp(&inarg, &original, sizeof(inarg)) ||
+	    name[name_len - 1] ||
+	    memcmp(name, entry->d_name.name, name_len - 1)) {
+		ret = -EOPNOTSUPP;
+		goto out_name;
+	}
+
+	ret = fuse_bpf_create_paths(dir, entry, &parent_path,
+				    &child_path);
+	if (ret)
+		goto out_name;
+	backing_dir = d_inode(parent_path.dentry);
+	ret = mnt_want_write(parent_path.mnt);
+	if (ret)
+		goto out_paths;
+
+	inode_lock_nested(backing_dir, I_MUTEX_PARENT);
+	ret = vfs_mkdir2(parent_path.mnt, backing_dir,
+			 child_path.dentry, mode);
+	inode_unlock(backing_dir);
+	if (ret)
+		goto out_write;
+	created = true;
+
+	ret = fuse_bpf_finish_create(dir, entry, &parent_path,
+				     &child_path, S_IFDIR);
+out_write:
+	if (ret && created) {
+		rollback = fuse_bpf_rollback_create(&parent_path,
+					    &child_path, true);
+		if (rollback)
+			fuse_invalidate_entry_cache(entry);
+		fuse_bpf_copy_parent_attr(dir, backing_dir);
+	}
+	mnt_drop_write(parent_path.mnt);
+out_paths:
+	fuse_put_backing_path(&child_path);
+	fuse_put_backing_path(&parent_path);
+out_name:
+	kfree(name);
 	return ret;
 }
 
