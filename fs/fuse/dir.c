@@ -1535,7 +1535,7 @@ static int fuse_bpf_remove_paths(struct inode *dir, struct dentry *entry,
 	return 0;
 }
 
-static void fuse_bpf_copy_removed_attr(struct inode *inode,
+static void fuse_bpf_sync_link_attr(struct inode *inode,
 				       struct inode *backing_inode)
 {
 	struct fuse_conn *fc = get_fuse_conn(inode);
@@ -1624,7 +1624,7 @@ retry_unlink:
 	if (ret)
 		goto out_inode;
 
-	fuse_bpf_copy_removed_attr(d_inode(entry), backing_inode);
+	fuse_bpf_sync_link_attr(d_inode(entry), backing_inode);
 	fuse_bpf_copy_parent_attr(dir, backing_dir);
 	fuse_invalidate_entry_cache(entry);
 
@@ -1633,6 +1633,164 @@ out_inode:
 	fuse_put_backing_path(&child_path);
 	fuse_put_backing_path(&parent_path);
 out_name:
+	kfree(name);
+	return ret;
+}
+
+static int fuse_bpf_link_paths(struct dentry *entry,
+			       struct inode *newdir,
+			       struct dentry *newent,
+			       struct path *source_path,
+			       struct path *parent_path,
+			       struct path *child_path)
+{
+	struct inode *inode = d_inode(entry);
+	struct fuse_inode *fi;
+	struct inode *backing_inode;
+	struct inode *backing_dir;
+	int ret;
+
+	*source_path = (struct path) { };
+	if (!inode || S_ISDIR(inode->i_mode) ||
+	    inode->i_sb != newdir->i_sb)
+		return -EXDEV;
+	fi = get_fuse_inode(inode);
+	if (!fi->backing_inode || !fi->backing_mnt)
+		return -EOPNOTSUPP;
+
+	ret = fuse_bpf_create_paths(newdir, newent, parent_path,
+				    child_path);
+	if (ret)
+		return ret;
+	if (!get_fuse_backing_path(entry, source_path)) {
+		ret = -EBADF;
+		goto out_paths;
+	}
+
+	backing_inode = d_inode(source_path->dentry);
+	backing_dir = d_inode(parent_path->dentry);
+	if (!backing_inode || !backing_dir ||
+	    backing_inode == inode || backing_dir == newdir ||
+	    backing_inode != fi->backing_inode ||
+	    source_path->mnt != fi->backing_mnt ||
+	    source_path->mnt != parent_path->mnt ||
+	    source_path->dentry == child_path->dentry ||
+	    unlikely(d_unhashed(source_path->dentry)) ||
+	    S_ISDIR(backing_inode->i_mode) ||
+	    ((backing_inode->i_mode ^ inode->i_mode) & S_IFMT) ||
+	    backing_inode->i_sb != backing_dir->i_sb) {
+		ret = -ESTALE;
+		goto out_source;
+	}
+	return 0;
+
+ out_source:
+	fuse_put_backing_path(source_path);
+ out_paths:
+	fuse_put_backing_path(child_path);
+	fuse_put_backing_path(parent_path);
+	return ret;
+}
+
+static int fuse_bpf_link(struct dentry *entry, struct inode *newdir,
+			 struct dentry *newent)
+{
+	struct inode *inode = d_inode(entry);
+	struct fuse_link_in inarg = { };
+	struct fuse_link_in original;
+	struct fuse_bpf_args args = { };
+	struct fuse_bpf_args backup = { };
+	struct path source_path = { };
+	struct path parent_path = { };
+	struct path child_path = { };
+	struct inode *backing_inode;
+	struct inode *backing_dir;
+	struct inode *linked_inode = NULL;
+	struct inode *delegated_inode = NULL;
+	char *name;
+	size_t name_len;
+	int ret;
+
+	name = fuse_bpf_create_name(newent, &name_len);
+	if (IS_ERR(name))
+		return PTR_ERR(name);
+	inarg.oldnodeid = get_node_id(inode);
+	original = inarg;
+	args.nodeid = get_node_id(newdir);
+	args.opcode = FUSE_LINK;
+	args.in_numargs = 2;
+	args.in_args[0].size = sizeof(inarg);
+	args.in_args[0].value = &inarg;
+	args.in_args[1].size = name_len;
+	args.in_args[1].value = name;
+
+	ret = fuse_bpf_prepare_lower_only(newdir, &args, &backup);
+	if (ret)
+		goto out_name;
+	if (args.opcode != FUSE_LINK ||
+	    args.nodeid != get_node_id(newdir) || args.flags ||
+	    args.in_numargs != 2 || args.out_numargs || args.error_in ||
+	    args.in_args[0].value != &inarg ||
+	    args.in_args[1].value != name ||
+	    args.in_args[0].size != sizeof(inarg) ||
+	    args.in_args[1].size != name_len ||
+	    args.in_args[0].end_offset !=
+			(char *)&inarg + sizeof(inarg) ||
+	    args.in_args[1].end_offset != name + name_len ||
+	    memcmp(&inarg, &original, sizeof(inarg)) ||
+	    name[name_len - 1] ||
+	    memcmp(name, newent->d_name.name, name_len - 1)) {
+		ret = -EOPNOTSUPP;
+		goto out_name;
+	}
+
+	ret = fuse_bpf_link_paths(entry, newdir, newent, &source_path,
+				  &parent_path, &child_path);
+	if (ret)
+		goto out_name;
+	backing_inode = d_inode(source_path.dentry);
+	backing_dir = d_inode(parent_path.dentry);
+	linked_inode = igrab(inode);
+	if (!linked_inode) {
+		ret = -ENOENT;
+		goto out_paths;
+	}
+
+	ret = mnt_want_write(parent_path.mnt);
+	if (ret)
+		goto out_inode;
+ retry_link:
+	inode_lock_nested(backing_dir, I_MUTEX_PARENT);
+	ret = vfs_link2(parent_path.mnt, source_path.dentry,
+			backing_dir, child_path.dentry, &delegated_inode);
+	inode_unlock(backing_dir);
+	if (delegated_inode) {
+		int delegated_ret;
+
+		delegated_ret = break_deleg_wait(&delegated_inode);
+		if (!delegated_ret)
+			goto retry_link;
+		ret = delegated_ret;
+	}
+	mnt_drop_write(parent_path.mnt);
+	if (ret)
+		goto out_inode;
+
+	d_instantiate(newent, linked_inode);
+	linked_inode = NULL;
+	fuse_bpf_sync_link_attr(inode, backing_inode);
+	fuse_bpf_copy_parent_attr(newdir, backing_dir);
+	fuse_invalidate_entry_cache(newent);
+	ret = 0;
+
+ out_inode:
+	if (linked_inode)
+		iput(linked_inode);
+ out_paths:
+	fuse_put_backing_path(&source_path);
+	fuse_put_backing_path(&child_path);
+	fuse_put_backing_path(&parent_path);
+ out_name:
 	kfree(name);
 	return ret;
 }
@@ -1832,8 +1990,13 @@ static int fuse_link(struct dentry *entry, struct inode *newdir,
 
 #ifdef CONFIG_FUSE_BPF
 	if (fuse_inode_has_backing(inode) ||
-	    fuse_inode_has_backing(newdir))
-		return -EOPNOTSUPP;
+	    fuse_inode_has_backing(newdir)) {
+		if (!fuse_inode_has_backing(inode) ||
+		    !fuse_inode_has_backing(newdir) ||
+		    d_really_is_positive(newent))
+			return -EOPNOTSUPP;
+		return fuse_bpf_link(entry, newdir, newent);
+	}
 #endif
 	memset(&inarg, 0, sizeof(inarg));
 	inarg.oldnodeid = get_node_id(inode);
