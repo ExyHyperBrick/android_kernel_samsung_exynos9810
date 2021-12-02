@@ -823,13 +823,323 @@ void *fuse_open_finalize(struct fuse_bpf_args *args, struct inode *inode,
 	if (isdir)
 		ff->open_flags &= ~FOPEN_DIRECT_IO;
 	return NULL;
+}
 
-out_error:
-	if (ff) {
-		file->private_data = NULL;
-		fuse_file_free(ff);
+static int fuse_bpf_rw_flags(struct kiocb *iocb, struct file *backing_file)
+{
+	int backing_flags = iocb_flags(backing_file);
+
+	if (!is_sync_kiocb(iocb) ||
+	    (iocb->ki_flags & (IOCB_EVENTFD | IOCB_NOWAIT | IOCB_HIPRI)))
+		return -EOPNOTSUPP;
+	if ((iocb->ki_flags & (IOCB_APPEND | IOCB_DIRECT)) !=
+	    (backing_flags & (IOCB_APPEND | IOCB_DIRECT)))
+		return -EOPNOTSUPP;
+	return 0;
+}
+
+static ssize_t fuse_bpf_sync_iter(struct kiocb *iocb,
+				  struct iov_iter *iter,
+				  struct file *backing_file,
+				  int type, bool *executed)
+{
+	struct kiocb lower_iocb;
+	loff_t pos = iocb->ki_pos;
+	ssize_t ret;
+
+	if (type == READ) {
+		if (!(backing_file->f_mode & FMODE_READ))
+			return -EBADF;
+		if (!(backing_file->f_mode & FMODE_CAN_READ) ||
+		    !backing_file->f_op->read_iter)
+			return -EINVAL;
+	} else {
+		if (!(backing_file->f_mode & FMODE_WRITE))
+			return -EBADF;
+		if (!(backing_file->f_mode & FMODE_CAN_WRITE) ||
+		    !backing_file->f_op->write_iter)
+			return -EINVAL;
 	}
-	return ERR_PTR(error);
+	if (!iov_iter_count(iter)) {
+		*executed = true;
+		return 0;
+	}
+
+	ret = rw_verify_area(type, backing_file, &pos,
+			     iov_iter_count(iter));
+	if (ret)
+		return ret;
+
+	lower_iocb = *iocb;
+	lower_iocb.ki_filp = backing_file;
+	lower_iocb.ki_pos = pos;
+	lower_iocb.ki_complete = NULL;
+	lower_iocb.private = NULL;
+	lower_iocb.ki_flags &= IOCB_DSYNC | IOCB_SYNC;
+	lower_iocb.ki_flags |= iocb_flags(backing_file);
+	*executed = true;
+
+	if (type == READ) {
+		iter->type |= READ;
+		ret = backing_file->f_op->read_iter(&lower_iocb, iter);
+	} else {
+		iter->type |= WRITE;
+		file_start_write(backing_file);
+		ret = backing_file->f_op->write_iter(&lower_iocb, iter);
+		file_end_write(backing_file);
+	}
+	BUG_ON(ret == -EIOCBQUEUED);
+	if (ret > 0) {
+		iocb->ki_pos = lower_iocb.ki_pos;
+		if (type == READ)
+			fsnotify_access(backing_file);
+		else
+			fsnotify_modify(backing_file);
+	}
+	return ret;
+}
+
+static void fuse_bpf_file_accessed(struct file *file,
+				   struct file *backing_file)
+{
+	if (file->f_flags & O_NOATIME)
+		return;
+	fsstack_copy_attr_atime(file_inode(file), file_inode(backing_file));
+}
+
+static void fuse_bpf_copy_write_attr(struct file *file,
+				     struct file *backing_file)
+{
+	struct inode *inode = file_inode(file);
+	struct inode *backing_inode = file_inode(backing_file);
+
+	fsstack_copy_attr_times(inode, backing_inode);
+	fsstack_copy_inode_size(inode, backing_inode);
+	inode->i_mode &= ~(S_ISUID | S_ISGID);
+	inode->i_mode |= backing_inode->i_mode & (S_ISUID | S_ISGID);
+}
+
+int fuse_file_read_iter_initialize(struct fuse_bpf_args *args,
+				   struct fuse_file_read_iter_io *io,
+				   struct kiocb *iocb,
+				   struct iov_iter *to)
+{
+	struct file *file = iocb->ki_filp;
+	struct fuse_file *ff = file->private_data;
+	size_t count = iov_iter_count(to);
+
+	if (!ff || !ff->backing_file)
+		return -EBADF;
+	if (count > U32_MAX)
+		return -E2BIG;
+
+	memset(io, 0, sizeof(*io));
+	io->in.fh = ff->fh;
+	io->in.offset = iocb->ki_pos;
+	io->in.size = count;
+	io->in.flags = file->f_flags;
+	io->out.ret = -EINPROGRESS;
+	io->original_pos = iocb->ki_pos;
+	io->original_count = count;
+	io->actual_ret = -EINPROGRESS;
+
+	*args = (struct fuse_bpf_args) {
+		.opcode = FUSE_READ,
+		.nodeid = ff->nodeid,
+		.in_numargs = 1,
+		.out_numargs = 1,
+		.in_args[0] = (struct fuse_bpf_in_arg) {
+			.size = sizeof(io->in),
+			.value = &io->in,
+		},
+		.out_args[0] = (struct fuse_bpf_arg) {
+			.size = sizeof(io->out),
+			.value = &io->out,
+		},
+	};
+	return 0;
+}
+
+int fuse_file_read_iter_backing(struct fuse_bpf_args *args,
+				struct kiocb *iocb,
+				struct iov_iter *to)
+{
+	struct file *file = iocb->ki_filp;
+	struct fuse_file *ff = file->private_data;
+	struct fuse_read_in *in;
+	struct fuse_file_read_iter_io *io;
+	ssize_t ret;
+
+	if (!ff || !ff->backing_file || args->opcode != FUSE_READ ||
+	    args->nodeid != ff->nodeid || args->in_numargs != 1 ||
+	    args->out_numargs != 1 || !args->in_args[0].value ||
+	    !args->out_args[0].value ||
+	    args->in_args[0].size != sizeof(*in) ||
+	    args->out_args[0].size != sizeof(struct fuse_bpf_rw_out))
+		return -EINVAL;
+
+	in = (struct fuse_read_in *)args->in_args[0].value;
+	io = container_of(in, struct fuse_file_read_iter_io, in);
+	if (args->out_args[0].value != &io->out || in->fh != ff->fh ||
+	    in->offset != io->original_pos ||
+	    in->size != io->original_count ||
+	    in->flags != file->f_flags || in->read_flags ||
+	    in->lock_owner || in->padding)
+		return -EOPNOTSUPP;
+	ret = fuse_bpf_rw_flags(iocb, ff->backing_file);
+	if (ret)
+		return ret;
+
+	ret = fuse_bpf_sync_iter(iocb, to, ff->backing_file, READ,
+				 &io->executed);
+	io->actual_ret = ret;
+	io->out.ret = ret;
+	if (ret >= 0)
+		fuse_bpf_file_accessed(file, ff->backing_file);
+	return ret;
+}
+
+void *fuse_file_read_iter_finalize(struct fuse_bpf_args *args,
+				   struct kiocb *iocb,
+				   struct iov_iter *to)
+{
+	struct fuse_read_in *in;
+	struct fuse_file_read_iter_io *io;
+	ssize_t ret;
+	int error = (s32)args->error_in;
+
+	if (error > 0)
+		error = -EIO;
+	if (!args->in_numargs || !args->in_args[0].value)
+		return ERR_PTR(error ? error : -EIO);
+	in = (struct fuse_read_in *)args->in_args[0].value;
+	io = container_of(in, struct fuse_file_read_iter_io, in);
+	if (io->executed && io->actual_ret > 0)
+		ret = io->actual_ret;
+	else if (error)
+		ret = error;
+	else if (args->in_args[0].size != sizeof(*in))
+		ret = -EIO;
+	else if (io->executed)
+		ret = io->actual_ret;
+	else
+		ret = -EIO;
+	(void)iocb;
+	(void)to;
+	return ERR_PTR(ret);
+}
+
+int fuse_file_write_iter_initialize(struct fuse_bpf_args *args,
+				    struct fuse_file_write_iter_io *io,
+				    struct kiocb *iocb,
+				    struct iov_iter *from)
+{
+	struct file *file = iocb->ki_filp;
+	struct fuse_file *ff = file->private_data;
+	size_t count = iov_iter_count(from);
+
+	if (!ff || !ff->backing_file)
+		return -EBADF;
+	if (count > U32_MAX)
+		return -E2BIG;
+
+	memset(io, 0, sizeof(*io));
+	io->in.fh = ff->fh;
+	io->in.offset = iocb->ki_pos;
+	io->in.size = count;
+	io->in.flags = file->f_flags;
+	io->out.ret = -EINPROGRESS;
+	io->original_pos = iocb->ki_pos;
+	io->original_count = count;
+	io->actual_ret = -EINPROGRESS;
+
+	*args = (struct fuse_bpf_args) {
+		.opcode = FUSE_WRITE,
+		.nodeid = ff->nodeid,
+		.in_numargs = 1,
+		.out_numargs = 1,
+		.in_args[0] = (struct fuse_bpf_in_arg) {
+			.size = sizeof(io->in),
+			.value = &io->in,
+		},
+		.out_args[0] = (struct fuse_bpf_arg) {
+			.size = sizeof(io->out),
+			.value = &io->out,
+		},
+	};
+	return 0;
+}
+
+int fuse_file_write_iter_backing(struct fuse_bpf_args *args,
+				 struct kiocb *iocb,
+				 struct iov_iter *from)
+{
+	struct file *file = iocb->ki_filp;
+	struct fuse_file *ff = file->private_data;
+	struct inode *inode = file_inode(file);
+	struct fuse_write_in *in;
+	struct fuse_file_write_iter_io *io;
+	ssize_t ret;
+
+	if (!ff || !ff->backing_file || args->opcode != FUSE_WRITE ||
+	    args->nodeid != ff->nodeid || args->in_numargs != 1 ||
+	    args->out_numargs != 1 || !args->in_args[0].value ||
+	    !args->out_args[0].value ||
+	    args->in_args[0].size != sizeof(*in) ||
+	    args->out_args[0].size != sizeof(struct fuse_bpf_rw_out))
+		return -EINVAL;
+
+	in = (struct fuse_write_in *)args->in_args[0].value;
+	io = container_of(in, struct fuse_file_write_iter_io, in);
+	if (args->out_args[0].value != &io->out || in->fh != ff->fh ||
+	    in->offset != io->original_pos ||
+	    in->size != io->original_count ||
+	    in->flags != file->f_flags || in->write_flags ||
+	    in->lock_owner || in->padding)
+		return -EOPNOTSUPP;
+	ret = fuse_bpf_rw_flags(iocb, ff->backing_file);
+	if (ret)
+		return ret;
+
+	inode_lock(inode);
+	ret = fuse_bpf_sync_iter(iocb, from, ff->backing_file, WRITE,
+				 &io->executed);
+	if (ret > 0)
+		fuse_bpf_copy_write_attr(file, ff->backing_file);
+	inode_unlock(inode);
+	io->actual_ret = ret;
+	io->out.ret = ret;
+	return ret < 0 ? ret : 0;
+}
+
+void *fuse_file_write_iter_finalize(struct fuse_bpf_args *args,
+				    struct kiocb *iocb,
+				    struct iov_iter *from)
+{
+	struct fuse_write_in *in;
+	struct fuse_file_write_iter_io *io;
+	ssize_t ret;
+	int error = (s32)args->error_in;
+
+	if (error > 0)
+		error = -EIO;
+	if (!args->in_numargs || !args->in_args[0].value)
+		return ERR_PTR(error ? error : -EIO);
+	in = (struct fuse_write_in *)args->in_args[0].value;
+	io = container_of(in, struct fuse_file_write_iter_io, in);
+	if (io->executed && io->actual_ret > 0)
+		ret = io->actual_ret;
+	else if (error)
+		ret = error;
+	else if (args->in_args[0].size != sizeof(*in))
+		ret = -EIO;
+	else if (io->executed)
+		ret = io->actual_ret;
+	else
+		ret = -EIO;
+	(void)iocb;
+	(void)from;
+	return ERR_PTR(ret);
 }
 
 int fuse_release_initialize(struct fuse_bpf_args *args,

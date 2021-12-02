@@ -1217,6 +1217,50 @@ void *fuse_open_finalize(struct fuse_bpf_args *args,
 			 struct inode *inode, struct file *file,
 			 bool isdir);
 
+struct fuse_bpf_rw_out {
+	s64 ret;
+};
+
+struct fuse_file_read_iter_io {
+	struct fuse_read_in in;
+	struct fuse_bpf_rw_out out;
+	loff_t original_pos;
+	size_t original_count;
+	ssize_t actual_ret;
+	bool executed;
+};
+
+int fuse_file_read_iter_initialize(struct fuse_bpf_args *args,
+				   struct fuse_file_read_iter_io *io,
+				   struct kiocb *iocb,
+				   struct iov_iter *to);
+int fuse_file_read_iter_backing(struct fuse_bpf_args *args,
+				struct kiocb *iocb,
+				struct iov_iter *to);
+void *fuse_file_read_iter_finalize(struct fuse_bpf_args *args,
+				   struct kiocb *iocb,
+				   struct iov_iter *to);
+
+struct fuse_file_write_iter_io {
+	struct fuse_write_in in;
+	struct fuse_bpf_rw_out out;
+	loff_t original_pos;
+	size_t original_count;
+	ssize_t actual_ret;
+	bool executed;
+};
+
+int fuse_file_write_iter_initialize(struct fuse_bpf_args *args,
+				    struct fuse_file_write_iter_io *io,
+				    struct kiocb *iocb,
+				    struct iov_iter *from);
+int fuse_file_write_iter_backing(struct fuse_bpf_args *args,
+				 struct kiocb *iocb,
+				 struct iov_iter *from);
+void *fuse_file_write_iter_finalize(struct fuse_bpf_args *args,
+				    struct kiocb *iocb,
+				    struct iov_iter *from);
+
 int fuse_release_initialize(struct fuse_bpf_args *args,
 			    struct fuse_release_in *in,
 			    struct inode *inode, struct fuse_file *ff);

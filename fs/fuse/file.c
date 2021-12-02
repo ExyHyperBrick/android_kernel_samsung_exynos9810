@@ -1022,6 +1022,47 @@ out:
 	return err;
 }
 
+#ifdef CONFIG_FUSE_BPF
+static bool fuse_file_has_backing(struct file *file)
+{
+	struct fuse_file *ff = file->private_data;
+
+	return ff && ff->backing_file;
+}
+
+static ssize_t fuse_bpf_file_read_iter(struct kiocb *iocb,
+				       struct iov_iter *to)
+{
+	struct inode *inode = file_inode(iocb->ki_filp);
+	struct fuse_err_ret result;
+
+	result = fuse_bpf_backing(inode, struct fuse_file_read_iter_io,
+				  fuse_file_read_iter_initialize,
+				  fuse_file_read_iter_backing,
+				  fuse_file_read_iter_finalize,
+				  iocb, to);
+	if (result.ret)
+		return PTR_ERR(result.result);
+	return -EOPNOTSUPP;
+}
+
+static ssize_t fuse_bpf_file_write_iter(struct kiocb *iocb,
+					struct iov_iter *from)
+{
+	struct inode *inode = file_inode(iocb->ki_filp);
+	struct fuse_err_ret result;
+
+	result = fuse_bpf_backing(inode, struct fuse_file_write_iter_io,
+				  fuse_file_write_iter_initialize,
+				  fuse_file_write_iter_backing,
+				  fuse_file_write_iter_finalize,
+				  iocb, from);
+	if (result.ret)
+		return PTR_ERR(result.result);
+	return -EOPNOTSUPP;
+}
+#endif
+
 static ssize_t fuse_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
 	struct inode *inode = iocb->ki_filp->f_mapping->host;
@@ -1029,6 +1070,11 @@ static ssize_t fuse_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 
 	if (fuse_is_bad(inode))
 		return -EIO;
+
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_file_has_backing(iocb->ki_filp))
+		return fuse_bpf_file_read_iter(iocb, to);
+#endif
 
 	/*
 	 * In auto invalidate mode, always update attributes on read.
@@ -1285,6 +1331,11 @@ static ssize_t fuse_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	if (fuse_is_bad(inode))
 		return -EIO;
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_file_has_backing(file))
+		return fuse_bpf_file_write_iter(iocb, from);
+#endif
+
 	if (get_fuse_conn(inode)->writeback_cache) {
 		/* Update size (EOF optimization) and mode (SUID clearing) */
 		err = fuse_update_attributes(mapping->host, NULL, file, NULL);
@@ -1534,6 +1585,11 @@ static ssize_t __fuse_direct_read(struct fuse_io_priv *io,
 static ssize_t fuse_direct_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
 	struct fuse_io_priv io = FUSE_IO_PRIV_SYNC(iocb->ki_filp);
+
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_file_has_backing(iocb->ki_filp))
+		return fuse_bpf_file_read_iter(iocb, to);
+#endif
 	return __fuse_direct_read(&io, to, &iocb->ki_pos);
 }
 
@@ -1546,6 +1602,11 @@ static ssize_t fuse_direct_write_iter(struct kiocb *iocb, struct iov_iter *from)
 
 	if (fuse_is_bad(inode))
 		return -EIO;
+
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_file_has_backing(file))
+		return fuse_bpf_file_write_iter(iocb, from);
+#endif
 
 	/* Don't allow parallel writes to the same file */
 	inode_lock(inode);
