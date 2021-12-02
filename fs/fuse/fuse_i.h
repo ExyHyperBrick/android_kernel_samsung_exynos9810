@@ -1429,6 +1429,8 @@ void *fuse_copy_file_range_finalize(
 		struct file *file_out, loff_t pos_out,
 		size_t len, unsigned int flags);
 
+int fuse_backing_mmap(struct file *file, struct vm_area_struct *vma);
+
 struct fuse_bpf_rw_out {
 	s64 ret;
 };

@@ -2408,6 +2408,47 @@ static void fuse_bpf_copy_write_attr(struct file *file,
 	spin_unlock(&fc->lock);
 }
 
+int fuse_backing_mmap(struct file *file, struct vm_area_struct *vma)
+{
+	struct fuse_file *ff = file->private_data;
+	struct inode *inode = file_inode(file);
+	struct fuse_inode *fi = get_fuse_inode(inode);
+	struct file *backing_file;
+	struct inode *backing_inode;
+	int ret;
+
+	if (!ff || !ff->backing_file)
+		return -EBADF;
+	backing_file = ff->backing_file;
+	backing_inode = file_inode(backing_file);
+	if (!backing_inode || backing_inode != fi->backing_inode ||
+	    backing_file->f_path.mnt != fi->backing_mnt ||
+	    ((backing_inode->i_mode ^ inode->i_mode) & S_IFMT))
+		return -ESTALE;
+	if (backing_inode == inode || backing_inode->i_sb == inode->i_sb)
+		return -ELOOP;
+	if (!backing_file->f_op || !backing_file->f_op->mmap)
+		return -ENODEV;
+	if (WARN_ON(file != vma->vm_file))
+		return -EIO;
+	if (mapping_mapped(inode->i_mapping))
+		return -EBUSY;
+	ret = invalidate_inode_pages2(inode->i_mapping);
+	if (ret)
+		return ret;
+
+	vma->vm_file = get_file(backing_file);
+	ret = backing_file->f_op->mmap(backing_file, vma);
+	if (ret) {
+		fput(backing_file);
+		return ret;
+	}
+
+	fuse_bpf_file_accessed(file, backing_file);
+	fput(file);
+	return 0;
+}
+
 int fuse_file_read_iter_initialize(struct fuse_bpf_args *args,
 				   struct fuse_file_read_iter_io *io,
 				   struct kiocb *iocb,
