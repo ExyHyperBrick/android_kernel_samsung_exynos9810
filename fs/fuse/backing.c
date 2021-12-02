@@ -615,6 +615,383 @@ void *fuse_getattr_finalize(struct fuse_bpf_args *args,
 	return NULL;
 }
 
+static void fuse_setattr_encode(const struct iattr *attr,
+				struct fuse_setattr_in *in)
+{
+	unsigned int valid = attr->ia_valid;
+
+	if (valid & ATTR_MODE) {
+		in->valid |= FATTR_MODE;
+		in->mode = attr->ia_mode;
+	}
+	if (valid & ATTR_UID) {
+		in->valid |= FATTR_UID;
+		in->uid = from_kuid(&init_user_ns, attr->ia_uid);
+	}
+	if (valid & ATTR_GID) {
+		in->valid |= FATTR_GID;
+		in->gid = from_kgid(&init_user_ns, attr->ia_gid);
+	}
+	if (valid & ATTR_SIZE) {
+		in->valid |= FATTR_SIZE;
+		in->size = attr->ia_size;
+	}
+	if (valid & ATTR_ATIME) {
+		in->valid |= FATTR_ATIME;
+		if (valid & ATTR_ATIME_SET) {
+			in->atime = attr->ia_atime.tv_sec;
+			in->atimensec = attr->ia_atime.tv_nsec;
+		} else {
+			in->valid |= FATTR_ATIME_NOW;
+		}
+	}
+	if (valid & ATTR_MTIME) {
+		in->valid |= FATTR_MTIME;
+		if (valid & ATTR_MTIME_SET) {
+			in->mtime = attr->ia_mtime.tv_sec;
+			in->mtimensec = attr->ia_mtime.tv_nsec;
+		} else {
+			in->valid |= FATTR_MTIME_NOW;
+		}
+	}
+}
+
+static int fuse_setattr_decode_time(u64 seconds, u32 nanoseconds,
+				    struct timespec *time)
+{
+	time_t value = (time_t)seconds;
+
+	if ((u64)value != seconds || nanoseconds >= NSEC_PER_SEC)
+		return -EINVAL;
+	time->tv_sec = value;
+	time->tv_nsec = nanoseconds;
+	return 0;
+}
+
+static int fuse_setattr_decode(struct inode *inode,
+			       struct fuse_setattr_io *io,
+			       struct iattr *attr)
+{
+	const struct fuse_setattr_in *in = &io->in;
+	u32 valid = in->valid;
+	int ret;
+
+	if (valid & ~io->allowed_valid)
+		return -EINVAL;
+	if (in->padding || in->fh || in->lock_owner || in->ctime ||
+	    in->ctimensec || in->unused4 || in->unused5)
+		return -EINVAL;
+	if ((valid & FATTR_ATIME_NOW) && !(valid & FATTR_ATIME))
+		return -EINVAL;
+	if ((valid & FATTR_MTIME_NOW) && !(valid & FATTR_MTIME))
+		return -EINVAL;
+
+	memset(attr, 0, sizeof(*attr));
+	attr->ia_valid = io->passthrough_valid;
+	if (valid & FATTR_MODE) {
+		if ((u32)(umode_t)in->mode != in->mode ||
+		    (in->mode ^ inode->i_mode) & S_IFMT)
+			return -EINVAL;
+		attr->ia_valid |= ATTR_MODE;
+		attr->ia_mode = in->mode;
+	} else if (in->mode) {
+		return -EINVAL;
+	}
+	if (valid & FATTR_UID) {
+		attr->ia_uid = make_kuid(&init_user_ns, in->uid);
+		if (!uid_valid(attr->ia_uid))
+			return -EOVERFLOW;
+		attr->ia_valid |= ATTR_UID;
+	} else if (in->uid) {
+		return -EINVAL;
+	}
+	if (valid & FATTR_GID) {
+		attr->ia_gid = make_kgid(&init_user_ns, in->gid);
+		if (!gid_valid(attr->ia_gid))
+			return -EOVERFLOW;
+		attr->ia_valid |= ATTR_GID;
+	} else if (in->gid) {
+		return -EINVAL;
+	}
+	if (valid & FATTR_SIZE) {
+		if (!S_ISREG(inode->i_mode) || in->size > LLONG_MAX)
+			return -EINVAL;
+		attr->ia_valid |= ATTR_SIZE;
+		attr->ia_size = in->size;
+	} else if (in->size) {
+		return -EINVAL;
+	}
+	if (valid & FATTR_ATIME) {
+		attr->ia_valid |= ATTR_ATIME;
+		if (valid & FATTR_ATIME_NOW) {
+			if (in->atime || in->atimensec)
+				return -EINVAL;
+		} else {
+			ret = fuse_setattr_decode_time(in->atime,
+						       in->atimensec,
+						       &attr->ia_atime);
+			if (ret)
+				return ret;
+			attr->ia_valid |= ATTR_ATIME_SET;
+		}
+	} else if (in->atime || in->atimensec) {
+		return -EINVAL;
+	}
+	if (valid & FATTR_MTIME) {
+		attr->ia_valid |= ATTR_MTIME;
+		if (valid & FATTR_MTIME_NOW) {
+			if (in->mtime || in->mtimensec)
+				return -EINVAL;
+		} else {
+			ret = fuse_setattr_decode_time(in->mtime,
+						       in->mtimensec,
+						       &attr->ia_mtime);
+			if (ret)
+				return ret;
+			attr->ia_valid |= ATTR_MTIME_SET;
+		}
+	} else if (in->mtime || in->mtimensec) {
+		return -EINVAL;
+	}
+	return 0;
+}
+
+static int fuse_setattr_prepare_truncate(const struct path *path,
+					 struct file *file, loff_t size,
+					 struct inode **write_inode)
+{
+	struct inode *inode = d_inode(path->dentry);
+	struct dentry *real;
+	int ret;
+
+	*write_inode = NULL;
+	if (!S_ISREG(inode->i_mode))
+		return -EINVAL;
+	if (IS_APPEND(inode) || IS_IMMUTABLE(inode))
+		return -EPERM;
+	if (file) {
+		if (!(file->f_mode & FMODE_WRITE))
+			return -EBADF;
+	} else {
+		ret = inode_permission2(path->mnt, inode, MAY_WRITE);
+		if (ret)
+			return ret;
+		real = d_real(path->dentry, NULL, O_WRONLY);
+		if (IS_ERR(real))
+			return PTR_ERR(real);
+		ret = get_write_access(d_inode(real));
+		if (ret)
+			return ret;
+		*write_inode = d_inode(real);
+		ret = break_lease(inode, O_WRONLY);
+		if (ret)
+			goto out_write;
+	}
+	ret = locks_verify_truncate(inode, file, size);
+	if (ret)
+		goto out_write;
+	return 0;
+
+out_write:
+	if (*write_inode) {
+		put_write_access(*write_inode);
+		*write_inode = NULL;
+	}
+	return ret;
+}
+
+int fuse_setattr_initialize(struct fuse_bpf_args *args,
+			    struct fuse_setattr_io *io,
+			    struct dentry *dentry, struct iattr *attr,
+			    struct file *file)
+{
+	memset(io, 0, sizeof(*io));
+	fuse_setattr_encode(attr, &io->in);
+	io->allowed_valid = io->in.valid;
+	io->attr_version = fuse_get_attr_version(
+		get_fuse_conn(d_inode(dentry)));
+	/* ATTR_FORCE is upper policy and must not bypass lower checks. */
+	io->passthrough_valid = attr->ia_valid &
+		(ATTR_CTIME | ATTR_KILL_SUID | ATTR_KILL_SGID |
+		 ATTR_KILL_PRIV | ATTR_OPEN | ATTR_TIMES_SET |
+		 ATTR_TOUCH | ATTR_FILE);
+	*args = (struct fuse_bpf_args) {
+		.nodeid = get_node_id(d_inode(dentry)),
+		.opcode = FUSE_SETATTR,
+		.in_numargs = 1,
+		.out_numargs = 1,
+		.in_args[0] = (struct fuse_bpf_in_arg) {
+			.size = sizeof(io->in),
+			.value = &io->in,
+		},
+		.out_args[0] = (struct fuse_bpf_arg) {
+			.size = sizeof(io->out),
+			.value = &io->out,
+		},
+	};
+	(void)file;
+	return 0;
+}
+
+int fuse_setattr_backing(struct fuse_bpf_args *args,
+			 struct dentry *dentry, struct iattr *attr,
+			 struct file *file)
+{
+	struct inode *inode = d_inode(dentry);
+	struct fuse_inode *fi = get_fuse_inode(inode);
+	struct fuse_conn *fc = get_fuse_conn(inode);
+	struct fuse_setattr_in *in;
+	struct fuse_attr_out *out;
+	struct fuse_setattr_io *io;
+	struct fuse_file *ff = file ? file->private_data : NULL;
+	struct file *backing_file = NULL;
+	struct path backing_path = { };
+	struct inode *backing_inode;
+	struct inode *write_inode = NULL;
+	struct iattr lower_attr;
+	struct kstat lower_stat = { };
+	int ret;
+
+	if (args->opcode != FUSE_SETATTR ||
+	    args->nodeid != get_node_id(inode) || args->flags ||
+	    args->in_numargs != 1 || args->out_numargs != 1 ||
+	    !args->in_args[0].value || !args->out_args[0].value ||
+	    args->in_args[0].size != sizeof(*in) ||
+	    args->out_args[0].size != sizeof(*out))
+		return -EINVAL;
+	in = (struct fuse_setattr_in *)args->in_args[0].value;
+	out = args->out_args[0].value;
+	io = container_of(in, struct fuse_setattr_io, in);
+	if (out != &io->out)
+		return -EINVAL;
+	if (!get_fuse_backing_path(dentry, &backing_path))
+		return -EBADF;
+	ret = fuse_validate_backing_path(inode, &backing_path);
+	if (ret)
+		goto out_path;
+
+	backing_inode = d_inode(backing_path.dentry);
+	ret = fuse_setattr_decode(backing_inode, io, &lower_attr);
+	if (ret)
+		goto out_path;
+	/* Re-evaluate lower privilege removal hidden by upper containment. */
+	if ((lower_attr.ia_valid & ATTR_SIZE) &&
+	    !(lower_attr.ia_valid & ATTR_MODE))
+		lower_attr.ia_valid |=
+			should_remove_suid(backing_path.dentry);
+	if (lower_attr.ia_valid & (ATTR_SIZE | ATTR_UID | ATTR_GID))
+		lower_attr.ia_valid |= ATTR_KILL_PRIV;
+	if (lower_attr.ia_valid & ATTR_FILE) {
+		if (!ff || !ff->backing_file ||
+		    file_inode(ff->backing_file) != backing_inode ||
+		    ff->backing_file->f_path.dentry != backing_path.dentry ||
+		    ff->backing_file->f_path.mnt != backing_path.mnt) {
+			ret = -ESTALE;
+			goto out_path;
+		}
+		backing_file = ff->backing_file;
+		lower_attr.ia_file = backing_file;
+	}
+	if (lower_attr.ia_valid & (ATTR_KILL_SUID | ATTR_KILL_SGID))
+		lower_attr.ia_valid &= ~ATTR_MODE;
+
+	ret = mnt_want_write(backing_path.mnt);
+	if (ret)
+		goto out_path;
+	if (lower_attr.ia_valid & ATTR_SIZE) {
+		if (mapping_mapped(inode->i_mapping)) {
+			ret = -EBUSY;
+			goto out_write;
+		}
+		ret = invalidate_inode_pages2(inode->i_mapping);
+		if (ret)
+			goto out_write;
+		ret = fuse_setattr_prepare_truncate(&backing_path,
+						    backing_file,
+						    lower_attr.ia_size,
+						    &write_inode);
+		if (ret)
+			goto out_write;
+	}
+
+	inode_lock(backing_inode);
+	ret = notify_change2(backing_path.mnt, backing_path.dentry,
+			     &lower_attr, NULL);
+	inode_unlock(backing_inode);
+	if (write_inode)
+		put_write_access(write_inode);
+out_write:
+	mnt_drop_write(backing_path.mnt);
+	if (ret)
+		goto out_path;
+
+	spin_lock(&fc->lock);
+	io->attr_version = ++fc->attr_version;
+	fi->attr_version = io->attr_version;
+	spin_unlock(&fc->lock);
+	ret = vfs_getattr(&backing_path, &lower_stat,
+			  STATX_BASIC_STATS, 0);
+	if (ret)
+		generic_fillattr(backing_inode, &lower_stat);
+	memset(out, 0, sizeof(*out));
+	fuse_stat_to_attr(fc, backing_inode, &lower_stat, &out->attr);
+	ret = 0;
+out_path:
+	fuse_put_backing_path(&backing_path);
+	(void)attr;
+	return ret;
+}
+
+void *fuse_setattr_finalize(struct fuse_bpf_args *args,
+			    struct dentry *dentry, struct iattr *attr,
+			    struct file *file)
+{
+	struct inode *inode = d_inode(dentry);
+	struct fuse_inode *fi = get_fuse_inode(inode);
+	struct fuse_setattr_in *in;
+	struct fuse_attr_out *out;
+	struct fuse_setattr_io *io;
+	struct iattr decoded;
+	int error = (s32)args->error_in;
+	int ret;
+
+	if (error)
+		return ERR_PTR(error < 0 ? error : -EIO);
+	if (args->opcode != FUSE_SETATTR ||
+	    args->nodeid != get_node_id(inode) || args->flags ||
+	    args->in_numargs != 1 || args->out_numargs != 1 ||
+	    !args->in_args[0].value || !args->out_args[0].value ||
+	    args->in_args[0].size != sizeof(*in) ||
+	    args->out_args[0].size != sizeof(*out))
+		return ERR_PTR(-EIO);
+	in = (struct fuse_setattr_in *)args->in_args[0].value;
+	out = args->out_args[0].value;
+	io = container_of(in, struct fuse_setattr_io, in);
+	if (out != &io->out || !fi->backing_inode)
+		return ERR_PTR(-EIO);
+	ret = fuse_setattr_decode(fi->backing_inode, io, &decoded);
+	if (ret)
+		return ERR_PTR(ret);
+	if (out->dummy || fuse_invalid_attr(&out->attr) ||
+	    (inode->i_mode ^ out->attr.mode) & S_IFMT ||
+	    out->attr.atimensec >= NSEC_PER_SEC ||
+	    out->attr.mtimensec >= NSEC_PER_SEC ||
+	    out->attr.ctimensec >= NSEC_PER_SEC ||
+	    (out->attr.blksize &&
+	     (!is_power_of_2(out->attr.blksize) ||
+	      out->attr.blksize > INT_MAX)) ||
+	    !uid_valid(make_kuid(&init_user_ns, out->attr.uid)) ||
+	    !gid_valid(make_kgid(&init_user_ns, out->attr.gid)))
+		return ERR_PTR(-EIO);
+
+	forget_all_cached_acls(inode);
+	fuse_change_attributes_backing(inode, &out->attr,
+				       attr_timeout(out), io->attr_version);
+	(void)attr;
+	(void)file;
+	return NULL;
+}
+
 int fuse_access_initialize(struct fuse_bpf_args *args,
 			   struct fuse_access_io *io,
 			   struct inode *inode, int mask)

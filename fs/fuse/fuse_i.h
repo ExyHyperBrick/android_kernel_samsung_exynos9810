@@ -1286,6 +1286,25 @@ void *fuse_getattr_finalize(struct fuse_bpf_args *args,
 			    struct kstat *stat, u32 request_mask,
 			    unsigned int flags, u64 attr_version);
 
+struct fuse_setattr_io {
+	struct fuse_setattr_in in;
+	struct fuse_attr_out out;
+	u32 allowed_valid;
+	unsigned int passthrough_valid;
+	u64 attr_version;
+};
+
+int fuse_setattr_initialize(struct fuse_bpf_args *args,
+			    struct fuse_setattr_io *io,
+			    struct dentry *dentry, struct iattr *attr,
+			    struct file *file);
+int fuse_setattr_backing(struct fuse_bpf_args *args,
+			 struct dentry *dentry, struct iattr *attr,
+			 struct file *file);
+void *fuse_setattr_finalize(struct fuse_bpf_args *args,
+			    struct dentry *dentry, struct iattr *attr,
+			    struct file *file);
+
 struct fuse_access_io {
 	struct fuse_access_in in;
 };
@@ -1482,6 +1501,16 @@ void *fuse_release_finalize(struct fuse_bpf_args *args,
 		if ((__fuse_bpf_ext_flags & FUSE_BPF_POST_FILTER) && \
 		    !(__fuse_bpf_ext_flags & FUSE_BPF_BACKING)) { \
 			__fuse_bpf_ret = -EINVAL; \
+			__fuse_bpf_args.error_in = __fuse_bpf_ret; \
+			__fuse_bpf_fer.result = ERR_PTR(__fuse_bpf_ret); \
+			__fuse_bpf_fer.ret = true; \
+			break; \
+		} \
+		/* SETATTR must mutate the lower inode exactly once. */ \
+		if (__fuse_bpf_backup.opcode == FUSE_SETATTR && \
+		    (!(__fuse_bpf_ext_flags & FUSE_BPF_BACKING) || \
+		     (__fuse_bpf_ext_flags & FUSE_BPF_POST_FILTER))) { \
+			__fuse_bpf_ret = -EOPNOTSUPP; \
 			__fuse_bpf_args.error_in = __fuse_bpf_ret; \
 			__fuse_bpf_fer.result = ERR_PTR(__fuse_bpf_ret); \
 			__fuse_bpf_fer.ret = true; \

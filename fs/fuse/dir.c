@@ -1781,16 +1781,27 @@ int fuse_do_setattr(struct dentry *dentry, struct iattr *attr,
 	int err;
 	bool trust_local_cmtime = is_wb && S_ISREG(inode->i_mode);
 
-#ifdef CONFIG_FUSE_BPF
-	if (fuse_inode_has_backing(inode))
-		return -EOPNOTSUPP;
-#endif
 	if (!fc->default_permissions)
 		attr->ia_valid |= ATTR_FORCE;
 
 	err = setattr_prepare(dentry, attr);
 	if (err)
 		return err;
+
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(inode)) {
+		struct fuse_err_ret result;
+
+		result = fuse_bpf_backing(inode, struct fuse_setattr_io,
+					  fuse_setattr_initialize,
+					  fuse_setattr_backing,
+					  fuse_setattr_finalize,
+					  dentry, attr, file);
+		if (result.ret)
+			return PTR_ERR_OR_ZERO(result.result);
+		return -EOPNOTSUPP;
+	}
+#endif
 
 	if (attr->ia_valid & ATTR_OPEN) {
 		/* This is coming from open(..., ... | O_TRUNC); */
@@ -1917,11 +1928,14 @@ static int fuse_setattr(struct dentry *entry, struct iattr *attr)
 	if (!fuse_allow_current_process(get_fuse_conn(inode)))
 		return -EACCES;
 
-#ifdef CONFIG_FUSE_BPF
-	if (fuse_inode_has_backing(inode))
-		return -EOPNOTSUPP;
-#endif
 	if (attr->ia_valid & (ATTR_KILL_SUID | ATTR_KILL_SGID)) {
+#ifdef CONFIG_FUSE_BPF
+		if (fuse_inode_has_backing(inode)) {
+			/* Let the lower inode derive its own exact mode. */
+			attr->ia_valid &= ~ATTR_MODE;
+			goto setattr;
+		}
+#endif
 		attr->ia_valid &= ~(ATTR_KILL_SUID | ATTR_KILL_SGID |
 				    ATTR_MODE);
 
@@ -1954,6 +1968,9 @@ static int fuse_setattr(struct dentry *entry, struct iattr *attr)
 	if (!attr->ia_valid)
 		return 0;
 
+#ifdef CONFIG_FUSE_BPF
+setattr:
+#endif
 	ret = fuse_do_setattr(entry, attr, file);
 	if (!ret) {
 		/*
