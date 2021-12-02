@@ -1881,6 +1881,292 @@ static int fuse_rmdir(struct inode *dir, struct dentry *entry)
 	return err;
 }
 
+#ifdef CONFIG_FUSE_BPF
+struct fuse_bpf_rename_paths {
+	struct path old_parent;
+	struct path old_child;
+	struct path new_parent;
+	struct path new_child;
+	struct inode *source_inode;
+	struct inode *target_inode;
+};
+
+static void fuse_bpf_put_rename_paths(struct fuse_bpf_rename_paths *paths)
+{
+	if (paths->target_inode)
+		iput(paths->target_inode);
+	if (paths->source_inode)
+		iput(paths->source_inode);
+	fuse_put_backing_path(&paths->new_child);
+	fuse_put_backing_path(&paths->new_parent);
+	fuse_put_backing_path(&paths->old_child);
+	fuse_put_backing_path(&paths->old_parent);
+}
+
+static int fuse_bpf_get_rename_paths(struct inode *olddir,
+				     struct dentry *oldent,
+				     struct inode *newdir,
+				     struct dentry *newent,
+				     struct fuse_bpf_rename_paths *paths)
+{
+	struct inode *source = d_inode(oldent);
+	struct inode *target = d_inode(newent);
+	struct fuse_inode *old_dir_fi = get_fuse_inode(olddir);
+	struct fuse_inode *new_dir_fi = get_fuse_inode(newdir);
+	struct fuse_inode *source_fi;
+	struct fuse_inode *target_fi = NULL;
+	struct inode *backing_old_dir;
+	struct inode *backing_new_dir;
+	struct inode *backing_source;
+	struct inode *backing_target;
+	int ret = -ESTALE;
+
+	memset(paths, 0, sizeof(*paths));
+	if (!source || oldent == newent ||
+	    oldent->d_parent == oldent || newent->d_parent == newent ||
+	    d_inode(oldent->d_parent) != olddir ||
+	    d_inode(newent->d_parent) != newdir ||
+	    olddir->i_sb != newdir->i_sb || source->i_sb != olddir->i_sb ||
+	    (target && target->i_sb != olddir->i_sb))
+		return -EXDEV;
+	if (!get_fuse_dentry(oldent) || !get_fuse_dentry(newent))
+		return -EIO;
+
+	source_fi = get_fuse_inode(source);
+	if (!old_dir_fi->backing_inode || !old_dir_fi->backing_mnt ||
+	    !new_dir_fi->backing_inode || !new_dir_fi->backing_mnt ||
+	    !source_fi->backing_inode || !source_fi->backing_mnt)
+		return -EOPNOTSUPP;
+	if (target) {
+		target_fi = get_fuse_inode(target);
+		if (!target_fi->backing_inode || !target_fi->backing_mnt)
+			return -EOPNOTSUPP;
+	}
+
+	if (!get_fuse_backing_path(oldent->d_parent, &paths->old_parent))
+		return -EBADF;
+	if (!get_fuse_backing_path(oldent, &paths->old_child))
+		goto out;
+	if (!get_fuse_backing_path(newent->d_parent, &paths->new_parent))
+		goto out;
+	if (!get_fuse_backing_path(newent, &paths->new_child))
+		goto out;
+
+	backing_old_dir = d_inode(paths->old_parent.dentry);
+	backing_new_dir = d_inode(paths->new_parent.dentry);
+	backing_source = d_inode(paths->old_child.dentry);
+	backing_target = d_inode(paths->new_child.dentry);
+	if (!backing_old_dir || !backing_new_dir || !backing_source ||
+	    backing_old_dir == olddir || backing_old_dir == newdir ||
+	    backing_new_dir == olddir || backing_new_dir == newdir ||
+	    backing_source == source || backing_source == olddir ||
+	    backing_source == newdir ||
+	    (backing_target &&
+	     (backing_target == target || backing_target == olddir ||
+	      backing_target == newdir)) ||
+	    backing_old_dir != old_dir_fi->backing_inode ||
+	    backing_new_dir != new_dir_fi->backing_inode ||
+	    backing_source != source_fi->backing_inode ||
+	    paths->old_parent.mnt != old_dir_fi->backing_mnt ||
+	    paths->new_parent.mnt != new_dir_fi->backing_mnt ||
+	    paths->old_child.mnt != source_fi->backing_mnt ||
+	    (target &&
+	     (backing_target != target_fi->backing_inode ||
+	      paths->new_child.mnt != target_fi->backing_mnt)) ||
+	    (!!target != !!backing_target) ||
+	    paths->old_parent.mnt != paths->new_parent.mnt ||
+	    paths->old_parent.mnt != paths->old_child.mnt ||
+	    paths->old_parent.mnt != paths->new_child.mnt ||
+	    paths->old_child.dentry->d_parent != paths->old_parent.dentry ||
+	    paths->new_child.dentry->d_parent != paths->new_parent.dentry ||
+	    paths->old_child.dentry == paths->new_child.dentry ||
+	    unlikely(d_unhashed(paths->old_child.dentry)) ||
+	    unlikely(d_unhashed(paths->new_child.dentry)) ||
+	    ((backing_source->i_mode ^ source->i_mode) & S_IFMT) ||
+	    (target &&
+	     ((backing_target->i_mode ^ target->i_mode) & S_IFMT)) ||
+	    backing_old_dir->i_sb != backing_new_dir->i_sb ||
+	    backing_old_dir->i_sb != backing_source->i_sb ||
+	    (backing_target && backing_target->i_sb != backing_old_dir->i_sb) ||
+	    backing_old_dir->i_sb == olddir->i_sb ||
+	    paths->old_child.dentry->d_name.len != oldent->d_name.len ||
+	    paths->new_child.dentry->d_name.len != newent->d_name.len ||
+	    memcmp(paths->old_child.dentry->d_name.name,
+		   oldent->d_name.name, oldent->d_name.len) ||
+	    memcmp(paths->new_child.dentry->d_name.name,
+		   newent->d_name.name, newent->d_name.len))
+		goto out;
+	if (backing_target == backing_source && target != source)
+		goto out;
+
+	paths->source_inode = backing_source;
+	ihold(paths->source_inode);
+	if (backing_target) {
+		paths->target_inode = backing_target;
+		ihold(paths->target_inode);
+	}
+	return 0;
+
+out:
+	fuse_bpf_put_rename_paths(paths);
+	return ret;
+}
+
+static int fuse_bpf_rename_locked(struct dentry *oldent,
+				  struct dentry *newent,
+				  const char *old_name,
+				  size_t old_name_len,
+				  const char *new_name,
+				  size_t new_name_len,
+				  struct fuse_bpf_rename_paths *paths)
+{
+	struct inode *source = d_inode(paths->old_child.dentry);
+	struct inode *target = d_inode(paths->new_child.dentry);
+
+	if (paths->old_child.dentry->d_parent != paths->old_parent.dentry ||
+	    paths->new_child.dentry->d_parent != paths->new_parent.dentry ||
+	    unlikely(d_unhashed(paths->old_child.dentry)) ||
+	    unlikely(d_unhashed(paths->new_child.dentry)) ||
+	    source != paths->source_inode || target != paths->target_inode ||
+	    paths->old_child.dentry->d_name.len != old_name_len - 1 ||
+	    paths->new_child.dentry->d_name.len != new_name_len - 1 ||
+	    memcmp(paths->old_child.dentry->d_name.name, old_name,
+		   old_name_len - 1) ||
+	    memcmp(paths->new_child.dentry->d_name.name, new_name,
+		   new_name_len - 1) ||
+	    d_inode(oldent) == NULL ||
+	    (!!d_inode(newent) != !!paths->target_inode))
+		return -ESTALE;
+	return 0;
+}
+
+static int fuse_bpf_rename(struct inode *olddir, struct dentry *oldent,
+			   struct inode *newdir, struct dentry *newent)
+{
+	struct fuse_rename_in inarg = { };
+	struct fuse_rename_in original;
+	struct fuse_bpf_args args = { };
+	struct fuse_bpf_args backup = { };
+	struct fuse_bpf_rename_paths paths;
+	struct fuse_dentry *new_data;
+	struct path empty_path = { };
+	struct inode *source = d_inode(oldent);
+	struct inode *target = d_inode(newent);
+	struct inode *delegated_inode = NULL;
+	struct dentry *trap;
+	char *old_name;
+	char *new_name;
+	size_t old_name_len;
+	size_t new_name_len;
+	int ret;
+
+	old_name = fuse_bpf_create_name(oldent, &old_name_len);
+	if (IS_ERR(old_name))
+		return PTR_ERR(old_name);
+	new_name = fuse_bpf_create_name(newent, &new_name_len);
+	if (IS_ERR(new_name)) {
+		ret = PTR_ERR(new_name);
+		goto out_old_name;
+	}
+
+	inarg.newdir = get_node_id(newdir);
+	original = inarg;
+	args.nodeid = get_node_id(olddir);
+	args.opcode = FUSE_RENAME;
+	args.in_numargs = 3;
+	args.in_args[0].size = sizeof(inarg);
+	args.in_args[0].value = &inarg;
+	args.in_args[1].size = old_name_len;
+	args.in_args[1].value = old_name;
+	args.in_args[2].size = new_name_len;
+	args.in_args[2].value = new_name;
+
+	ret = fuse_bpf_prepare_lower_only(olddir, &args, &backup);
+	if (ret)
+		goto out_names;
+	if (args.opcode != FUSE_RENAME ||
+	    args.nodeid != get_node_id(olddir) || args.flags ||
+	    args.in_numargs != 3 || args.out_numargs || args.error_in ||
+	    args.in_args[0].value != &inarg ||
+	    args.in_args[1].value != old_name ||
+	    args.in_args[2].value != new_name ||
+	    args.in_args[0].size != sizeof(inarg) ||
+	    args.in_args[1].size != old_name_len ||
+	    args.in_args[2].size != new_name_len ||
+	    args.in_args[0].end_offset !=
+			(char *)&inarg + sizeof(inarg) ||
+	    args.in_args[1].end_offset != old_name + old_name_len ||
+	    args.in_args[2].end_offset != new_name + new_name_len ||
+	    memcmp(&inarg, &original, sizeof(inarg)) ||
+	    old_name[old_name_len - 1] || new_name[new_name_len - 1] ||
+	    memcmp(old_name, oldent->d_name.name, old_name_len - 1) ||
+	    memcmp(new_name, newent->d_name.name, new_name_len - 1)) {
+		ret = -EOPNOTSUPP;
+		goto out_names;
+	}
+
+	ret = fuse_bpf_get_rename_paths(olddir, oldent, newdir, newent,
+					&paths);
+	if (ret)
+		goto out_names;
+	new_data = get_fuse_dentry(newent);
+
+	ret = mnt_want_write(paths.old_parent.mnt);
+	if (ret)
+		goto out_paths;
+retry_rename:
+	trap = lock_rename(paths.old_parent.dentry,
+			   paths.new_parent.dentry);
+	if (trap == paths.old_child.dentry)
+		ret = -EINVAL;
+	else if (trap == paths.new_child.dentry)
+		ret = -ENOTEMPTY;
+	else
+		ret = fuse_bpf_rename_locked(oldent, newent, old_name,
+					     old_name_len, new_name,
+					     new_name_len, &paths);
+	if (!ret)
+		ret = vfs_rename2(paths.old_parent.mnt,
+				  d_inode(paths.old_parent.dentry),
+				  paths.old_child.dentry,
+				  d_inode(paths.new_parent.dentry),
+				  paths.new_child.dentry,
+				  &delegated_inode, 0);
+	unlock_rename(paths.old_parent.dentry, paths.new_parent.dentry);
+	if (delegated_inode) {
+		int delegated_ret;
+
+		delegated_ret = break_deleg_wait(&delegated_inode);
+		if (!delegated_ret)
+			goto retry_rename;
+		ret = delegated_ret;
+	}
+	mnt_drop_write(paths.old_parent.mnt);
+	if (ret)
+		goto out_paths;
+
+	fuse_bpf_sync_link_attr(source, paths.source_inode);
+	if (target)
+		fuse_bpf_sync_link_attr(target, paths.target_inode);
+	fuse_bpf_copy_parent_attr(olddir,
+				  d_inode(paths.old_parent.dentry));
+	if (olddir != newdir)
+		fuse_bpf_copy_parent_attr(newdir,
+					  d_inode(paths.new_parent.dentry));
+	fuse_replace_backing_path(new_data, &empty_path);
+	fuse_invalidate_entry_cache(oldent);
+	fuse_invalidate_entry_cache(newent);
+
+out_paths:
+	fuse_bpf_put_rename_paths(&paths);
+out_names:
+	kfree(new_name);
+out_old_name:
+	kfree(old_name);
+	return ret;
+}
+#endif
+
 static int fuse_rename_common(struct inode *olddir, struct dentry *oldent,
 			      struct inode *newdir, struct dentry *newent,
 			      unsigned int flags, int opcode, size_t argsize)
@@ -1956,8 +2242,16 @@ static int fuse_rename2(struct inode *olddir, struct dentry *oldent,
 	    (d_really_is_positive(oldent) &&
 	     fuse_inode_has_backing(d_inode(oldent))) ||
 	    (d_really_is_positive(newent) &&
-	     fuse_inode_has_backing(d_inode(newent))))
-		return -EOPNOTSUPP;
+	     fuse_inode_has_backing(d_inode(newent)))) {
+		if (flags || !fuse_inode_has_backing(olddir) ||
+		    !fuse_inode_has_backing(newdir) ||
+		    !d_really_is_positive(oldent) ||
+		    !fuse_inode_has_backing(d_inode(oldent)) ||
+		    (d_really_is_positive(newent) &&
+		     !fuse_inode_has_backing(d_inode(newent))))
+			return -EOPNOTSUPP;
+		return fuse_bpf_rename(olddir, oldent, newdir, newent);
+	}
 #endif
 	if (flags) {
 		if (fc->no_rename2 || fc->minor < 23)
