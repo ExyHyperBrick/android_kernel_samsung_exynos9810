@@ -2041,10 +2041,13 @@ static int fuse_bpf_rename_locked(struct dentry *oldent,
 }
 
 static int fuse_bpf_rename(struct inode *olddir, struct dentry *oldent,
-			   struct inode *newdir, struct dentry *newent)
+			   struct inode *newdir, struct dentry *newent,
+			   unsigned int flags)
 {
-	struct fuse_rename_in inarg = { };
-	struct fuse_rename_in original;
+	struct fuse_rename2_in inarg = { };
+	struct fuse_rename2_in original;
+	size_t inarg_size;
+	u32 opcode;
 	struct fuse_bpf_args args = { };
 	struct fuse_bpf_args backup = { };
 	struct fuse_bpf_rename_paths paths;
@@ -2069,12 +2072,23 @@ static int fuse_bpf_rename(struct inode *olddir, struct dentry *oldent,
 		goto out_old_name;
 	}
 
+	if (flags & ~RENAME_NOREPLACE) {
+		ret = -EOPNOTSUPP;
+		goto out_names;
+	}
+	if ((flags & RENAME_NOREPLACE) && target) {
+		ret = -EEXIST;
+		goto out_names;
+	}
+	opcode = flags ? FUSE_RENAME2 : FUSE_RENAME;
+	inarg_size = flags ? sizeof(inarg) : sizeof(struct fuse_rename_in);
 	inarg.newdir = get_node_id(newdir);
+	inarg.flags = flags;
 	original = inarg;
 	args.nodeid = get_node_id(olddir);
-	args.opcode = FUSE_RENAME;
+	args.opcode = opcode;
 	args.in_numargs = 3;
-	args.in_args[0].size = sizeof(inarg);
+	args.in_args[0].size = inarg_size;
 	args.in_args[0].value = &inarg;
 	args.in_args[1].size = old_name_len;
 	args.in_args[1].value = old_name;
@@ -2084,17 +2098,17 @@ static int fuse_bpf_rename(struct inode *olddir, struct dentry *oldent,
 	ret = fuse_bpf_prepare_lower_only(olddir, &args, &backup);
 	if (ret)
 		goto out_names;
-	if (args.opcode != FUSE_RENAME ||
+	if (args.opcode != opcode ||
 	    args.nodeid != get_node_id(olddir) || args.flags ||
 	    args.in_numargs != 3 || args.out_numargs || args.error_in ||
 	    args.in_args[0].value != &inarg ||
 	    args.in_args[1].value != old_name ||
 	    args.in_args[2].value != new_name ||
-	    args.in_args[0].size != sizeof(inarg) ||
+	    args.in_args[0].size != inarg_size ||
 	    args.in_args[1].size != old_name_len ||
 	    args.in_args[2].size != new_name_len ||
 	    args.in_args[0].end_offset !=
-			(char *)&inarg + sizeof(inarg) ||
+			(char *)&inarg + inarg_size ||
 	    args.in_args[1].end_offset != old_name + old_name_len ||
 	    args.in_args[2].end_offset != new_name + new_name_len ||
 	    memcmp(&inarg, &original, sizeof(inarg)) ||
@@ -2131,7 +2145,7 @@ retry_rename:
 				  paths.old_child.dentry,
 				  d_inode(paths.new_parent.dentry),
 				  paths.new_child.dentry,
-				  &delegated_inode, 0);
+				  &delegated_inode, flags);
 	unlock_rename(paths.old_parent.dentry, paths.new_parent.dentry);
 	if (delegated_inode) {
 		int delegated_ret;
@@ -2243,14 +2257,16 @@ static int fuse_rename2(struct inode *olddir, struct dentry *oldent,
 	     fuse_inode_has_backing(d_inode(oldent))) ||
 	    (d_really_is_positive(newent) &&
 	     fuse_inode_has_backing(d_inode(newent)))) {
-		if (flags || !fuse_inode_has_backing(olddir) ||
+		if ((flags & ~RENAME_NOREPLACE) ||
+		    !fuse_inode_has_backing(olddir) ||
 		    !fuse_inode_has_backing(newdir) ||
 		    !d_really_is_positive(oldent) ||
 		    !fuse_inode_has_backing(d_inode(oldent)) ||
 		    (d_really_is_positive(newent) &&
 		     !fuse_inode_has_backing(d_inode(newent))))
 			return -EOPNOTSUPP;
-		return fuse_bpf_rename(olddir, oldent, newdir, newent);
+		return fuse_bpf_rename(olddir, oldent, newdir, newent,
+				       flags);
 	}
 #endif
 	if (flags) {
