@@ -8,6 +8,11 @@
 #include "xattr_bpf.h"
 
 #include <linux/errno.h>
+#include <linux/fs_stack.h>
+#include <linux/mount.h>
+#include <linux/posix_acl.h>
+#include <linux/slab.h>
+#include <linux/vmalloc.h>
 #include <linux/string.h>
 #include <linux/xattr.h>
 
@@ -397,4 +402,257 @@ void *fuse_bpf_listxattr_finalize(struct fuse_bpf_args *args,
 	(void)list;
 	(void)size;
 	return ERR_PTR(ret);
+}
+
+static void *fuse_bpf_xattr_memdup(const void *value, size_t size)
+{
+	void *copy;
+
+	if (!size)
+		return NULL;
+	copy = kmalloc(size, GFP_KERNEL | __GFP_NOWARN);
+	if (!copy) {
+		copy = vmalloc(size);
+		if (!copy)
+			return NULL;
+	}
+	memcpy(copy, value, size);
+	return copy;
+}
+
+static int fuse_bpf_xattr_prepare_mutation(struct inode *inode,
+					   struct fuse_bpf_args *args,
+					   struct fuse_bpf_args *backup)
+{
+	struct fuse_conn *fc = get_fuse_conn(inode);
+	struct fuse_inode *fi = get_fuse_inode(inode);
+	struct bpf_prog *prog;
+	bool locked;
+	ssize_t res;
+	int actions;
+	int ret;
+
+	prog = fuse_bpf_get_prog(fc, fi);
+	ret = fuse_bpf_prepare_prefilter(args, backup);
+	if (ret)
+		goto out_prog;
+
+	actions = prog ? fuse_bpf_run_filter(prog, args) :
+			 FUSE_BPF_BACKING;
+	if (actions < 0) {
+		ret = actions;
+		goto out_prog;
+	}
+	/* A lower mutation is irreversible after this point. */
+	if (!(actions & FUSE_BPF_BACKING) ||
+	    (actions & FUSE_BPF_POST_FILTER)) {
+		ret = -EOPNOTSUPP;
+		goto out_prog;
+	}
+	if (actions & FUSE_BPF_USER_FILTER) {
+		if (!args->nodeid) {
+			ret = -EOPNOTSUPP;
+			goto out_prog;
+		}
+		locked = fuse_lock_inode(inode);
+		res = fuse_bpf_simple_request(fc, args);
+		fuse_unlock_inode(inode, locked);
+		if (res < 0) {
+			ret = res;
+			goto out_prog;
+		}
+	}
+	ret = fuse_bpf_prepare_backing(args, backup);
+
+out_prog:
+	if (prog)
+		bpf_prog_put(prog);
+	return ret;
+}
+
+static void fuse_bpf_xattr_mutated(struct inode *inode,
+				   struct inode *backing_inode)
+{
+	struct fuse_conn *fc = get_fuse_conn(inode);
+	struct fuse_inode *fi = get_fuse_inode(inode);
+
+	spin_lock(&fc->lock);
+	fsstack_copy_attr_times(inode, backing_inode);
+	inode->i_mode = (inode->i_mode & S_IFMT) |
+			(backing_inode->i_mode & ~S_IFMT);
+	fi->attr_version = ++fc->attr_version;
+	spin_unlock(&fc->lock);
+	forget_all_cached_acls(inode);
+	fuse_invalidate_attr(inode);
+}
+
+static int fuse_bpf_setxattr_validate(struct fuse_bpf_args *args,
+				      struct fuse_bpf_setxattr_io *io,
+				      struct inode *inode,
+				      const char *name,
+				      const void *value, size_t size,
+				      int flags)
+{
+	size_t name_len = strlen(name);
+
+	if (args->opcode != FUSE_SETXATTR ||
+	    args->nodeid != get_node_id(inode) || args->flags ||
+	    args->in_numargs != 3 || args->out_numargs ||
+	    !args->in_args[0].value || !args->in_args[1].value ||
+	    args->in_args[0].value != &io->in ||
+	    args->in_args[0].size != sizeof(io->in) ||
+	    args->in_args[0].end_offset !=
+		    fuse_bpf_xattr_end(&io->in, sizeof(io->in)) ||
+	    args->in_args[1].value != io->name)
+		return -EINVAL;
+	if (io->in.size != (u32)size ||
+	    io->in.flags != (u32)flags)
+		return -EINVAL;
+	if (args->in_args[1].size != name_len + 1 ||
+	    args->in_args[1].end_offset !=
+		    fuse_bpf_xattr_end(io->name, name_len + 1) ||
+	    memcmp(io->name, name, name_len + 1))
+		return -EINVAL;
+	if (args->in_args[2].size != size ||
+	    args->in_args[2].value != io->value ||
+	    args->in_args[2].end_offset !=
+		    fuse_bpf_xattr_end(io->value, size) ||
+	    (size && memcmp(io->value, value, size)))
+		return -EINVAL;
+	return 0;
+}
+
+int fuse_bpf_setxattr(struct dentry *entry, const char *name,
+		      const void *value, size_t size, int flags)
+{
+	struct inode *inode = d_inode(entry);
+	struct fuse_bpf_setxattr_io io = { };
+	struct fuse_bpf_args args = { };
+	struct fuse_bpf_args backup = { };
+	struct path path;
+	size_t name_len;
+	int ret;
+
+	ret = fuse_bpf_xattr_name(name, &name_len);
+	if (ret)
+		return ret;
+	if (size > XATTR_SIZE_MAX)
+		return -E2BIG;
+	if ((size && !value) ||
+	    (flags & ~(XATTR_CREATE | XATTR_REPLACE)))
+		return -EINVAL;
+
+	memcpy(io.name, name, name_len + 1);
+	io.value = fuse_bpf_xattr_memdup(value, size);
+	if (size && !io.value)
+		return -ENOMEM;
+	io.in.size = size;
+	io.in.flags = flags;
+	args = (struct fuse_bpf_args) {
+		.nodeid = get_node_id(inode),
+		.opcode = FUSE_SETXATTR,
+		.in_numargs = 3,
+		.in_args[0] = (struct fuse_bpf_in_arg) {
+			.size = sizeof(io.in),
+			.value = &io.in,
+		},
+		.in_args[1] = (struct fuse_bpf_in_arg) {
+			.size = name_len + 1,
+			.value = io.name,
+		},
+		.in_args[2] = (struct fuse_bpf_in_arg) {
+			.size = size,
+			.value = io.value,
+		},
+	};
+
+	ret = fuse_bpf_xattr_prepare_mutation(inode, &args, &backup);
+	if (ret)
+		goto out_value;
+	ret = fuse_bpf_setxattr_validate(&args, &io, inode, name,
+					 value, size, flags);
+	if (ret)
+		goto out_value;
+	ret = fuse_bpf_xattr_path(inode, entry, &path);
+	if (ret)
+		goto out_value;
+
+	ret = mnt_want_write(path.mnt);
+	if (!ret) {
+		ret = vfs_setxattr(path.dentry, io.name, io.value,
+				   io.in.size, io.in.flags);
+		mnt_drop_write(path.mnt);
+	}
+	if (!ret)
+		fuse_bpf_xattr_mutated(inode, d_inode(path.dentry));
+	fuse_put_backing_path(&path);
+
+out_value:
+	kvfree(io.value);
+	return ret;
+}
+
+static int fuse_bpf_removexattr_validate(struct fuse_bpf_args *args,
+					 struct fuse_bpf_removexattr_io *io,
+					 struct inode *inode,
+					 const char *name)
+{
+	size_t name_len = strlen(name);
+
+	if (args->opcode != FUSE_REMOVEXATTR ||
+	    args->nodeid != get_node_id(inode) || args->flags ||
+	    args->in_numargs != 1 || args->out_numargs ||
+	    !args->in_args[0].value ||
+	    args->in_args[0].value != io->name ||
+	    args->in_args[0].size != name_len + 1 ||
+	    args->in_args[0].end_offset !=
+		    fuse_bpf_xattr_end(io->name, name_len + 1) ||
+	    memcmp(io->name, name, name_len + 1))
+		return -EINVAL;
+	return 0;
+}
+
+int fuse_bpf_removexattr(struct dentry *entry, const char *name)
+{
+	struct inode *inode = d_inode(entry);
+	struct fuse_bpf_removexattr_io io = { };
+	struct fuse_bpf_args args = { };
+	struct fuse_bpf_args backup = { };
+	struct path path;
+	size_t name_len;
+	int ret;
+
+	ret = fuse_bpf_xattr_name(name, &name_len);
+	if (ret)
+		return ret;
+	memcpy(io.name, name, name_len + 1);
+	args = (struct fuse_bpf_args) {
+		.nodeid = get_node_id(inode),
+		.opcode = FUSE_REMOVEXATTR,
+		.in_numargs = 1,
+		.in_args[0] = (struct fuse_bpf_in_arg) {
+			.size = name_len + 1,
+			.value = io.name,
+		},
+	};
+
+	ret = fuse_bpf_xattr_prepare_mutation(inode, &args, &backup);
+	if (ret)
+		return ret;
+	ret = fuse_bpf_removexattr_validate(&args, &io, inode, name);
+	if (ret)
+		return ret;
+	ret = fuse_bpf_xattr_path(inode, entry, &path);
+	if (ret)
+		return ret;
+
+	ret = mnt_want_write(path.mnt);
+	if (!ret) {
+		ret = vfs_removexattr(path.dentry, io.name);
+		mnt_drop_write(path.mnt);
+	}
+	if (!ret)
+		fuse_bpf_xattr_mutated(inode, d_inode(path.dentry));
+	fuse_put_backing_path(&path);
+	return ret;
 }

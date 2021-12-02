@@ -72,10 +72,11 @@ int fuse_set_acl(struct inode *inode, struct posix_acl *acl, int type)
 		return -EIO;
 
 #ifdef CONFIG_FUSE_BPF
-	if (fuse_inode_has_backing(inode))
-		return -EOPNOTSUPP;
-#endif
+	if (!fc->posix_acl ||
+	    (!fuse_inode_has_backing(inode) && fc->no_setxattr))
+#else
 	if (!fc->posix_acl || fc->no_setxattr)
+#endif
 		return -EOPNOTSUPP;
 
 	if (type == ACL_TYPE_ACCESS)

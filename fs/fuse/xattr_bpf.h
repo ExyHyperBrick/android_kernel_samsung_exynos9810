@@ -47,4 +47,18 @@ void *fuse_bpf_listxattr_finalize(struct fuse_bpf_args *args,
 				  struct dentry *entry, char *list,
 				  size_t size);
 
+struct fuse_bpf_setxattr_io {
+	struct fuse_setxattr_in in;
+	char name[XATTR_NAME_MAX + 1];
+	void *value;
+};
+
+struct fuse_bpf_removexattr_io {
+	char name[XATTR_NAME_MAX + 1];
+};
+
+int fuse_bpf_setxattr(struct dentry *entry, const char *name,
+		      const void *value, size_t size, int flags);
+int fuse_bpf_removexattr(struct dentry *entry, const char *name);
+
 #endif

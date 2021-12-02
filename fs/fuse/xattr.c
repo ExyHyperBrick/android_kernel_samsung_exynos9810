@@ -24,8 +24,16 @@ int fuse_setxattr(struct inode *inode, const char *name, const void *value,
 	int err;
 
 #ifdef CONFIG_FUSE_BPF
-	if (fuse_inode_has_backing(inode))
-		return -EOPNOTSUPP;
+	if (fuse_inode_has_backing(inode)) {
+		struct dentry *alias;
+
+		alias = d_find_alias(inode);
+		if (!alias)
+			return -ESTALE;
+		err = fuse_bpf_setxattr(alias, name, value, size, flags);
+		dput(alias);
+		return err;
+	}
 #endif
 	if (fc->no_setxattr)
 		return -EOPNOTSUPP;
@@ -257,8 +265,16 @@ int fuse_removexattr(struct inode *inode, const char *name)
 	int err;
 
 #ifdef CONFIG_FUSE_BPF
-	if (fuse_inode_has_backing(inode))
-		return -EOPNOTSUPP;
+	if (fuse_inode_has_backing(inode)) {
+		struct dentry *alias;
+
+		alias = d_find_alias(inode);
+		if (!alias)
+			return -ESTALE;
+		err = fuse_bpf_removexattr(alias, name);
+		dput(alias);
+		return err;
+	}
 #endif
 	if (fc->no_removexattr)
 		return -EOPNOTSUPP;
@@ -303,6 +319,13 @@ static int fuse_xattr_set(const struct xattr_handler *handler,
 	if (fuse_is_bad(inode))
 		return -EIO;
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(inode)) {
+		if (!value)
+			return fuse_bpf_removexattr(dentry, name);
+		return fuse_bpf_setxattr(dentry, name, value, size, flags);
+	}
+#endif
 	if (!value)
 		return fuse_removexattr(inode, name);
 
