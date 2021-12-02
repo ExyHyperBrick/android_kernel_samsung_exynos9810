@@ -1386,6 +1386,22 @@ void *fuse_fsync_finalize(struct fuse_bpf_args *args,
 			  struct file *file, loff_t start, loff_t end,
 			  int datasync, bool isdir);
 
+struct fuse_lseek_io {
+	struct fuse_lseek_in in;
+	struct fuse_lseek_out out;
+	loff_t original_pos;
+	loff_t actual_ret;
+	bool executed;
+};
+
+int fuse_lseek_initialize(struct fuse_bpf_args *args,
+			  struct fuse_lseek_io *io,
+			  struct file *file, loff_t offset, int whence);
+int fuse_lseek_backing(struct fuse_bpf_args *args,
+		       struct file *file, loff_t offset, int whence);
+void *fuse_lseek_finalize(struct fuse_bpf_args *args,
+			  struct file *file, loff_t offset, int whence);
+
 struct fuse_bpf_rw_out {
 	s64 ret;
 };
@@ -1508,6 +1524,16 @@ void *fuse_release_finalize(struct fuse_bpf_args *args,
 		} \
 		/* SETATTR must mutate the lower inode exactly once. */ \
 		if (__fuse_bpf_backup.opcode == FUSE_SETATTR && \
+		    (!(__fuse_bpf_ext_flags & FUSE_BPF_BACKING) || \
+		     (__fuse_bpf_ext_flags & FUSE_BPF_POST_FILTER))) { \
+			__fuse_bpf_ret = -EOPNOTSUPP; \
+			__fuse_bpf_args.error_in = __fuse_bpf_ret; \
+			__fuse_bpf_fer.result = ERR_PTR(__fuse_bpf_ret); \
+			__fuse_bpf_fer.ret = true; \
+			break; \
+		} \
+		/* Stateful lower-handle operations must execute once. */ \
+		if (__fuse_bpf_backup.opcode == FUSE_LSEEK && \
 		    (!(__fuse_bpf_ext_flags & FUSE_BPF_BACKING) || \
 		     (__fuse_bpf_ext_flags & FUSE_BPF_POST_FILTER))) { \
 			__fuse_bpf_ret = -EOPNOTSUPP; \

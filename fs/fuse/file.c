@@ -2611,17 +2611,32 @@ fallback:
 		return err;
 }
 
+#ifdef CONFIG_FUSE_BPF
+static loff_t fuse_bpf_file_llseek(struct file *file, loff_t offset,
+				   int whence)
+{
+	struct inode *inode = file_inode(file);
+	struct fuse_err_ret result;
+
+	result = fuse_bpf_backing(inode, struct fuse_lseek_io,
+				  fuse_lseek_initialize,
+				  fuse_lseek_backing,
+				  fuse_lseek_finalize,
+				  file, offset, whence);
+	if (result.ret)
+		return PTR_ERR(result.result);
+	return -EOPNOTSUPP;
+}
+#endif
+
 static loff_t fuse_file_llseek(struct file *file, loff_t offset, int whence)
 {
 	loff_t retval;
 	struct inode *inode = file_inode(file);
 
 #ifdef CONFIG_FUSE_BPF
-	if (fuse_file_has_backing(file)) {
-		if (whence == SEEK_SET || whence == SEEK_CUR)
-			return generic_file_llseek(file, offset, whence);
-		return -EOPNOTSUPP;
-	}
+	if (fuse_file_has_backing(file))
+		return fuse_bpf_file_llseek(file, offset, whence);
 #endif
 
 	switch (whence) {

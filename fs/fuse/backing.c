@@ -1909,6 +1909,135 @@ void *fuse_flush_finalize(struct fuse_bpf_args *args,
 	return error ? ERR_PTR(error) : NULL;
 }
 
+int fuse_lseek_initialize(struct fuse_bpf_args *args,
+			  struct fuse_lseek_io *io,
+			  struct file *file, loff_t offset, int whence)
+{
+	struct fuse_file *ff = file->private_data;
+
+	if (!ff || !ff->backing_file)
+		return -EBADF;
+	switch (whence) {
+	case SEEK_SET:
+	case SEEK_CUR:
+	case SEEK_END:
+	case SEEK_DATA:
+	case SEEK_HOLE:
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	memset(io, 0, sizeof(*io));
+	io->in.fh = ff->fh;
+	io->in.offset = offset;
+	io->in.whence = whence;
+	io->out.offset = file->f_pos;
+	io->original_pos = file->f_pos;
+	io->actual_ret = -EINPROGRESS;
+	*args = (struct fuse_bpf_args) {
+		/* Lower-only handles must never be sent to the daemon. */
+		.nodeid = 0,
+		.opcode = FUSE_LSEEK,
+		.in_numargs = 1,
+		.out_numargs = 1,
+		.in_args[0] = (struct fuse_bpf_in_arg) {
+			.size = sizeof(io->in),
+			.value = &io->in,
+		},
+		.out_args[0] = (struct fuse_bpf_arg) {
+			.size = sizeof(io->out),
+			.value = &io->out,
+		},
+	};
+	return 0;
+}
+
+int fuse_lseek_backing(struct fuse_bpf_args *args,
+		       struct file *file, loff_t offset, int whence)
+{
+	struct inode *inode = file_inode(file);
+	struct fuse_inode *fi = get_fuse_inode(inode);
+	struct fuse_file *ff = file->private_data;
+	struct file *backing_file;
+	struct fuse_lseek_in *in;
+	struct fuse_lseek_out *out;
+	struct fuse_lseek_io *io;
+	loff_t ret;
+
+	if (!ff || !ff->backing_file || args->opcode != FUSE_LSEEK ||
+	    args->nodeid || args->flags || args->in_numargs != 1 ||
+	    args->out_numargs != 1 || !args->in_args[0].value ||
+	    !args->out_args[0].value ||
+	    args->in_args[0].size != sizeof(*in) ||
+	    args->out_args[0].size != sizeof(*out))
+		return -EINVAL;
+
+	in = (struct fuse_lseek_in *)args->in_args[0].value;
+	out = args->out_args[0].value;
+	io = container_of(in, struct fuse_lseek_io, in);
+	backing_file = ff->backing_file;
+	if (out != &io->out || in->fh != ff->fh || in->padding ||
+	    in->offset != (u64)offset || in->whence != (u32)whence ||
+	    io->original_pos != file->f_pos)
+		return -EOPNOTSUPP;
+	if (file_inode(backing_file) != fi->backing_inode ||
+	    backing_file->f_path.mnt != fi->backing_mnt ||
+	    ((file_inode(backing_file)->i_mode ^ inode->i_mode) & S_IFMT))
+		return -ESTALE;
+	if (file_inode(backing_file) == inode ||
+	    file_inode(backing_file)->i_sb == inode->i_sb)
+		return -ELOOP;
+
+	backing_file->f_pos = io->original_pos;
+	io->executed = true;
+	ret = vfs_llseek(backing_file, offset, whence);
+	if (ret >= 0) {
+		loff_t upper_ret;
+
+		upper_ret = vfs_setpos(file, ret, inode->i_sb->s_maxbytes);
+		if (upper_ret < 0) {
+			backing_file->f_pos = io->original_pos;
+			ret = upper_ret;
+		}
+	} else {
+		backing_file->f_pos = io->original_pos;
+	}
+	io->actual_ret = ret;
+	io->out.offset = ret >= 0 ? ret : io->original_pos;
+	return ret < 0 ? ret : 0;
+}
+
+void *fuse_lseek_finalize(struct fuse_bpf_args *args,
+			  struct file *file, loff_t offset, int whence)
+{
+	struct fuse_lseek_in *in;
+	struct fuse_lseek_io *io;
+	loff_t ret;
+	int error = (s32)args->error_in;
+
+	if (error > 0)
+		error = -EIO;
+	if (!args->in_numargs || !args->in_args[0].value)
+		return ERR_PTR(error ? error : -EIO);
+	in = (struct fuse_lseek_in *)args->in_args[0].value;
+	io = container_of(in, struct fuse_lseek_io, in);
+	if (io->executed && io->actual_ret >= 0)
+		ret = io->actual_ret;
+	else if (error)
+		ret = error;
+	else if (args->in_args[0].size != sizeof(*in))
+		ret = -EIO;
+	else if (io->executed)
+		ret = io->actual_ret;
+	else
+		ret = -EIO;
+	(void)file;
+	(void)offset;
+	(void)whence;
+	return ERR_PTR(ret);
+}
+
 int fuse_fsync_initialize(struct fuse_bpf_args *args,
 			  struct fuse_fsync_in *in,
 			  struct file *file, loff_t start, loff_t end,
