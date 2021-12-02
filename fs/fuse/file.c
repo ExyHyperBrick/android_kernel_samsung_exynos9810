@@ -3391,6 +3391,60 @@ out:
 	return err;
 }
 
+#ifdef CONFIG_FUSE_BPF
+static ssize_t fuse_bpf_copy_file_range(struct file *file_in,
+					loff_t pos_in,
+					struct file *file_out,
+					loff_t pos_out, size_t len,
+					unsigned int flags)
+{
+	struct inode *inode = file_inode(file_in);
+	struct fuse_err_ret result;
+	ssize_t ret;
+
+	result = fuse_bpf_backing(inode, struct fuse_copy_file_range_io,
+				  fuse_copy_file_range_initialize,
+				  fuse_copy_file_range_backing,
+				  fuse_copy_file_range_finalize,
+				  file_in, pos_in, file_out, pos_out,
+				  len, flags);
+	if (!result.ret)
+		return -EXDEV;
+	ret = PTR_ERR(result.result);
+	/* Never bypass COPY_FILE_RANGE policy through the splice fallback. */
+	return ret == -EOPNOTSUPP ? -EXDEV : ret;
+}
+
+static ssize_t fuse_file_copy_file_range(struct file *file_in,
+					 loff_t pos_in,
+					 struct file *file_out,
+					 loff_t pos_out, size_t len,
+					 unsigned int flags)
+{
+	struct inode *inode_in = file_inode(file_in);
+	struct inode *inode_out = file_inode(file_out);
+	bool inode_in_backing;
+	bool inode_out_backing;
+	bool file_in_backing;
+	bool file_out_backing;
+
+	if (inode_in->i_sb != inode_out->i_sb)
+		return -EXDEV;
+	inode_in_backing = fuse_inode_has_backing(inode_in);
+	inode_out_backing = fuse_inode_has_backing(inode_out);
+	file_in_backing = fuse_file_has_backing(file_in);
+	file_out_backing = fuse_file_has_backing(file_out);
+	if (!inode_in_backing && !inode_out_backing &&
+	    !file_in_backing && !file_out_backing)
+		return -EOPNOTSUPP;
+	if (!inode_in_backing || !inode_out_backing ||
+	    !file_in_backing || !file_out_backing)
+		return -EXDEV;
+	return fuse_bpf_copy_file_range(file_in, pos_in, file_out,
+					pos_out, len, flags);
+}
+#endif
+
 static const struct file_operations fuse_file_operations = {
 	.llseek		= fuse_file_llseek,
 	.read_iter	= fuse_file_read_iter,
@@ -3407,6 +3461,9 @@ static const struct file_operations fuse_file_operations = {
 	.compat_ioctl	= fuse_file_compat_ioctl,
 	.poll		= fuse_file_poll,
 	.fallocate	= fuse_file_fallocate,
+#ifdef CONFIG_FUSE_BPF
+	.copy_file_range = fuse_file_copy_file_range,
+#endif
 };
 
 static const struct file_operations fuse_direct_io_file_operations = {
@@ -3424,6 +3481,9 @@ static const struct file_operations fuse_direct_io_file_operations = {
 	.compat_ioctl	= fuse_file_compat_ioctl,
 	.poll		= fuse_file_poll,
 	.fallocate	= fuse_file_fallocate,
+#ifdef CONFIG_FUSE_BPF
+	.copy_file_range = fuse_file_copy_file_range,
+#endif
 	/* no splice_read */
 };
 

@@ -1402,6 +1402,33 @@ int fuse_lseek_backing(struct fuse_bpf_args *args,
 void *fuse_lseek_finalize(struct fuse_bpf_args *args,
 			  struct file *file, loff_t offset, int whence);
 
+struct fuse_copy_file_range_io {
+	struct fuse_copy_file_range_in in;
+	struct fuse_write_out out;
+	loff_t original_pos_in;
+	loff_t original_pos_out;
+	size_t original_len;
+	ssize_t actual_ret;
+	bool executed;
+};
+
+int fuse_copy_file_range_initialize(
+		struct fuse_bpf_args *args,
+		struct fuse_copy_file_range_io *io,
+		struct file *file_in, loff_t pos_in,
+		struct file *file_out, loff_t pos_out,
+		size_t len, unsigned int flags);
+int fuse_copy_file_range_backing(
+		struct fuse_bpf_args *args,
+		struct file *file_in, loff_t pos_in,
+		struct file *file_out, loff_t pos_out,
+		size_t len, unsigned int flags);
+void *fuse_copy_file_range_finalize(
+		struct fuse_bpf_args *args,
+		struct file *file_in, loff_t pos_in,
+		struct file *file_out, loff_t pos_out,
+		size_t len, unsigned int flags);
+
 struct fuse_bpf_rw_out {
 	s64 ret;
 };
@@ -1545,7 +1572,8 @@ void *fuse_release_finalize(struct fuse_bpf_args *args,
 		} \
 		/* Stateful lower-handle operations must execute once. */ \
 		if ((__fuse_bpf_backup.opcode == FUSE_LSEEK || \
-		     __fuse_bpf_backup.opcode == FUSE_FALLOCATE) && \
+		     __fuse_bpf_backup.opcode == FUSE_FALLOCATE || \
+		     __fuse_bpf_backup.opcode == FUSE_COPY_FILE_RANGE) && \
 		    (!(__fuse_bpf_ext_flags & FUSE_BPF_BACKING) || \
 		     (__fuse_bpf_ext_flags & FUSE_BPF_POST_FILTER))) { \
 			__fuse_bpf_ret = -EOPNOTSUPP; \

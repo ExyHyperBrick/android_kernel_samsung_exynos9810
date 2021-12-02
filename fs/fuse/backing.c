@@ -2038,6 +2038,200 @@ void *fuse_lseek_finalize(struct fuse_bpf_args *args,
 	return ERR_PTR(ret);
 }
 
+static void fuse_bpf_file_accessed(struct file *file,
+				   struct file *backing_file);
+static void fuse_bpf_copy_write_attr(struct file *file,
+				     struct file *backing_file);
+
+int fuse_copy_file_range_initialize(
+		struct fuse_bpf_args *args,
+		struct fuse_copy_file_range_io *io,
+		struct file *file_in, loff_t pos_in,
+		struct file *file_out, loff_t pos_out,
+		size_t len, unsigned int flags)
+{
+	struct fuse_file *ff_in = file_in->private_data;
+	struct fuse_file *ff_out = file_out->private_data;
+
+	if (!ff_in || !ff_in->backing_file ||
+	    !ff_out || !ff_out->backing_file)
+		return -EBADF;
+	if (flags || pos_in < 0 || pos_out < 0 || len > U32_MAX ||
+	    len > (u64)LLONG_MAX - pos_in ||
+	    len > (u64)LLONG_MAX - pos_out)
+		return -EINVAL;
+
+	memset(io, 0, sizeof(*io));
+	io->in.fh_in = ff_in->fh;
+	io->in.off_in = pos_in;
+	io->in.nodeid_out = ff_out->nodeid;
+	io->in.fh_out = ff_out->fh;
+	io->in.off_out = pos_out;
+	io->in.len = len;
+	io->in.flags = flags;
+	io->original_pos_in = pos_in;
+	io->original_pos_out = pos_out;
+	io->original_len = len;
+	io->actual_ret = -EINPROGRESS;
+	*args = (struct fuse_bpf_args) {
+		/* Lower-only handles must never be sent to the daemon. */
+		.nodeid = 0,
+		.opcode = FUSE_COPY_FILE_RANGE,
+		.in_numargs = 1,
+		.out_numargs = 1,
+		.in_args[0] = (struct fuse_bpf_in_arg) {
+			.size = sizeof(io->in),
+			.value = &io->in,
+		},
+		.out_args[0] = (struct fuse_bpf_arg) {
+			.size = sizeof(io->out),
+			.value = &io->out,
+		},
+	};
+	return 0;
+}
+
+static int fuse_bpf_copy_file_range_identity(
+		struct file *file, struct file *backing_file)
+{
+	struct inode *inode = file_inode(file);
+	struct fuse_inode *fi = get_fuse_inode(inode);
+	struct inode *backing_inode = file_inode(backing_file);
+
+	if (!fi->backing_inode || !fi->backing_mnt || !backing_inode ||
+	    backing_inode != fi->backing_inode ||
+	    backing_file->f_path.mnt != fi->backing_mnt)
+		return -ESTALE;
+	if (backing_inode == inode || backing_inode->i_sb == inode->i_sb ||
+	    !S_ISREG(inode->i_mode) || !S_ISREG(backing_inode->i_mode))
+		return -ELOOP;
+	return 0;
+}
+
+int fuse_copy_file_range_backing(
+		struct fuse_bpf_args *args,
+		struct file *file_in, loff_t pos_in,
+		struct file *file_out, loff_t pos_out,
+		size_t len, unsigned int flags)
+{
+	struct fuse_file *ff_in = file_in->private_data;
+	struct fuse_file *ff_out = file_out->private_data;
+	struct inode *inode_in = file_inode(file_in);
+	struct inode *inode_out = file_inode(file_out);
+	struct file *backing_in;
+	struct file *backing_out;
+	struct fuse_copy_file_range_in *in;
+	struct fuse_write_out *out;
+	struct fuse_copy_file_range_io *io;
+	bool same_inode = inode_in == inode_out;
+	ssize_t ret;
+
+	if (!ff_in || !ff_in->backing_file ||
+	    !ff_out || !ff_out->backing_file ||
+	    args->opcode != FUSE_COPY_FILE_RANGE || args->nodeid ||
+	    args->flags || args->in_numargs != 1 ||
+	    args->out_numargs != 1 || !args->in_args[0].value ||
+	    !args->out_args[0].value ||
+	    args->in_args[0].size != sizeof(*in) ||
+	    args->out_args[0].size != sizeof(*out))
+		return -EINVAL;
+
+	in = (struct fuse_copy_file_range_in *)args->in_args[0].value;
+	out = args->out_args[0].value;
+	io = container_of(in, struct fuse_copy_file_range_io, in);
+	backing_in = ff_in->backing_file;
+	backing_out = ff_out->backing_file;
+	if (out != &io->out || out->size || out->padding ||
+	    in->fh_in != ff_in->fh || in->off_in != (u64)pos_in ||
+	    in->nodeid_out != ff_out->nodeid || in->fh_out != ff_out->fh ||
+	    in->off_out != (u64)pos_out || in->len != len ||
+	    in->flags != flags || io->original_pos_in != pos_in ||
+	    io->original_pos_out != pos_out || io->original_len != len)
+		return -EOPNOTSUPP;
+	if (file_inode(backing_in)->i_sb != file_inode(backing_out)->i_sb ||
+	    backing_in->f_path.mnt != backing_out->f_path.mnt ||
+	    inode_in->i_sb != inode_out->i_sb || ff_in->fc != ff_out->fc)
+		return -EXDEV;
+	ret = fuse_bpf_copy_file_range_identity(file_in, backing_in);
+	if (ret)
+		return ret;
+	ret = fuse_bpf_copy_file_range_identity(file_out, backing_out);
+	if (ret)
+		return ret;
+	if (!(backing_in->f_mode & FMODE_READ) ||
+	    !(backing_out->f_mode & FMODE_WRITE) ||
+	    (backing_out->f_flags & O_APPEND))
+		return -EBADF;
+
+	if (same_inode)
+		inode_lock(inode_in);
+	else
+		lock_two_nondirectories(inode_in, inode_out);
+	if (mapping_mapped(inode_in->i_mapping) ||
+	    (!same_inode && mapping_mapped(inode_out->i_mapping))) {
+		ret = -EBUSY;
+		goto out_unlock;
+	}
+	ret = invalidate_inode_pages2(inode_in->i_mapping);
+	if (!ret && !same_inode)
+		ret = invalidate_inode_pages2(inode_out->i_mapping);
+	if (ret)
+		goto out_unlock;
+
+	io->executed = true;
+	ret = vfs_copy_file_range(backing_in, pos_in, backing_out,
+				  pos_out, len, flags);
+	io->actual_ret = ret;
+	io->out.size = ret > 0 ? ret : 0;
+	if (ret > 0) {
+		fuse_bpf_file_accessed(file_in, backing_in);
+		fuse_bpf_copy_write_attr(file_out, backing_out);
+	}
+
+out_unlock:
+	if (same_inode)
+		inode_unlock(inode_in);
+	else
+		unlock_two_nondirectories(inode_in, inode_out);
+	return ret < 0 ? ret : 0;
+}
+
+void *fuse_copy_file_range_finalize(
+		struct fuse_bpf_args *args,
+		struct file *file_in, loff_t pos_in,
+		struct file *file_out, loff_t pos_out,
+		size_t len, unsigned int flags)
+{
+	struct fuse_copy_file_range_in *in;
+	struct fuse_copy_file_range_io *io;
+	ssize_t ret;
+	int error = (s32)args->error_in;
+
+	if (error > 0)
+		error = -EIO;
+	if (!args->in_numargs || !args->in_args[0].value)
+		return ERR_PTR(error ? error : -EIO);
+	in = (struct fuse_copy_file_range_in *)args->in_args[0].value;
+	io = container_of(in, struct fuse_copy_file_range_io, in);
+	if (io->executed && io->actual_ret > 0)
+		ret = io->actual_ret;
+	else if (error)
+		ret = error;
+	else if (args->in_args[0].size != sizeof(*in))
+		ret = -EIO;
+	else if (io->executed)
+		ret = io->actual_ret;
+	else
+		ret = -EIO;
+	(void)file_in;
+	(void)pos_in;
+	(void)file_out;
+	(void)pos_out;
+	(void)len;
+	(void)flags;
+	return ERR_PTR(ret);
+}
+
 int fuse_fsync_initialize(struct fuse_bpf_args *args,
 			  struct fuse_fsync_in *in,
 			  struct file *file, loff_t start, loff_t end,
