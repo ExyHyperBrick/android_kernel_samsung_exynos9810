@@ -7,6 +7,9 @@
 #include "fuse_i.h"
 
 #include <linux/errno.h>
+#include <linux/fs_stack.h>
+#include <linux/fsnotify.h>
+#include <linux/mount.h>
 #include <linux/namei.h>
 #include <linux/string.h>
 
@@ -160,6 +163,19 @@ int fuse_bpf_run_filter(struct bpf_prog *prog, struct fuse_bpf_args *args)
 	if (ret & ~FUSE_BPF_RET_MASK)
 		return -EINVAL;
 	return ret;
+}
+
+struct bpf_prog *fuse_bpf_get_prog(struct fuse_conn *fc,
+				   struct fuse_inode *fi)
+{
+	struct bpf_prog *prog;
+
+	spin_lock(&fc->lock);
+	prog = fi->bpf;
+	if (prog)
+		bpf_prog_inc(prog);
+	spin_unlock(&fc->lock);
+	return prog;
 }
 
 ssize_t fuse_bpf_simple_request(struct fuse_conn *fc,
@@ -433,17 +449,26 @@ int fuse_handle_backing(struct fuse_entry_bpf *entry,
 int fuse_handle_bpf_prog(struct fuse_entry_bpf *entry,
 			 struct inode *parent, struct bpf_prog **prog)
 {
+	struct fuse_conn *fc;
 	struct bpf_prog *new_prog = NULL;
+	struct bpf_prog *old_prog;
 	struct file *file;
 	int ret;
 
+	if (!parent) {
+		if (entry->out.bpf_action == FUSE_ACTION_KEEP)
+			return 0;
+		return -EINVAL;
+	}
+	fc = get_fuse_conn(parent);
+
 	switch (entry->out.bpf_action) {
 	case FUSE_ACTION_KEEP:
-		if (!parent)
-			return 0;
+		spin_lock(&fc->lock);
 		new_prog = get_fuse_inode(parent)->bpf;
 		if (new_prog)
 			bpf_prog_inc(new_prog);
+		spin_unlock(&fc->lock);
 		break;
 
 	case FUSE_ACTION_REMOVE:
@@ -465,9 +490,12 @@ int fuse_handle_bpf_prog(struct fuse_entry_bpf *entry,
 		return -EINVAL;
 	}
 
-	if (*prog)
-		bpf_prog_put(*prog);
+	spin_lock(&fc->lock);
+	old_prog = *prog;
 	*prog = new_prog;
+	spin_unlock(&fc->lock);
+	if (old_prog)
+		bpf_prog_put(old_prog);
 	return 0;
 }
 
@@ -630,14 +658,15 @@ int fuse_revalidate_backing(struct dentry *entry, unsigned int flags)
 }
 
 int fuse_open_initialize(struct fuse_bpf_args *args,
-			 struct fuse_open_io *io,
-			 struct inode *inode, struct file *file,
-			 bool isdir)
+			 struct fuse_open_io *io, struct inode *inode,
+			 struct file *file, bool isdir)
 {
-	memset(io, 0, sizeof(*io));
-	io->in.flags = file->f_flags & ~(O_CREAT | O_EXCL | O_NOCTTY);
-	io->out.open_flags = FOPEN_KEEP_CACHE;
+	u32 flags = file->f_flags & ~(O_CREAT | O_EXCL | O_NOCTTY);
 
+	memset(io, 0, sizeof(*io));
+	if (!get_fuse_conn(inode)->atomic_o_trunc)
+		flags &= ~O_TRUNC;
+	io->in.flags = flags;
 	*args = (struct fuse_bpf_args) {
 		.nodeid = get_node_id(inode),
 		.opcode = isdir ? FUSE_OPENDIR : FUSE_OPEN,
@@ -655,34 +684,11 @@ int fuse_open_initialize(struct fuse_bpf_args *args,
 	return 0;
 }
 
-int fuse_open_backing(struct fuse_bpf_args *args,
-		      struct inode *inode, struct file *file,
-		      bool isdir)
+static int fuse_open_access_mask(u32 flags)
 {
-	const struct fuse_open_in *in;
-	struct fuse_dentry *data;
-	struct fuse_inode *fi;
-	struct file *backing_file;
-	struct fuse_file *ff;
-	int open_flags;
 	int mask;
-	int ret;
 
-	if (args->in_numargs != 1 || !args->in_args[0].value ||
-	    args->in_args[0].size != sizeof(*in))
-		return -EINVAL;
-
-	in = args->in_args[0].value;
-	fi = get_fuse_inode(inode);
-	data = get_fuse_dentry(file->f_path.dentry);
-	if (!fi || !fi->backing_inode || !data ||
-	    !data->backing_path.dentry || !data->backing_path.mnt)
-		return -EBADF;
-	if (d_inode(data->backing_path.dentry) != fi->backing_inode)
-		return -ESTALE;
-
-	open_flags = in->flags & ~(O_CREAT | O_EXCL | O_NOCTTY);
-	switch (open_flags & O_ACCMODE) {
+	switch (flags & O_ACCMODE) {
 	case O_RDONLY:
 		mask = MAY_READ;
 		break;
@@ -695,50 +701,120 @@ int fuse_open_backing(struct fuse_bpf_args *args,
 	default:
 		return -EINVAL;
 	}
-	if (open_flags & O_TRUNC)
+	if (flags & O_TRUNC)
 		mask |= MAY_WRITE;
+	if (flags & O_APPEND)
+		mask |= MAY_APPEND;
+	return mask;
+}
 
-	ret = inode_permission(fi->backing_inode, mask);
+int fuse_open_backing(struct fuse_bpf_args *args, struct inode *inode,
+		      struct file *file, bool isdir)
+{
+	struct fuse_inode *fi = get_fuse_inode(inode);
+	const struct fuse_open_in *in;
+	struct file *backing_file;
+	struct inode *backing_inode;
+	struct fuse_file *ff;
+	struct path path;
+	u32 flags;
+	int mask;
+	int ret;
+
+	if (args->in_numargs != 1 || !args->in_args[0].value ||
+	    args->in_args[0].size != sizeof(*in) ||
+	    args->out_numargs != 1 || !args->out_args[0].value ||
+	    args->out_args[0].size != sizeof(struct fuse_open_out))
+		return -EINVAL;
+
+	in = args->in_args[0].value;
+	flags = in->flags & ~(O_CREAT | O_EXCL | O_NOCTTY);
+	flags |= file->f_flags & FMODE_EXEC;
+	mask = fuse_open_access_mask(flags);
+	if (mask < 0)
+		return mask;
+	if (file->f_flags & FMODE_EXEC)
+		mask |= MAY_EXEC;
+
+	get_fuse_backing_path(file->f_path.dentry, &path);
+	if (!path.dentry || !path.mnt)
+		return -EBADF;
+	backing_inode = d_inode(path.dentry);
+	if (!fi || !fi->backing_inode || !backing_inode ||
+	    backing_inode != fi->backing_inode) {
+		ret = -ESTALE;
+		goto out_path;
+	}
+	if (isdir && !S_ISDIR(backing_inode->i_mode)) {
+		ret = -ENOTDIR;
+		goto out_path;
+	}
+	if (!isdir && !S_ISREG(backing_inode->i_mode)) {
+		ret = S_ISDIR(backing_inode->i_mode) ? -EISDIR :
+			-EOPNOTSUPP;
+		goto out_path;
+	}
+	if ((file->f_flags & FMODE_EXEC) &&
+	    ((path.mnt->mnt_flags & MNT_NOEXEC) ||
+	     (path.mnt->mnt_sb->s_iflags & SB_I_NOEXEC))) {
+		ret = -EACCES;
+		goto out_path;
+	}
+	if (S_ISDIR(backing_inode->i_mode) && (mask & MAY_WRITE)) {
+		ret = -EISDIR;
+		goto out_path;
+	}
+	ret = inode_permission2(path.mnt, backing_inode, MAY_OPEN | mask);
 	if (ret)
-		return ret;
+		goto out_path;
+	if (IS_APPEND(backing_inode) &&
+	    (flags & O_ACCMODE) != O_RDONLY && !(flags & O_APPEND)) {
+		ret = -EPERM;
+		goto out_path;
+	}
+	if ((flags & O_NOATIME) &&
+	    !inode_owner_or_capable(backing_inode)) {
+		ret = -EPERM;
+		goto out_path;
+	}
 
-	backing_file = dentry_open(&data->backing_path, open_flags,
-				   current_cred());
-	if (IS_ERR(backing_file))
-		return PTR_ERR(backing_file);
+	backing_file = dentry_open(&path, flags, current_cred());
+	if (IS_ERR(backing_file)) {
+		ret = PTR_ERR(backing_file);
+		goto out_path;
+	}
 
 	ff = fuse_file_alloc(get_fuse_conn(inode));
 	if (!ff) {
 		fput(backing_file);
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto out_path;
 	}
-
 	ff->backing_file = backing_file;
-	ff->fh = 0;
+	ff->open_flags = 0;
 	ff->nodeid = get_node_id(inode);
-	ff->open_flags = FOPEN_KEEP_CACHE;
-	if (isdir)
-		ff->open_flags &= ~FOPEN_DIRECT_IO;
 	file->private_data = fuse_file_get(ff);
-	return 0;
+	ret = 0;
+
+out_path:
+	path_put(&path);
+	return ret;
 }
 
-void *fuse_open_finalize(struct fuse_bpf_args *args,
-			 struct inode *inode, struct file *file,
-			 bool isdir)
+void *fuse_open_finalize(struct fuse_bpf_args *args, struct inode *inode,
+			 struct file *file, bool isdir)
 {
 	struct fuse_open_out *out;
 	struct fuse_file *ff = file->private_data;
 	int error = (s32)args->error_in;
 
 	if (error)
-		goto out_error;
-	if (!ff || args->out_numargs != 1 ||
-	    !args->out_args[0].value ||
-	    args->out_args[0].size != sizeof(*out)) {
-		error = -EIO;
-		goto out_error;
-	}
+		return ERR_PTR(error < 0 ? error : -EIO);
+	if (!ff)
+		return NULL;
+	if (args->out_numargs != 1 || !args->out_args[0].value ||
+	    args->out_args[0].size != sizeof(*out))
+		return ERR_PTR(-EIO);
 
 	out = args->out_args[0].value;
 	ff->fh = out->fh;

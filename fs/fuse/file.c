@@ -291,8 +291,16 @@ int fuse_open_common(struct inode *inode, struct file *file, bool isdir)
 					  fuse_open_backing,
 					  fuse_open_finalize,
 					  inode, file, isdir);
-		if (result.ret)
-			return PTR_ERR(result.result);
+		if (result.ret) {
+			err = PTR_ERR(result.result);
+			if (err && file->private_data) {
+				struct fuse_file *ff = file->private_data;
+
+				file->private_data = NULL;
+				fuse_file_free(ff);
+			}
+			return err;
+		}
 	}
 #endif
 
