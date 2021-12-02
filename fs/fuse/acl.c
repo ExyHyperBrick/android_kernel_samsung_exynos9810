@@ -18,15 +18,19 @@ struct posix_acl *fuse_get_acl(struct inode *inode, int type)
 	const char *name;
 	void *value = NULL;
 	struct posix_acl *acl;
+#ifdef CONFIG_FUSE_BPF
+	bool backing;
+#endif
 
 	if (fuse_is_bad(inode))
 		return ERR_PTR(-EIO);
 
 #ifdef CONFIG_FUSE_BPF
-	if (fuse_inode_has_backing(inode))
-		return ERR_PTR(-EOPNOTSUPP);
-#endif
+	backing = fuse_inode_has_backing(inode);
+	if (!fc->posix_acl || (!backing && fc->no_getxattr))
+#else
 	if (!fc->posix_acl || fc->no_getxattr)
+#endif
 		return NULL;
 
 	if (type == ACL_TYPE_ACCESS)
@@ -43,7 +47,11 @@ struct posix_acl *fuse_get_acl(struct inode *inode, int type)
 	if (size > 0)
 		acl = posix_acl_from_xattr(&init_user_ns, value, size);
 	else if ((size == 0) || (size == -ENODATA) ||
+#ifdef CONFIG_FUSE_BPF
+		 (size == -EOPNOTSUPP && (backing || fc->no_getxattr)))
+#else
 		 (size == -EOPNOTSUPP && fc->no_getxattr))
+#endif
 		acl = NULL;
 	else if (size == -ERANGE)
 		acl = ERR_PTR(-E2BIG);

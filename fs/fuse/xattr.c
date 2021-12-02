@@ -11,6 +11,10 @@
 #include <linux/xattr.h>
 #include <linux/posix_acl_xattr.h>
 
+#ifdef CONFIG_FUSE_BPF
+#include "xattr_bpf.h"
+#endif
+
 int fuse_setxattr(struct inode *inode, const char *name, const void *value,
 		  size_t size, int flags)
 {
@@ -50,6 +54,67 @@ int fuse_setxattr(struct inode *inode, const char *name, const void *value,
 	return err;
 }
 
+#ifdef CONFIG_FUSE_BPF
+static ssize_t fuse_getxattr_daemon(struct inode *inode, const char *name,
+				    void *value, size_t size)
+{
+	struct fuse_conn *fc = get_fuse_conn(inode);
+	FUSE_ARGS(args);
+	struct fuse_getxattr_in inarg;
+	struct fuse_getxattr_out outarg;
+	ssize_t ret;
+
+	if (fc->no_getxattr)
+		return -EOPNOTSUPP;
+
+	memset(&inarg, 0, sizeof(inarg));
+	inarg.size = size;
+	args.in.h.opcode = FUSE_GETXATTR;
+	args.in.h.nodeid = get_node_id(inode);
+	args.in.numargs = 2;
+	args.in.args[0].size = sizeof(inarg);
+	args.in.args[0].value = &inarg;
+	args.in.args[1].size = strlen(name) + 1;
+	args.in.args[1].value = name;
+	args.out.numargs = 1;
+	if (size) {
+		args.out.argvar = 1;
+		args.out.args[0].size = size;
+		args.out.args[0].value = value;
+	} else {
+		args.out.args[0].size = sizeof(outarg);
+		args.out.args[0].value = &outarg;
+	}
+	ret = fuse_simple_request(fc, &args);
+	if (!ret && !size)
+		ret = min_t(ssize_t, outarg.size, XATTR_SIZE_MAX);
+	if (ret == -ENOSYS) {
+		fc->no_getxattr = 1;
+		ret = -EOPNOTSUPP;
+	}
+	return ret;
+}
+
+static ssize_t fuse_getxattr_backing_dispatch(struct dentry *entry,
+					      struct inode *inode,
+					      const char *name,
+					      void *value, size_t size)
+{
+	struct fuse_err_ret result;
+
+	result = fuse_bpf_backing(inode, struct fuse_bpf_getxattr_io,
+				  fuse_bpf_getxattr_initialize,
+				  fuse_bpf_getxattr_backing,
+				  fuse_bpf_getxattr_finalize,
+				  entry, name, value, size);
+	if (result.ret)
+		return PTR_ERR(result.result);
+	if (!get_node_id(inode))
+		return -EOPNOTSUPP;
+	return fuse_getxattr_daemon(inode, name, value, size);
+}
+#endif
+
 ssize_t fuse_getxattr(struct inode *inode, const char *name, void *value,
 		      size_t size)
 {
@@ -60,8 +125,18 @@ ssize_t fuse_getxattr(struct inode *inode, const char *name, void *value,
 	ssize_t ret;
 
 #ifdef CONFIG_FUSE_BPF
-	if (fuse_inode_has_backing(inode))
-		return -EOPNOTSUPP;
+	if (fuse_inode_has_backing(inode)) {
+		struct dentry *alias;
+		ssize_t result;
+
+		alias = d_find_alias(inode);
+		if (!alias)
+			return -ESTALE;
+		result = fuse_getxattr_backing_dispatch(alias, inode, name,
+							value, size);
+		dput(alias);
+		return result;
+	}
 #endif
 	if (fc->no_getxattr)
 		return -EOPNOTSUPP;
@@ -128,8 +203,20 @@ ssize_t fuse_listxattr(struct dentry *entry, char *list, size_t size)
 		return -EACCES;
 
 #ifdef CONFIG_FUSE_BPF
-	if (fuse_inode_has_backing(inode))
-		return -EOPNOTSUPP;
+	if (fuse_inode_has_backing(inode)) {
+		struct fuse_err_ret result;
+
+		result = fuse_bpf_backing(inode,
+					 struct fuse_bpf_listxattr_io,
+					 fuse_bpf_listxattr_initialize,
+					 fuse_bpf_listxattr_backing,
+					 fuse_bpf_listxattr_finalize,
+					 entry, list, size);
+		if (result.ret)
+			return PTR_ERR(result.result);
+		if (!get_node_id(inode))
+			return -EOPNOTSUPP;
+	}
 #endif
 	if (fc->no_listxattr)
 		return -EOPNOTSUPP;
@@ -200,6 +287,11 @@ static int fuse_xattr_get(const struct xattr_handler *handler,
 	if (fuse_is_bad(inode))
 		return -EIO;
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(inode))
+		return fuse_getxattr_backing_dispatch(dentry, inode, name,
+						     value, size);
+#endif
 	return fuse_getxattr(inode, name, value, size);
 }
 
