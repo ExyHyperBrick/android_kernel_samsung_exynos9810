@@ -3285,6 +3285,24 @@ fuse_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
 	return ret;
 }
 
+#ifdef CONFIG_FUSE_BPF
+static long fuse_bpf_file_fallocate(struct file *file, int mode,
+				    loff_t offset, loff_t length)
+{
+	struct inode *inode = file_inode(file);
+	struct fuse_err_ret result;
+
+	result = fuse_bpf_backing(inode, struct fuse_fallocate_in,
+				  fuse_file_fallocate_initialize,
+				  fuse_file_fallocate_backing,
+				  fuse_file_fallocate_finalize,
+				  file, mode, offset, length);
+	if (result.ret)
+		return PTR_ERR(result.result);
+	return -EOPNOTSUPP;
+}
+#endif
+
 static long fuse_file_fallocate(struct file *file, int mode, loff_t offset,
 				loff_t length)
 {
@@ -3303,13 +3321,13 @@ static long fuse_file_fallocate(struct file *file, int mode, loff_t offset,
 	bool lock_inode = !(mode & FALLOC_FL_KEEP_SIZE) ||
 			   (mode & FALLOC_FL_PUNCH_HOLE);
 
-#ifdef CONFIG_FUSE_BPF
-	if (fuse_file_has_backing(file))
-		return -EOPNOTSUPP;
-#endif
-
 	if (mode & ~(FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE))
 		return -EOPNOTSUPP;
+
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_file_has_backing(file))
+		return fuse_bpf_file_fallocate(file, mode, offset, length);
+#endif
 
 	if (fc->no_fallocate)
 		return -EOPNOTSUPP;

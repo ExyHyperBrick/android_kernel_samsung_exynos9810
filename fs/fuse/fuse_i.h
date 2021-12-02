@@ -1446,6 +1446,17 @@ void *fuse_file_write_iter_finalize(struct fuse_bpf_args *args,
 				    struct kiocb *iocb,
 				    struct iov_iter *from);
 
+int fuse_file_fallocate_initialize(struct fuse_bpf_args *args,
+				   struct fuse_fallocate_in *in,
+				   struct file *file, int mode,
+				   loff_t offset, loff_t length);
+int fuse_file_fallocate_backing(struct fuse_bpf_args *args,
+				struct file *file, int mode,
+				loff_t offset, loff_t length);
+void *fuse_file_fallocate_finalize(struct fuse_bpf_args *args,
+				   struct file *file, int mode,
+				   loff_t offset, loff_t length);
+
 int fuse_release_initialize(struct fuse_bpf_args *args,
 			    struct fuse_release_in *in,
 			    struct inode *inode, struct fuse_file *ff);
@@ -1533,7 +1544,8 @@ void *fuse_release_finalize(struct fuse_bpf_args *args,
 			break; \
 		} \
 		/* Stateful lower-handle operations must execute once. */ \
-		if (__fuse_bpf_backup.opcode == FUSE_LSEEK && \
+		if ((__fuse_bpf_backup.opcode == FUSE_LSEEK || \
+		     __fuse_bpf_backup.opcode == FUSE_FALLOCATE) && \
 		    (!(__fuse_bpf_ext_flags & FUSE_BPF_BACKING) || \
 		     (__fuse_bpf_ext_flags & FUSE_BPF_POST_FILTER))) { \
 			__fuse_bpf_ret = -EOPNOTSUPP; \

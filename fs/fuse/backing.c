@@ -2445,6 +2445,88 @@ void *fuse_file_write_iter_finalize(struct fuse_bpf_args *args,
 	return ERR_PTR(ret);
 }
 
+int fuse_file_fallocate_initialize(struct fuse_bpf_args *args,
+				   struct fuse_fallocate_in *in,
+				   struct file *file, int mode,
+				   loff_t offset, loff_t length)
+{
+	struct fuse_file *ff = file->private_data;
+
+	if (!ff || !ff->backing_file)
+		return -EBADF;
+	memset(in, 0, sizeof(*in));
+	in->fh = ff->fh;
+	in->offset = offset;
+	in->length = length;
+	in->mode = mode;
+	*args = (struct fuse_bpf_args) {
+		/* Lower-only handles must never be sent to the daemon. */
+		.nodeid = 0,
+		.opcode = FUSE_FALLOCATE,
+		.in_numargs = 1,
+		.in_args[0] = (struct fuse_bpf_in_arg) {
+			.size = sizeof(*in),
+			.value = in,
+		},
+	};
+	return 0;
+}
+
+int fuse_file_fallocate_backing(struct fuse_bpf_args *args,
+				struct file *file, int mode,
+				loff_t offset, loff_t length)
+{
+	struct inode *inode = file_inode(file);
+	struct fuse_inode *fi = get_fuse_inode(inode);
+	struct fuse_file *ff = file->private_data;
+	struct fuse_fallocate_in *in;
+	int ret;
+
+	if (!ff || !ff->backing_file || args->opcode != FUSE_FALLOCATE ||
+	    args->nodeid || args->flags || args->in_numargs != 1 ||
+	    args->out_numargs || !args->in_args[0].value ||
+	    args->in_args[0].size != sizeof(*in))
+		return -EINVAL;
+	in = (struct fuse_fallocate_in *)args->in_args[0].value;
+	if (in->fh != ff->fh || in->padding || in->mode != (u32)mode ||
+	    in->offset != (u64)offset || in->length != (u64)length)
+		return -EOPNOTSUPP;
+	if (file_inode(ff->backing_file) != fi->backing_inode ||
+	    ff->backing_file->f_path.mnt != fi->backing_mnt ||
+	    ((file_inode(ff->backing_file)->i_mode ^ inode->i_mode) & S_IFMT))
+		return -ESTALE;
+	if (file_inode(ff->backing_file) == inode ||
+	    file_inode(ff->backing_file)->i_sb == inode->i_sb)
+		return -ELOOP;
+
+	inode_lock(inode);
+	if (mapping_mapped(inode->i_mapping))
+		ret = -EBUSY;
+	else
+		ret = invalidate_inode_pages2(inode->i_mapping);
+	if (!ret)
+		ret = vfs_fallocate(ff->backing_file, mode, offset, length);
+	if (!ret)
+		fuse_bpf_copy_write_attr(file, ff->backing_file);
+	inode_unlock(inode);
+	return ret;
+}
+
+void *fuse_file_fallocate_finalize(struct fuse_bpf_args *args,
+				   struct file *file, int mode,
+				   loff_t offset, loff_t length)
+{
+	int error = (s32)args->error_in;
+
+	(void)file;
+	(void)mode;
+	(void)offset;
+	(void)length;
+	if (error > 0)
+		error = -EIO;
+	return error ? ERR_PTR(error) : NULL;
+}
+
 int fuse_release_initialize(struct fuse_bpf_args *args,
 			    struct fuse_release_in *in,
 			    struct inode *inode, struct fuse_file *ff)
