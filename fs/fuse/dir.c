@@ -757,12 +757,238 @@ static int fuse_mkdir(struct inode *dir, struct dentry *entry, umode_t mode)
 	return create_new_entry(fc, &args, dir, entry, S_IFDIR);
 }
 
+#ifdef CONFIG_FUSE_BPF
+/*
+ * Route operations which are intentionally lower-only in this checkpoint.
+ * A userspace prefilter may approve the request, but a lower action is
+ * mandatory and postfiltering is rejected before any irreversible mutation.
+ */
+static int fuse_bpf_prepare_lower_only(struct inode *inode,
+				       struct fuse_bpf_args *args,
+				       struct fuse_bpf_args *backup)
+{
+	struct fuse_inode *fi = get_fuse_inode(inode);
+	struct fuse_conn *fc = get_fuse_conn(inode);
+	struct bpf_prog *prog;
+	bool locked;
+	ssize_t res;
+	int actions;
+	int ret;
+
+	prog = fuse_bpf_get_prog(fc, fi);
+	ret = fuse_bpf_prepare_prefilter(args, backup);
+	if (ret)
+		goto out_prog;
+
+	actions = prog ? fuse_bpf_run_filter(prog, args) :
+			 FUSE_BPF_BACKING;
+	if (actions < 0) {
+		ret = actions;
+		goto out_prog;
+	}
+	if (!(actions & FUSE_BPF_BACKING) ||
+	    (actions & FUSE_BPF_POST_FILTER)) {
+		ret = -EOPNOTSUPP;
+		goto out_prog;
+	}
+	if (actions & FUSE_BPF_USER_FILTER) {
+		if (!args->nodeid) {
+			ret = -EOPNOTSUPP;
+			goto out_prog;
+		}
+		locked = fuse_lock_inode(inode);
+		res = fuse_bpf_simple_request(fc, args);
+		fuse_unlock_inode(inode, locked);
+		if (res < 0) {
+			ret = res;
+			goto out_prog;
+		}
+	}
+	ret = fuse_bpf_prepare_backing(args, backup);
+
+out_prog:
+	if (prog)
+		bpf_prog_put(prog);
+	return ret;
+}
+
+static int fuse_bpf_symlink_paths(struct inode *dir,
+				  struct dentry *entry,
+				  struct path *parent_path,
+				  struct path *child_path)
+{
+	struct fuse_inode *fi = get_fuse_inode(dir);
+	struct inode *backing_dir;
+
+	*parent_path = (struct path) { };
+	*child_path = (struct path) { };
+	if (entry->d_parent == entry || d_inode(entry->d_parent) != dir ||
+	    d_really_is_positive(entry))
+		return -ESTALE;
+	if (!get_fuse_backing_path(entry->d_parent, parent_path))
+		return -EBADF;
+	if (!get_fuse_backing_path(entry, child_path)) {
+		fuse_put_backing_path(parent_path);
+		return -EBADF;
+	}
+
+	backing_dir = d_inode(parent_path->dentry);
+	if (!backing_dir || !S_ISDIR(backing_dir->i_mode) ||
+	    backing_dir != fi->backing_inode ||
+	    parent_path->mnt != fi->backing_mnt ||
+	    child_path->mnt != parent_path->mnt ||
+	    child_path->dentry->d_parent != parent_path->dentry ||
+	    d_really_is_positive(child_path->dentry) ||
+	    d_unhashed(child_path->dentry) ||
+	    child_path->dentry->d_name.len != entry->d_name.len ||
+	    memcmp(child_path->dentry->d_name.name,
+		   entry->d_name.name, entry->d_name.len)) {
+		fuse_put_backing_path(child_path);
+		fuse_put_backing_path(parent_path);
+		return -ESTALE;
+	}
+	return 0;
+}
+
+static void fuse_bpf_copy_parent_attr(struct inode *dir,
+				      struct inode *backing_dir)
+{
+	struct fuse_conn *fc = get_fuse_conn(dir);
+	struct fuse_inode *fi = get_fuse_inode(dir);
+
+	spin_lock(&fc->lock);
+	dir->i_atime = backing_dir->i_atime;
+	dir->i_mtime = backing_dir->i_mtime;
+	dir->i_ctime = backing_dir->i_ctime;
+	i_size_write(dir, i_size_read(backing_dir));
+	set_nlink(dir, backing_dir->i_nlink);
+	fi->attr_version = ++fc->attr_version;
+	spin_unlock(&fc->lock);
+}
+
+static int fuse_bpf_symlink(struct inode *dir, struct dentry *entry,
+			    const char *link, size_t link_len)
+{
+	struct fuse_bpf_args args = { };
+	struct fuse_bpf_args backup = { };
+	struct path parent_path = { };
+	struct path child_path = { };
+	struct inode *backing_dir;
+	struct inode *backing_inode;
+	struct inode *inode;
+	struct fuse_entry_bpf bpf_entry = { };
+	char *name_copy;
+	char *link_copy;
+	size_t name_len;
+	int ret;
+
+	if (!link_len || entry->d_name.len > FUSE_NAME_MAX ||
+	    link_len > PATH_MAX)
+		return -ENAMETOOLONG;
+	name_len = entry->d_name.len + 1;
+	name_copy = kmalloc(name_len, GFP_KERNEL);
+	if (!name_copy)
+		return -ENOMEM;
+	memcpy(name_copy, entry->d_name.name, entry->d_name.len);
+	name_copy[entry->d_name.len] = '\0';
+	link_copy = kmemdup(link, link_len, GFP_KERNEL);
+	if (!link_copy) {
+		ret = -ENOMEM;
+		goto out_name;
+	}
+
+	args.nodeid = get_node_id(dir);
+	args.opcode = FUSE_SYMLINK;
+	args.in_numargs = 2;
+	args.in_args[0].size = name_len;
+	args.in_args[0].value = name_copy;
+	args.in_args[1].size = link_len;
+	args.in_args[1].value = link_copy;
+
+	ret = fuse_bpf_prepare_lower_only(dir, &args, &backup);
+	if (ret)
+		goto out_link;
+	if (args.opcode != FUSE_SYMLINK ||
+	    args.nodeid != get_node_id(dir) || args.flags ||
+	    args.in_numargs != 2 || args.out_numargs ||
+	    args.in_args[0].value != name_copy ||
+	    args.in_args[1].value != link_copy ||
+	    args.in_args[0].size != name_len ||
+	    args.in_args[1].size != link_len || args.error_in ||
+	    args.in_args[0].end_offset != name_copy + name_len ||
+	    args.in_args[1].end_offset != link_copy + link_len ||
+	    name_copy[name_len - 1] || link_copy[link_len - 1] ||
+	    memcmp(name_copy, entry->d_name.name, name_len - 1) ||
+	    memcmp(link_copy, link, link_len)) {
+		ret = -EOPNOTSUPP;
+		goto out_link;
+	}
+
+	ret = fuse_bpf_symlink_paths(dir, entry, &parent_path,
+				     &child_path);
+	if (ret)
+		goto out_link;
+	backing_dir = d_inode(parent_path.dentry);
+
+	ret = mnt_want_write(parent_path.mnt);
+	if (ret)
+		goto out_paths;
+	inode_lock_nested(backing_dir, I_MUTEX_PARENT);
+	ret = vfs_symlink2(parent_path.mnt, backing_dir,
+			   child_path.dentry, link_copy);
+	inode_unlock(backing_dir);
+	mnt_drop_write(parent_path.mnt);
+	if (ret)
+		goto out_paths;
+
+	backing_inode = d_inode(child_path.dentry);
+	if (!backing_inode || !S_ISLNK(backing_inode->i_mode) ||
+	    unlikely(d_unhashed(child_path.dentry))) {
+		ret = -EIO;
+		goto out_paths;
+	}
+	inode = fuse_iget_backing(dir->i_sb, 0, backing_inode,
+				  child_path.mnt);
+	if (!inode) {
+		ret = -ENOMEM;
+		goto out_paths;
+	}
+	ret = fuse_handle_bpf_prog(&bpf_entry, dir,
+				   &get_fuse_inode(inode)->bpf);
+	if (ret) {
+		iput(inode);
+		goto out_paths;
+	}
+	ret = d_instantiate_no_diralias(entry, inode);
+	if (ret)
+		goto out_paths;
+
+	fuse_bpf_copy_parent_attr(dir, backing_dir);
+	fuse_invalidate_entry_cache(entry);
+	ret = 0;
+
+out_paths:
+	fuse_put_backing_path(&child_path);
+	fuse_put_backing_path(&parent_path);
+out_link:
+	kfree(link_copy);
+out_name:
+	kfree(name_copy);
+	return ret;
+}
+#endif
+
 static int fuse_symlink(struct inode *dir, struct dentry *entry,
 			const char *link)
 {
 	struct fuse_conn *fc = get_fuse_conn(dir);
 	unsigned len = strlen(link) + 1;
 	FUSE_ARGS(args);
+
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(dir))
+		return fuse_bpf_symlink(dir, entry, link, len);
+#endif
 
 	args.in.h.opcode = FUSE_SYMLINK;
 	args.in.numargs = 2;
@@ -1777,6 +2003,82 @@ static int fuse_readdir(struct file *file, struct dir_context *ctx)
 	return err;
 }
 
+#ifdef CONFIG_FUSE_BPF
+static ssize_t fuse_bpf_readlink(struct inode *inode,
+				 struct dentry *dentry,
+				 char *link, size_t capacity)
+{
+	struct fuse_inode *fi = get_fuse_inode(inode);
+	struct fuse_bpf_args args = { };
+	struct fuse_bpf_args backup = { };
+	struct delayed_call lower_done = { };
+	struct path path = { };
+	struct inode *backing_inode;
+	const char *target;
+	size_t length;
+	int ret;
+
+	args.nodeid = get_node_id(inode);
+	args.opcode = FUSE_READLINK;
+	args.out_numargs = 1;
+	args.flags = FUSE_BPF_OUT_ARGVAR;
+	args.out_args[0].size = capacity;
+	args.out_args[0].value = link;
+
+	ret = fuse_bpf_prepare_lower_only(inode, &args, &backup);
+	if (ret)
+		return ret;
+	if (args.opcode != FUSE_READLINK ||
+	    args.nodeid != get_node_id(inode) ||
+	    args.flags != FUSE_BPF_OUT_ARGVAR || args.in_numargs ||
+	    args.out_numargs != 1 || args.error_in ||
+	    args.out_args[0].value != link ||
+	    args.out_args[0].size != capacity ||
+	    args.out_args[0].end_offset != link + capacity)
+		return -EIO;
+	if (d_inode(dentry) != inode ||
+	    !get_fuse_backing_path(dentry, &path))
+		return -ESTALE;
+	backing_inode = d_inode(path.dentry);
+	if (!backing_inode || backing_inode != fi->backing_inode ||
+	    path.mnt != fi->backing_mnt ||
+	    !S_ISLNK(backing_inode->i_mode)) {
+		ret = -ESTALE;
+		goto out_path;
+	}
+
+	target = vfs_get_link(path.dentry, &lower_done);
+	if (IS_ERR_OR_NULL(target)) {
+		ret = target ? PTR_ERR(target) : -EIO;
+		goto out_done;
+	}
+	length = strnlen(target, capacity + 1);
+	if (length > capacity) {
+		ret = -ENAMETOOLONG;
+		goto out_done;
+	}
+	memcpy(link, target, length);
+	link[length] = '\0';
+	args.out_args[0].size = length;
+	args.out_args[0].end_offset = link + length;
+	touch_atime(&path);
+
+	if (args.out_args[0].value != link ||
+	    args.out_args[0].size != length ||
+	    args.out_args[0].end_offset != link + length) {
+		ret = -EIO;
+		goto out_done;
+	}
+	ret = length;
+
+out_done:
+	do_delayed_call(&lower_done);
+out_path:
+	fuse_put_backing_path(&path);
+	return ret;
+}
+#endif
+
 static const char *fuse_get_link(struct dentry *dentry,
 				 struct inode *inode,
 				 struct delayed_call *done)
@@ -1792,13 +2094,23 @@ static const char *fuse_get_link(struct dentry *dentry,
 	if (fuse_is_bad(inode))
 		return ERR_PTR(-EIO);
 
-#ifdef CONFIG_FUSE_BPF
-	if (fuse_inode_has_backing(inode))
-		return ERR_PTR(-EOPNOTSUPP);
-#endif
 	link = kmalloc(PAGE_SIZE, GFP_KERNEL);
 	if (!link)
 		return ERR_PTR(-ENOMEM);
+
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(inode)) {
+		ret = fuse_bpf_readlink(inode, dentry, link,
+					PAGE_SIZE - 1);
+		fuse_invalidate_atime(inode);
+		if (ret < 0) {
+			kfree(link);
+			return ERR_PTR(ret);
+		}
+		set_delayed_call(done, kfree_link, link);
+		return link;
+	}
+#endif
 
 	args.in.h.opcode = FUSE_READLINK;
 	args.in.h.nodeid = get_node_id(inode);
