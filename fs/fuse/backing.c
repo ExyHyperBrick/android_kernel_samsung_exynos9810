@@ -825,6 +825,134 @@ void *fuse_open_finalize(struct fuse_bpf_args *args, struct inode *inode,
 	return NULL;
 }
 
+int fuse_flush_initialize(struct fuse_bpf_args *args,
+			  struct fuse_flush_in *in,
+			  struct file *file, fl_owner_t id)
+{
+	struct fuse_file *ff = file->private_data;
+
+	if (!ff || !ff->backing_file)
+		return -EBADF;
+	memset(in, 0, sizeof(*in));
+	in->fh = ff->fh;
+	in->lock_owner = fuse_lock_owner_id(ff->fc, id);
+	*args = (struct fuse_bpf_args) {
+		/* Lower-only handles must never be sent to the daemon. */
+		.nodeid = 0,
+		.opcode = FUSE_FLUSH,
+		.in_numargs = 1,
+		.flags = FUSE_BPF_FORCE,
+		.in_args[0] = (struct fuse_bpf_in_arg) {
+			.size = sizeof(*in),
+			.value = in,
+		},
+	};
+	return 0;
+}
+
+int fuse_flush_backing(struct fuse_bpf_args *args,
+		       struct file *file, fl_owner_t id)
+{
+	struct fuse_file *ff = file->private_data;
+	const struct fuse_flush_in *in;
+	int ret;
+
+	if (!ff || !ff->backing_file || args->opcode != FUSE_FLUSH ||
+	    args->nodeid || args->flags != FUSE_BPF_FORCE ||
+	    args->in_numargs != 1 || args->out_numargs ||
+	    !args->in_args[0].value ||
+	    args->in_args[0].size != sizeof(*in))
+		return -EINVAL;
+	in = args->in_args[0].value;
+	if (in->fh != ff->fh || in->unused || in->padding ||
+	    in->lock_owner != fuse_lock_owner_id(ff->fc, id))
+		return -EOPNOTSUPP;
+
+	ret = ff->backing_file->f_op->flush ?
+		ff->backing_file->f_op->flush(ff->backing_file, id) : 0;
+	return ret > 0 ? -EIO : ret;
+}
+
+void *fuse_flush_finalize(struct fuse_bpf_args *args,
+			  struct file *file, fl_owner_t id)
+{
+	int error = (s32)args->error_in;
+
+	(void)file;
+	(void)id;
+	if (error > 0)
+		error = -EIO;
+	return error ? ERR_PTR(error) : NULL;
+}
+
+int fuse_fsync_initialize(struct fuse_bpf_args *args,
+			  struct fuse_fsync_in *in,
+			  struct file *file, loff_t start, loff_t end,
+			  int datasync, bool isdir)
+{
+	struct fuse_file *ff = file->private_data;
+
+	if (!ff || !ff->backing_file)
+		return -EBADF;
+	memset(in, 0, sizeof(*in));
+	in->fh = ff->fh;
+	in->fsync_flags = datasync ? 1 : 0;
+	*args = (struct fuse_bpf_args) {
+		/* Lower-only handles must never be sent to the daemon. */
+		.nodeid = 0,
+		.opcode = isdir ? FUSE_FSYNCDIR : FUSE_FSYNC,
+		.in_numargs = 1,
+		.flags = FUSE_BPF_FORCE,
+		.in_args[0] = (struct fuse_bpf_in_arg) {
+			.size = sizeof(*in),
+			.value = in,
+		},
+	};
+	(void)start;
+	(void)end;
+	return 0;
+}
+
+int fuse_fsync_backing(struct fuse_bpf_args *args,
+		       struct file *file, loff_t start, loff_t end,
+		       int datasync, bool isdir)
+{
+	struct fuse_file *ff = file->private_data;
+	const struct fuse_fsync_in *in;
+	u32 opcode = isdir ? FUSE_FSYNCDIR : FUSE_FSYNC;
+	int lower_datasync;
+
+	if (!ff || !ff->backing_file || args->opcode != opcode ||
+	    args->nodeid || args->flags != FUSE_BPF_FORCE ||
+	    args->in_numargs != 1 || args->out_numargs ||
+	    !args->in_args[0].value ||
+	    args->in_args[0].size != sizeof(*in))
+		return -EINVAL;
+	in = args->in_args[0].value;
+	if (in->fh != ff->fh || in->padding || (in->fsync_flags & ~1U))
+		return -EOPNOTSUPP;
+	lower_datasync = !!(in->fsync_flags & 1U);
+	(void)datasync;
+	return vfs_fsync_range(ff->backing_file, start, end,
+			       lower_datasync);
+}
+
+void *fuse_fsync_finalize(struct fuse_bpf_args *args,
+			  struct file *file, loff_t start, loff_t end,
+			  int datasync, bool isdir)
+{
+	int error = (s32)args->error_in;
+
+	(void)file;
+	(void)start;
+	(void)end;
+	(void)datasync;
+	(void)isdir;
+	if (error > 0)
+		error = -EIO;
+	return error ? ERR_PTR(error) : NULL;
+}
+
 static int fuse_bpf_rw_flags(struct kiocb *iocb, struct file *backing_file)
 {
 	int backing_flags = iocb_flags(backing_file);

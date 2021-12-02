@@ -501,6 +501,39 @@ static void fuse_sync_writes(struct inode *inode)
 	fuse_release_nowrite(inode);
 }
 
+#ifdef CONFIG_FUSE_BPF
+static int fuse_bpf_flush(struct file *file, fl_owner_t id)
+{
+	struct inode *inode = file_inode(file);
+	struct fuse_err_ret result;
+
+	result = fuse_bpf_backing(inode, struct fuse_flush_in,
+				  fuse_flush_initialize,
+				  fuse_flush_backing,
+				  fuse_flush_finalize,
+				  file, id);
+	if (result.ret)
+		return PTR_ERR(result.result);
+	return -EOPNOTSUPP;
+}
+
+static int fuse_bpf_fsync(struct file *file, loff_t start, loff_t end,
+			  int datasync, bool isdir)
+{
+	struct inode *inode = file_inode(file);
+	struct fuse_err_ret result;
+
+	result = fuse_bpf_backing(inode, struct fuse_fsync_in,
+				  fuse_fsync_initialize,
+				  fuse_fsync_backing,
+				  fuse_fsync_finalize,
+				  file, start, end, datasync, isdir);
+	if (result.ret)
+		return PTR_ERR(result.result);
+	return -EOPNOTSUPP;
+}
+#endif
+
 static int fuse_flush(struct file *file, fl_owner_t id)
 {
 	struct inode *inode = file_inode(file);
@@ -512,6 +545,11 @@ static int fuse_flush(struct file *file, fl_owner_t id)
 
 	if (fuse_is_bad(inode))
 		return -EIO;
+
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_file_has_backing(file))
+		return fuse_bpf_flush(file, id);
+#endif
 
 	if (fc->no_flush)
 		return 0;
@@ -560,6 +598,11 @@ int fuse_fsync_common(struct file *file, loff_t start, loff_t end,
 
 	if (fuse_is_bad(inode))
 		return -EIO;
+
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_file_has_backing(file))
+		return fuse_bpf_fsync(file, start, end, datasync, isdir);
+#endif
 
 	inode_lock(inode);
 
@@ -1023,13 +1066,6 @@ out:
 }
 
 #ifdef CONFIG_FUSE_BPF
-static bool fuse_file_has_backing(struct file *file)
-{
-	struct fuse_file *ff = file->private_data;
-
-	return ff && ff->backing_file;
-}
-
 static ssize_t fuse_bpf_file_read_iter(struct kiocb *iocb,
 				       struct iov_iter *to)
 {

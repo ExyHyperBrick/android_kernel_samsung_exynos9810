@@ -823,6 +823,13 @@ struct fuse_file *fuse_file_alloc(struct fuse_conn *fc);
 struct fuse_file *fuse_file_get(struct fuse_file *ff);
 void fuse_file_free(struct fuse_file *ff);
 #ifdef CONFIG_FUSE_BPF
+static inline bool fuse_file_has_backing(struct file *file)
+{
+	struct fuse_file *ff = file ? file->private_data : NULL;
+
+	return ff && ff->backing_file;
+}
+
 struct bpf_prog *fuse_get_bpf_prog(struct file *file);
 void fuse_file_put_backing(struct fuse_file *ff);
 #endif
@@ -1216,6 +1223,25 @@ int fuse_open_backing(struct fuse_bpf_args *args,
 void *fuse_open_finalize(struct fuse_bpf_args *args,
 			 struct inode *inode, struct file *file,
 			 bool isdir);
+
+int fuse_flush_initialize(struct fuse_bpf_args *args,
+			  struct fuse_flush_in *in,
+			  struct file *file, fl_owner_t id);
+int fuse_flush_backing(struct fuse_bpf_args *args,
+		       struct file *file, fl_owner_t id);
+void *fuse_flush_finalize(struct fuse_bpf_args *args,
+			  struct file *file, fl_owner_t id);
+
+int fuse_fsync_initialize(struct fuse_bpf_args *args,
+			  struct fuse_fsync_in *in,
+			  struct file *file, loff_t start, loff_t end,
+			  int datasync, bool isdir);
+int fuse_fsync_backing(struct fuse_bpf_args *args,
+		       struct file *file, loff_t start, loff_t end,
+		       int datasync, bool isdir);
+void *fuse_fsync_finalize(struct fuse_bpf_args *args,
+			  struct file *file, loff_t start, loff_t end,
+			  int datasync, bool isdir);
 
 struct fuse_bpf_rw_out {
 	s64 ret;
