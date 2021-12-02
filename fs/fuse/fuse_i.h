@@ -174,6 +174,9 @@ struct fuse_inode {
 	/** Backing inode when this object is served from a lower filesystem */
 	struct inode *backing_inode;
 
+	/** Mount containing backing_inode */
+	struct vfsmount *backing_mnt;
+
 	/** Per-inode FUSE request filter */
 	struct bpf_prog *bpf;
 #endif
@@ -857,7 +860,8 @@ struct inode *fuse_iget(struct super_block *sb, u64 nodeid,
 
 #ifdef CONFIG_FUSE_BPF
 struct inode *fuse_iget_backing(struct super_block *sb, u64 nodeid,
-				struct inode *backing_inode);
+				struct inode *backing_inode,
+				struct vfsmount *backing_mnt);
 #endif
 
 int fuse_lookup_name(struct super_block *sb, u64 nodeid, const struct qstr *name,
@@ -952,6 +956,11 @@ void fuse_init_symlink(struct inode *inode);
  */
 void fuse_change_attributes(struct inode *inode, struct fuse_attr *attr,
 			    u64 attr_valid, u64 attr_version);
+#ifdef CONFIG_FUSE_BPF
+void fuse_change_attributes_backing(struct inode *inode,
+				    struct fuse_attr *attr,
+				    u64 attr_valid, u64 attr_version);
+#endif
 
 void fuse_change_attributes_common(struct inode *inode, struct fuse_attr *attr,
 				   u64 attr_valid);
@@ -1259,6 +1268,37 @@ struct bpf_prog *fuse_bpf_get_prog(struct fuse_conn *fc,
 				   struct fuse_inode *fi);
 ssize_t fuse_bpf_simple_request(struct fuse_conn *fc,
 				struct fuse_bpf_args *args);
+
+struct fuse_getattr_io {
+	struct fuse_getattr_in in;
+	struct fuse_attr_out out;
+};
+
+int fuse_getattr_initialize(struct fuse_bpf_args *args,
+			    struct fuse_getattr_io *io,
+			    struct inode *inode, const struct path *path,
+			    struct kstat *stat, u32 request_mask,
+			    unsigned int flags, u64 attr_version);
+int fuse_getattr_backing(struct fuse_bpf_args *args,
+			 struct inode *inode, const struct path *path,
+			 struct kstat *stat, u32 request_mask,
+			 unsigned int flags, u64 attr_version);
+void *fuse_getattr_finalize(struct fuse_bpf_args *args,
+			    struct inode *inode, const struct path *path,
+			    struct kstat *stat, u32 request_mask,
+			    unsigned int flags, u64 attr_version);
+
+struct fuse_access_io {
+	struct fuse_access_in in;
+};
+
+int fuse_access_initialize(struct fuse_bpf_args *args,
+			   struct fuse_access_io *io,
+			   struct inode *inode, int mask);
+int fuse_access_backing(struct fuse_bpf_args *args,
+			struct inode *inode, int mask);
+void *fuse_access_finalize(struct fuse_bpf_args *args,
+			   struct inode *inode, int mask);
 
 struct fuse_lookup_io {
 	struct fuse_entry_out entry;

@@ -12,6 +12,7 @@
 #include <linux/mount.h>
 #include <linux/namei.h>
 #include <linux/pagemap.h>
+#include <linux/posix_acl.h>
 #include <linux/string.h>
 
 #define FUSE_BPF_RET_MASK	(FUSE_BPF_USER_FILTER | FUSE_BPF_BACKING | \
@@ -265,6 +266,244 @@ static void fuse_stat_to_attr(struct fuse_conn *fc, struct inode *inode,
 	else
 		blkbits = inode->i_sb->s_blocksize_bits;
 	attr->blksize = 1U << blkbits;
+}
+
+static int fuse_validate_backing_path(struct inode *inode,
+				      const struct path *path)
+{
+	struct fuse_inode *fi = get_fuse_inode(inode);
+	struct inode *backing_inode;
+
+	if (!path->dentry || !path->mnt)
+		return -EBADF;
+	backing_inode = d_inode(path->dentry);
+	if (!fi->backing_inode || !fi->backing_mnt || !backing_inode ||
+	    backing_inode != fi->backing_inode || path->mnt != fi->backing_mnt)
+		return -ESTALE;
+	if ((inode->i_mode ^ backing_inode->i_mode) & S_IFMT)
+		return -ESTALE;
+	return 0;
+}
+
+int fuse_getattr_initialize(struct fuse_bpf_args *args,
+			    struct fuse_getattr_io *io,
+			    struct inode *inode, const struct path *path,
+			    struct kstat *stat, u32 request_mask,
+			    unsigned int flags, u64 attr_version)
+{
+	memset(io, 0, sizeof(*io));
+	*args = (struct fuse_bpf_args) {
+		.nodeid = get_node_id(inode),
+		.opcode = FUSE_GETATTR,
+		.in_numargs = 1,
+		.out_numargs = 1,
+		.in_args[0] = (struct fuse_bpf_in_arg) {
+			.size = sizeof(io->in),
+			.value = &io->in,
+		},
+		.out_args[0] = (struct fuse_bpf_arg) {
+			.size = sizeof(io->out),
+			.value = &io->out,
+		},
+	};
+	(void)path;
+	(void)stat;
+	(void)request_mask;
+	(void)flags;
+	(void)attr_version;
+	return 0;
+}
+
+int fuse_getattr_backing(struct fuse_bpf_args *args,
+			 struct inode *inode, const struct path *path,
+			 struct kstat *stat, u32 request_mask,
+			 unsigned int flags, u64 attr_version)
+{
+	struct fuse_getattr_in *in;
+	struct fuse_attr_out *out;
+	struct fuse_getattr_io *io;
+	struct path backing_path = { };
+	struct inode *backing_inode;
+	struct kstat lower_stat;
+	int ret;
+
+	if (args->opcode != FUSE_GETATTR || args->in_numargs != 1 ||
+	    args->out_numargs != 1 || !args->in_args[0].value ||
+	    !args->out_args[0].value ||
+	    args->in_args[0].size != sizeof(*in) ||
+	    args->out_args[0].size != sizeof(*out))
+		return -EINVAL;
+	in = (struct fuse_getattr_in *)args->in_args[0].value;
+	out = args->out_args[0].value;
+	io = container_of(in, struct fuse_getattr_io, in);
+	if (out != &io->out || in->getattr_flags || in->dummy || in->fh)
+		return -EOPNOTSUPP;
+	if (!get_fuse_backing_path(path->dentry, &backing_path))
+		return -EBADF;
+	ret = fuse_validate_backing_path(inode, &backing_path);
+	if (ret)
+		goto out_path;
+
+	backing_inode = d_inode(backing_path.dentry);
+	ret = vfs_getattr(&backing_path, &lower_stat, request_mask, flags);
+	if (!ret) {
+		memset(out, 0, sizeof(*out));
+		fuse_stat_to_attr(get_fuse_conn(inode), backing_inode,
+				  &lower_stat, &out->attr);
+	}
+out_path:
+	fuse_put_backing_path(&backing_path);
+	(void)stat;
+	(void)attr_version;
+	return ret;
+}
+
+void *fuse_getattr_finalize(struct fuse_bpf_args *args,
+			    struct inode *inode, const struct path *path,
+			    struct kstat *stat, u32 request_mask,
+			    unsigned int flags, u64 attr_version)
+{
+	struct fuse_getattr_in *in;
+	struct fuse_attr_out *out;
+	struct fuse_getattr_io *io;
+	int error = (s32)args->error_in;
+	u32 expected_in;
+
+	if (error)
+		return ERR_PTR(error < 0 ? error : -EIO);
+	if (args->opcode == FUSE_GETATTR)
+		expected_in = 1;
+	else if (args->opcode == (FUSE_GETATTR | FUSE_POSTFILTER))
+		expected_in = 2;
+	else
+		return ERR_PTR(-EIO);
+	if (args->nodeid != get_node_id(inode) || args->flags ||
+	    args->in_numargs != expected_in || args->out_numargs != 1 ||
+	    !args->in_args[0].value || !args->out_args[0].value ||
+	    args->in_args[0].size != sizeof(*in) ||
+	    args->out_args[0].size != sizeof(*out))
+		return ERR_PTR(-EIO);
+	in = (struct fuse_getattr_in *)args->in_args[0].value;
+	out = args->out_args[0].value;
+	io = container_of(in, struct fuse_getattr_io, in);
+	if (expected_in == 2 &&
+	    (!args->in_args[1].value ||
+	     args->in_args[1].size != sizeof(*out) ||
+	     args->in_args[1].value != out))
+		return ERR_PTR(-EIO);
+	if (out != &io->out || in->getattr_flags || in->dummy || in->fh ||
+	    out->dummy || fuse_invalid_attr(&out->attr) ||
+	    (inode->i_mode ^ out->attr.mode) & S_IFMT ||
+	    out->attr.atimensec >= NSEC_PER_SEC ||
+	    out->attr.mtimensec >= NSEC_PER_SEC ||
+	    out->attr.ctimensec >= NSEC_PER_SEC ||
+	    (out->attr.blksize &&
+	     (!is_power_of_2(out->attr.blksize) ||
+	      out->attr.blksize > INT_MAX)) ||
+	    !uid_valid(make_kuid(&init_user_ns, out->attr.uid)) ||
+	    !gid_valid(make_kgid(&init_user_ns, out->attr.gid)))
+		return ERR_PTR(-EIO);
+
+	forget_all_cached_acls(inode);
+	fuse_change_attributes_backing(inode, &out->attr,
+				       attr_timeout(out), attr_version);
+	if (stat)
+		fuse_fillattr(inode, &out->attr, stat);
+	(void)path;
+	(void)request_mask;
+	(void)flags;
+	return NULL;
+}
+
+int fuse_access_initialize(struct fuse_bpf_args *args,
+			   struct fuse_access_io *io,
+			   struct inode *inode, int mask)
+{
+	if (mask & MAY_NOT_BLOCK)
+		return -ECHILD;
+	memset(io, 0, sizeof(*io));
+	io->in.mask = mask & (MAY_READ | MAY_WRITE | MAY_EXEC);
+	*args = (struct fuse_bpf_args) {
+		.nodeid = get_node_id(inode),
+		.opcode = FUSE_ACCESS,
+		.in_numargs = 1,
+		.in_args[0] = (struct fuse_bpf_in_arg) {
+			.size = sizeof(io->in),
+			.value = &io->in,
+		},
+	};
+	return 0;
+}
+
+int fuse_access_backing(struct fuse_bpf_args *args,
+			struct inode *inode, int mask)
+{
+	struct fuse_inode *fi = get_fuse_inode(inode);
+	struct fuse_access_in *in;
+	struct inode *backing_inode;
+	struct vfsmount *backing_mnt;
+	u32 requested;
+	int checked_mask;
+	int ret;
+
+	if (args->opcode != FUSE_ACCESS || args->in_numargs != 1 ||
+	    args->out_numargs || !args->in_args[0].value ||
+	    args->in_args[0].size != sizeof(*in))
+		return -EINVAL;
+	in = (struct fuse_access_in *)args->in_args[0].value;
+	requested = mask & (MAY_READ | MAY_WRITE | MAY_EXEC);
+	if (in->padding || in->mask & ~(MAY_READ | MAY_WRITE | MAY_EXEC) ||
+	    (in->mask & requested) != requested)
+		return -EINVAL;
+	checked_mask = mask | in->mask;
+	backing_inode = fi->backing_inode;
+	backing_mnt = fi->backing_mnt;
+	if (!backing_inode || !backing_mnt)
+		return -ESTALE;
+	mntget(backing_mnt);
+	if ((checked_mask & MAY_EXEC) && S_ISREG(backing_inode->i_mode) &&
+	    ((backing_mnt->mnt_flags & MNT_NOEXEC) ||
+	     (backing_mnt->mnt_sb->s_iflags & SB_I_NOEXEC))) {
+		ret = -EACCES;
+		goto out_mnt;
+	}
+	if ((checked_mask & (MAY_ACCESS | MAY_WRITE)) ==
+	    (MAY_ACCESS | MAY_WRITE) && __mnt_is_readonly(backing_mnt) &&
+	    (S_ISREG(backing_inode->i_mode) ||
+	     S_ISDIR(backing_inode->i_mode) ||
+	     S_ISLNK(backing_inode->i_mode))) {
+		ret = -EROFS;
+		goto out_mnt;
+	}
+	ret = inode_permission2(backing_mnt, backing_inode, checked_mask);
+out_mnt:
+	mntput(backing_mnt);
+	return ret;
+}
+
+void *fuse_access_finalize(struct fuse_bpf_args *args,
+			   struct inode *inode, int mask)
+{
+	struct fuse_access_in *in;
+	int error = (s32)args->error_in;
+	u32 requested;
+
+	if (error)
+		return ERR_PTR(error < 0 ? error : -EIO);
+	if ((args->opcode != FUSE_ACCESS &&
+	     args->opcode != (FUSE_ACCESS | FUSE_POSTFILTER)) ||
+	    args->nodeid != get_node_id(inode) || args->flags ||
+	    args->in_numargs != 1 || args->out_numargs ||
+	    !args->in_args[0].value ||
+	    args->in_args[0].size != sizeof(*in))
+		return ERR_PTR(-EIO);
+	in = (struct fuse_access_in *)args->in_args[0].value;
+	requested = mask & (MAY_READ | MAY_WRITE | MAY_EXEC);
+	if (in->padding || in->mask & ~(MAY_READ | MAY_WRITE | MAY_EXEC) ||
+	    (in->mask & requested) != requested)
+		return ERR_PTR(-EIO);
+	(void)inode;
+	return NULL;
 }
 
 static int fuse_lookup_refresh_attr(struct fuse_conn *fc,
@@ -522,6 +761,7 @@ void *fuse_lookup_finalize(struct fuse_bpf_args *args,
 	struct fuse_dentry *entry_data;
 	struct path backing_path = { };
 	struct inode *backing_inode = NULL;
+	struct vfsmount *backing_mnt = NULL;
 	struct inode *inode = NULL;
 	struct dentry *alias;
 	void *result = NULL;
@@ -572,6 +812,13 @@ void *fuse_lookup_finalize(struct fuse_bpf_args *args,
 			goto out_inode;
 		}
 	}
+	if (backing_inode) {
+		if (!backing_path.mnt) {
+			result = ERR_PTR(-ESTALE);
+			goto out_inode;
+		}
+		backing_mnt = mntget(backing_path.mnt);
+	}
 	fuse_replace_backing_path(entry_data, &backing_path);
 
 	if (!backing_inode) {
@@ -602,7 +849,7 @@ void *fuse_lookup_finalize(struct fuse_bpf_args *args,
 		if (!nodeid && d_inode(entry))
 			nodeid = get_node_id(d_inode(entry));
 		inode = fuse_iget_backing(dir->i_sb, nodeid,
-					  backing_inode);
+					  backing_inode, backing_mnt);
 		if (inode)
 			fuse_change_attributes(inode, &out->attr,
 					       entry_attr_timeout(out), 0);
@@ -632,6 +879,8 @@ void *fuse_lookup_finalize(struct fuse_bpf_args *args,
 	(void)flags;
 
 out_inode:
+	if (backing_mnt)
+		mntput(backing_mnt);
 	if (backing_inode)
 		iput(backing_inode);
 	fuse_put_backing_path(&backing_path);
@@ -1056,9 +1305,18 @@ static ssize_t fuse_bpf_sync_iter(struct kiocb *iocb,
 static void fuse_bpf_file_accessed(struct file *file,
 				   struct file *backing_file)
 {
+	struct inode *inode = file_inode(file);
+	struct fuse_conn *fc;
+	struct fuse_inode *fi;
+
 	if (file->f_flags & O_NOATIME)
 		return;
-	fsstack_copy_attr_atime(file_inode(file), file_inode(backing_file));
+	fc = get_fuse_conn(inode);
+	fi = get_fuse_inode(inode);
+	spin_lock(&fc->lock);
+	fsstack_copy_attr_atime(inode, file_inode(backing_file));
+	fi->attr_version = ++fc->attr_version;
+	spin_unlock(&fc->lock);
 }
 
 static void fuse_bpf_copy_write_attr(struct file *file,
@@ -1066,11 +1324,16 @@ static void fuse_bpf_copy_write_attr(struct file *file,
 {
 	struct inode *inode = file_inode(file);
 	struct inode *backing_inode = file_inode(backing_file);
+	struct fuse_conn *fc = get_fuse_conn(inode);
+	struct fuse_inode *fi = get_fuse_inode(inode);
 
+	spin_lock(&fc->lock);
 	fsstack_copy_attr_times(inode, backing_inode);
 	fsstack_copy_inode_size(inode, backing_inode);
 	inode->i_mode &= ~(S_ISUID | S_ISGID);
 	inode->i_mode |= backing_inode->i_mode & (S_ISUID | S_ISGID);
+	fi->attr_version = ++fc->attr_version;
+	spin_unlock(&fc->lock);
 }
 
 int fuse_file_read_iter_initialize(struct fuse_bpf_args *args,

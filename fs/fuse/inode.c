@@ -110,6 +110,7 @@ static struct inode *fuse_alloc_inode(struct super_block *sb)
 	fi->i_time = 0;
 #ifdef CONFIG_FUSE_BPF
 	fi->backing_inode = NULL;
+	fi->backing_mnt = NULL;
 	fi->bpf = NULL;
 #endif
 	fi->nodeid = 0;
@@ -155,6 +156,9 @@ static void fuse_evict_inode(struct inode *inode)
 
 	iput(fi->backing_inode);
 	fi->backing_inode = NULL;
+	if (fi->backing_mnt)
+		mntput(fi->backing_mnt);
+	fi->backing_mnt = NULL;
 	if (fi->bpf)
 		bpf_prog_put(fi->bpf);
 	fi->bpf = NULL;
@@ -292,6 +296,55 @@ void fuse_change_attributes(struct inode *inode, struct fuse_attr *attr,
 	}
 }
 
+#ifdef CONFIG_FUSE_BPF
+void fuse_change_attributes_backing(struct inode *inode,
+				    struct fuse_attr *attr,
+				    u64 attr_valid, u64 attr_version)
+{
+	struct fuse_conn *fc = get_fuse_conn(inode);
+	struct fuse_inode *fi = get_fuse_inode(inode);
+	loff_t oldsize;
+	struct timespec old_mtime;
+	bool inval = false;
+
+	spin_lock(&fc->lock);
+	if ((attr_version != 0 && fi->attr_version > attr_version) ||
+	    test_bit(FUSE_I_SIZE_UNSTABLE, &fi->state)) {
+		spin_unlock(&fc->lock);
+		return;
+	}
+
+	old_mtime = inode->i_mtime;
+	fuse_change_attributes_common(inode, attr, attr_valid);
+	oldsize = inode->i_size;
+	i_size_write(inode, attr->size);
+	if (S_ISREG(inode->i_mode)) {
+		inode->i_mtime.tv_sec = attr->mtime;
+		inode->i_mtime.tv_nsec = attr->mtimensec;
+		inode->i_ctime.tv_sec = attr->ctime;
+		inode->i_ctime.tv_nsec = attr->ctimensec;
+	}
+	spin_unlock(&fc->lock);
+
+	if (!S_ISREG(inode->i_mode))
+		return;
+	if (oldsize != attr->size) {
+		truncate_pagecache(inode, attr->size);
+		inval = true;
+	} else if (fc->auto_inval_data) {
+		struct timespec new_mtime = {
+			.tv_sec = attr->mtime,
+			.tv_nsec = attr->mtimensec,
+		};
+
+		if (!timespec_equal(&old_mtime, &new_mtime))
+			inval = true;
+	}
+	if (inval)
+		invalidate_inode_pages2(inode->i_mapping);
+}
+#endif
+
 static void fuse_init_inode(struct inode *inode, struct fuse_attr *attr)
 {
 	inode->i_mode = attr->mode & S_IFMT;
@@ -325,6 +378,16 @@ int fuse_inode_eq(struct inode *inode, void *_nodeidp)
 		return 0;
 }
 
+#ifdef CONFIG_FUSE_BPF
+static int fuse_inode_non_backing_eq(struct inode *inode, void *_nodeidp)
+{
+	struct fuse_inode *fi = get_fuse_inode(inode);
+
+	return fuse_inode_eq(inode, _nodeidp) && !fi->backing_inode &&
+		!fi->backing_mnt;
+}
+#endif
+
 static int fuse_inode_set(struct inode *inode, void *_nodeidp)
 {
 	u64 nodeid = *(u64 *) _nodeidp;
@@ -336,6 +399,7 @@ static int fuse_inode_set(struct inode *inode, void *_nodeidp)
 struct fuse_backing_inode_identifier {
 	u64 nodeid;
 	struct inode *backing_inode;
+	struct vfsmount *backing_mnt;
 };
 
 static int fuse_inode_backing_eq(struct inode *inode, void *_identifier)
@@ -344,7 +408,8 @@ static int fuse_inode_backing_eq(struct inode *inode, void *_identifier)
 	struct fuse_inode *fi = get_fuse_inode(inode);
 
 	return fi->nodeid == identifier->nodeid &&
-		fi->backing_inode == identifier->backing_inode;
+		fi->backing_inode == identifier->backing_inode &&
+		fi->backing_mnt == identifier->backing_mnt;
 }
 
 static int fuse_inode_backing_set(struct inode *inode, void *_identifier)
@@ -355,6 +420,7 @@ static int fuse_inode_backing_set(struct inode *inode, void *_identifier)
 	fi->nodeid = identifier->nodeid;
 	fi->backing_inode = identifier->backing_inode;
 	ihold(fi->backing_inode);
+	fi->backing_mnt = mntget(identifier->backing_mnt);
 	return 0;
 }
 
@@ -380,11 +446,13 @@ static void fuse_fill_attr_from_inode(struct fuse_attr *attr,
 }
 
 struct inode *fuse_iget_backing(struct super_block *sb, u64 nodeid,
-				struct inode *backing_inode)
+				struct inode *backing_inode,
+				struct vfsmount *backing_mnt)
 {
 	struct fuse_backing_inode_identifier identifier = {
 		.nodeid = nodeid,
 		.backing_inode = backing_inode,
+		.backing_mnt = backing_mnt,
 	};
 	struct fuse_conn *fc = get_fuse_conn_super(sb);
 	struct fuse_inode *fi;
@@ -392,11 +460,11 @@ struct inode *fuse_iget_backing(struct super_block *sb, u64 nodeid,
 	struct inode *inode;
 	unsigned long hash;
 
-	if (!backing_inode)
+	if (!backing_inode || !backing_mnt)
 		return NULL;
 
 	hash = nodeid ? (unsigned long)nodeid :
-		(unsigned long)backing_inode;
+		(unsigned long)backing_inode ^ (unsigned long)backing_mnt;
 	fuse_fill_attr_from_inode(&attr, backing_inode);
 
  retry:
@@ -437,7 +505,13 @@ struct inode *fuse_iget(struct super_block *sb, u64 nodeid,
 	struct fuse_conn *fc = get_fuse_conn_super(sb);
 
  retry:
-	inode = iget5_locked(sb, nodeid, fuse_inode_eq, fuse_inode_set, &nodeid);
+#ifdef CONFIG_FUSE_BPF
+	inode = iget5_locked(sb, nodeid, fuse_inode_non_backing_eq,
+			     fuse_inode_set, &nodeid);
+#else
+	inode = iget5_locked(sb, nodeid, fuse_inode_eq, fuse_inode_set,
+			     &nodeid);
+#endif
 	if (!inode)
 		return NULL;
 
@@ -844,6 +918,8 @@ static struct inode *fuse_get_root_inode(struct super_block *sb,
 	if (root_dir) {
 		get_fuse_inode(inode)->backing_inode = file_inode(root_dir);
 		ihold(file_inode(root_dir));
+		get_fuse_inode(inode)->backing_mnt =
+			mntget(root_dir->f_path.mnt);
 	}
 #else
 	(void)root_bpf;
