@@ -1405,6 +1405,11 @@ create_local_trace_uprobe(char *name, unsigned long offs, bool is_return)
 	tu->offset = offs;
 	tu->path = path;
 	tu->filename = kstrdup(name, GFP_KERNEL);
+	if (!tu->filename) {
+		ret = -ENOMEM;
+		goto error;
+	}
+
 	init_trace_event_call(tu, &tu->tp.call);
 
 	if (set_print_fmt(&tu->tp, is_ret_probe(tu)) < 0) {
