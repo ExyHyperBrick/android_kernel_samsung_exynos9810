@@ -26,6 +26,8 @@
 #include <linux/xattr.h>
 #include <linux/pid_namespace.h>
 #include <linux/freezer.h>
+#include <linux/jiffies.h>
+#include <linux/user_namespace.h>
 
 /** Max number of pages that can be used in a single read request */
 #define FUSE_MAX_PAGES_PER_REQ 32
@@ -941,6 +943,88 @@ void fuse_set_nowrite(struct inode *inode);
 void fuse_release_nowrite(struct inode *inode);
 
 u64 fuse_get_attr_version(struct fuse_conn *fc);
+
+/*
+ * FUSE caches dentries and attributes with separate timeouts.  The
+ * expiry time is stored in dentry->d_fsdata and fuse_inode->i_time.
+ */
+static inline u64 time_to_jiffies(u64 sec, u32 nsec)
+{
+	if (sec || nsec) {
+		struct timespec64 ts = {
+			sec,
+			min_t(u32, nsec, NSEC_PER_SEC - 1)
+		};
+
+		return get_jiffies_64() + timespec64_to_jiffies(&ts);
+	}
+
+	return 0;
+}
+
+static inline u64 attr_timeout(struct fuse_attr_out *o)
+{
+	return time_to_jiffies(o->attr_valid, o->attr_valid_nsec);
+}
+
+static inline bool update_mtime(unsigned int ivalid,
+				bool trust_local_mtime)
+{
+	if (ivalid & ATTR_MTIME_SET)
+		return true;
+	if (trust_local_mtime)
+		return true;
+	if ((ivalid & ATTR_SIZE) && (ivalid & (ATTR_OPEN | ATTR_FILE)))
+		return false;
+
+	return true;
+}
+
+static inline void iattr_to_fattr(struct iattr *iattr,
+				  struct fuse_setattr_in *arg,
+				  bool trust_local_cmtime)
+{
+	unsigned int ivalid = iattr->ia_valid;
+
+	if (ivalid & ATTR_MODE)
+		arg->valid |= FATTR_MODE, arg->mode = iattr->ia_mode;
+	if (ivalid & ATTR_UID)
+		arg->valid |= FATTR_UID,
+		arg->uid = from_kuid(&init_user_ns, iattr->ia_uid);
+	if (ivalid & ATTR_GID)
+		arg->valid |= FATTR_GID,
+		arg->gid = from_kgid(&init_user_ns, iattr->ia_gid);
+	if (ivalid & ATTR_SIZE)
+		arg->valid |= FATTR_SIZE, arg->size = iattr->ia_size;
+	if (ivalid & ATTR_ATIME) {
+		arg->valid |= FATTR_ATIME;
+		arg->atime = iattr->ia_atime.tv_sec;
+		arg->atimensec = iattr->ia_atime.tv_nsec;
+		if (!(ivalid & ATTR_ATIME_SET))
+			arg->valid |= FATTR_ATIME_NOW;
+	}
+	if ((ivalid & ATTR_MTIME) &&
+	    update_mtime(ivalid, trust_local_cmtime)) {
+		arg->valid |= FATTR_MTIME;
+		arg->mtime = iattr->ia_mtime.tv_sec;
+		arg->mtimensec = iattr->ia_mtime.tv_nsec;
+		if (!(ivalid & ATTR_MTIME_SET) && !trust_local_cmtime)
+			arg->valid |= FATTR_MTIME_NOW;
+	}
+	if ((ivalid & ATTR_CTIME) && trust_local_cmtime) {
+		arg->valid |= FATTR_CTIME;
+		arg->ctime = iattr->ia_ctime.tv_sec;
+		arg->ctimensec = iattr->ia_ctime.tv_nsec;
+	}
+}
+
+void fuse_change_entry_timeout(struct dentry *entry,
+			       struct fuse_entry_out *o);
+u64 entry_attr_timeout(struct fuse_entry_out *o);
+void fuse_fillattr(struct inode *inode, struct fuse_attr *attr,
+		   struct kstat *stat);
+int fuse_parse_dirfile(char *buf, size_t nbytes, struct file *file,
+		       struct dir_context *ctx);
 
 /**
  * File-system tells the kernel to invalidate cache for the given node id.
