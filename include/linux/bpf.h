@@ -256,6 +256,8 @@ enum bpf_arg_type {
 	 */
 	ARG_PTR_TO_MEM,		/* pointer to valid memory (stack, packet, map value) */
 	ARG_PTR_TO_MEM_OR_NULL, /* pointer to valid memory or NULL */
+	ARG_PTR_TO_RDONLY_MEM,	/* helper only reads valid memory */
+	ARG_PTR_TO_RDONLY_MEM_OR_NULL, /* helper only reads memory or NULL */
 	ARG_PTR_TO_UNINIT_MEM,	/* pointer to memory does not need to be initialized,
 				 * helper function must fill all bytes or clear
 				 * them in error case.
