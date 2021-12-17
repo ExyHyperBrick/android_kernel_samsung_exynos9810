@@ -5048,7 +5048,7 @@ static int check_helper_call(struct bpf_verifier_env *env,
 				return -EINVAL;
 			}
 			regs[BPF_REG_0].type = maybe_null ?
-				PTR_TO_MEM_OR_NULL : PTR_TO_MEM;
+				PTR_TO_RDONLY_BUF_OR_NULL : PTR_TO_RDONLY_BUF;
 			regs[BPF_REG_0].mem_size = tsize;
 		} else {
 			regs[BPF_REG_0].type = maybe_null ?
@@ -7470,6 +7470,7 @@ static int check_ld_imm(struct bpf_verifier_env *env, struct bpf_insn *insn)
 		dst_reg->type = aux->btf_var.reg_type;
 		switch (dst_reg->type) {
 		case PTR_TO_MEM:
+		case PTR_TO_RDONLY_BUF:
 			dst_reg->mem_size = aux->btf_var.mem_size;
 			break;
 		case PTR_TO_BTF_ID:
@@ -9311,7 +9312,7 @@ static int check_pseudo_btf_id(struct bpf_verifier_env *env,
 				tname, PTR_ERR(ret));
 			return -EINVAL;
 		}
-		aux->btf_var.reg_type = PTR_TO_MEM;
+		aux->btf_var.reg_type = PTR_TO_RDONLY_BUF;
 		aux->btf_var.mem_size = tsize;
 	} else {
 		aux->btf_var.reg_type = PTR_TO_BTF_ID;
