@@ -5514,6 +5514,12 @@ static int adjust_ptr_min_max_vals(struct bpf_verifier_env *env,
 		}
 		/* fall-through */
 	default:
+		if (reg_type_may_be_null(ptr_reg->type)) {
+			verbose(env,
+				"R%d pointer arithmetic on %s prohibited\n",
+				dst, reg_type_str[ptr_reg->type]);
+			return -EACCES;
+		}
 		break;
 	}
 
