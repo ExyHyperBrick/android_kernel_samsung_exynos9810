@@ -204,12 +204,6 @@ static void bpf_map_ptr_store(struct bpf_insn_aux_data *aux,
 			 (unpriv ? BPF_MAP_PTR_UNPRIV : 0UL);
 }
 
-static bool bpf_pseudo_func(const struct bpf_insn *insn)
-{
-	return insn->code == (BPF_LD | BPF_IMM | BPF_DW) &&
-	       insn->src_reg == BPF_PSEUDO_FUNC;
-}
-
 struct bpf_call_arg_meta {
 	struct bpf_map *map_ptr;
 	bool raw_mode;
