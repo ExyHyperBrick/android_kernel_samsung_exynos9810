@@ -3904,8 +3904,14 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 	case PTR_TO_RDONLY_BUF:
 	case PTR_TO_RDWR_BUF:
 	case PTR_TO_STACK:
+		/* Some of the argument types nevertheless require a
+		 * zero register offset.
+		 */
+		if (arg_type == ARG_PTR_TO_ALLOC_MEM)
+			goto force_off_check;
 		break;
 	default:
+force_off_check:
 		/* BTF pointers can refer to an embedded structure. Defer
 		 * their fixed-offset check until the expected BTF ID is known.
 		 */
