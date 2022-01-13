@@ -352,6 +352,8 @@ enum bpf_reg_type {
 	PTR_TO_BTF_ID_OR_NULL, /* reg points to kernel struct or NULL */
 	PTR_TO_MEM,		 /* reg points to valid memory region */
 	PTR_TO_MEM_OR_NULL,	 /* reg points to valid memory region or NULL */
+	PTR_TO_ALLOC_MEM,	 /* reg points to helper-allocated memory */
+	PTR_TO_ALLOC_MEM_OR_NULL, /* points to allocated memory or NULL */
 	PTR_TO_RDONLY_BUF,	 /* reg points to a readonly buffer */
 	PTR_TO_RDONLY_BUF_OR_NULL, /* reg points to a readonly buffer or NULL */
 	PTR_TO_RDWR_BUF,	 /* reg points to a read/write buffer */

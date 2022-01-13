@@ -387,6 +387,7 @@ static bool reg_type_may_be_null(enum bpf_reg_type type)
 	       type == PTR_TO_TCP_SOCK_OR_NULL ||
 	       type == PTR_TO_BTF_ID_OR_NULL ||
 	       type == PTR_TO_MEM_OR_NULL ||
+	       type == PTR_TO_ALLOC_MEM_OR_NULL ||
 	       type == PTR_TO_RDONLY_BUF_OR_NULL ||
 	       type == PTR_TO_RDWR_BUF_OR_NULL;
 }
@@ -406,7 +407,9 @@ static bool reg_type_may_be_refcounted_or_null(enum bpf_reg_type type)
 	       type == PTR_TO_TCP_SOCK ||
 	       type == PTR_TO_TCP_SOCK_OR_NULL ||
 	       type == PTR_TO_MEM ||
-	       type == PTR_TO_MEM_OR_NULL;
+	       type == PTR_TO_MEM_OR_NULL ||
+	       type == PTR_TO_ALLOC_MEM ||
+	       type == PTR_TO_ALLOC_MEM_OR_NULL;
 }
 
 static bool arg_type_may_be_refcounted(enum bpf_arg_type type)
@@ -477,6 +480,8 @@ static const char * const reg_type_str[] = {
 	[PTR_TO_BTF_ID_OR_NULL]	= "ptr_or_null_",
 	[PTR_TO_MEM]		= "mem",
 	[PTR_TO_MEM_OR_NULL]	= "mem_or_null",
+	[PTR_TO_ALLOC_MEM]	= "alloc_mem",
+	[PTR_TO_ALLOC_MEM_OR_NULL] = "alloc_mem_or_null",
 	[PTR_TO_RDONLY_BUF]	= "rdonly_buf",
 	[PTR_TO_RDONLY_BUF_OR_NULL] = "rdonly_buf_or_null",
 	[PTR_TO_RDWR_BUF]	= "rdwr_buf",
@@ -2101,6 +2106,8 @@ static bool is_spillable_regtype(enum bpf_reg_type type)
 	case PTR_TO_BTF_ID_OR_NULL:
 	case PTR_TO_MEM:
 	case PTR_TO_MEM_OR_NULL:
+	case PTR_TO_ALLOC_MEM:
+	case PTR_TO_ALLOC_MEM_OR_NULL:
 	case PTR_TO_RDONLY_BUF:
 	case PTR_TO_RDONLY_BUF_OR_NULL:
 	case PTR_TO_RDWR_BUF:
@@ -2389,6 +2396,7 @@ static int __check_mem_access(struct bpf_verifier_env *env, int regno,
 			off, size, regno, reg->id, off, mem_size);
 		break;
 	case PTR_TO_MEM:
+	case PTR_TO_ALLOC_MEM:
 	default:
 		verbose(env, "invalid access to memory, mem_size=%u off=%d size=%d\n",
 			mem_size, off, size);
@@ -3230,7 +3238,8 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 				mark_reg_unknown(env, regs, value_regno);
 			}
 		}
-	} else if (reg->type == PTR_TO_MEM) {
+	} else if (reg->type == PTR_TO_MEM ||
+		   reg->type == PTR_TO_ALLOC_MEM) {
 		if (t == BPF_WRITE && value_regno >= 0 &&
 		    is_pointer_value(env, value_regno)) {
 			verbose(env, "R%d leaks addr into mem\n", value_regno);
@@ -3513,6 +3522,7 @@ static int check_helper_mem_access(struct bpf_verifier_env *env, int regno,
 		return check_map_access(env, regno, reg->off, access_size,
 					zero_size_allowed);
 	case PTR_TO_MEM:
+	case PTR_TO_ALLOC_MEM:
 		return check_mem_region_access(env, regno, reg->off,
 					       access_size, reg->mem_size,
 					       zero_size_allowed);
@@ -3721,6 +3731,7 @@ static const struct bpf_reg_types mem_types = {
 		PTR_TO_MAP_KEY,
 		PTR_TO_MAP_VALUE,
 		PTR_TO_MEM,
+		PTR_TO_ALLOC_MEM,
 		PTR_TO_RDONLY_BUF,
 		PTR_TO_RDWR_BUF,
 	},
@@ -3743,7 +3754,7 @@ static const struct bpf_reg_types context_types = {
 	.types = { PTR_TO_CTX },
 };
 static const struct bpf_reg_types alloc_mem_types = {
-	.types = { PTR_TO_MEM },
+	.types = { PTR_TO_ALLOC_MEM },
 };
 static const struct bpf_reg_types const_map_ptr_types = {
 	.types = { CONST_PTR_TO_MAP },
@@ -3893,6 +3904,7 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 	case PTR_TO_MAP_KEY:
 	case PTR_TO_MAP_VALUE:
 	case PTR_TO_MEM:
+	case PTR_TO_ALLOC_MEM:
 	case PTR_TO_RDONLY_BUF:
 	case PTR_TO_RDWR_BUF:
 	case PTR_TO_STACK:
@@ -5033,7 +5045,7 @@ static int check_helper_call(struct bpf_verifier_env *env,
 		regs[BPF_REG_0].type = PTR_TO_TCP_SOCK_OR_NULL;
 	} else if (fn->ret_type == RET_PTR_TO_ALLOC_MEM_OR_NULL) {
 		mark_reg_known_zero(env, regs, BPF_REG_0);
-		regs[BPF_REG_0].type = PTR_TO_MEM_OR_NULL;
+		regs[BPF_REG_0].type = PTR_TO_ALLOC_MEM_OR_NULL;
 		regs[BPF_REG_0].mem_size = meta.mem_size;
 	} else if (fn->ret_type == RET_PTR_TO_MEM_OR_BTF_ID_OR_NULL ||
 		   fn->ret_type == RET_PTR_TO_MEM_OR_BTF_ID) {
@@ -7140,6 +7152,8 @@ static void mark_ptr_or_null_reg(struct bpf_func_state *state,
 			reg->type = PTR_TO_BTF_ID;
 		} else if (reg->type == PTR_TO_MEM_OR_NULL) {
 			reg->type = PTR_TO_MEM;
+		} else if (reg->type == PTR_TO_ALLOC_MEM_OR_NULL) {
+			reg->type = PTR_TO_ALLOC_MEM;
 		} else if (reg->type == PTR_TO_RDONLY_BUF_OR_NULL) {
 			reg->type = PTR_TO_RDONLY_BUF;
 		} else if (reg->type == PTR_TO_RDWR_BUF_OR_NULL) {
