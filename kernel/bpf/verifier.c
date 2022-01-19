@@ -2900,16 +2900,17 @@ static int get_callee_stack_depth(struct bpf_verifier_env *env,
 }
 #endif
 
-static int check_ctx_reg(struct bpf_verifier_env *env,
-			 const struct bpf_reg_state *reg, int regno)
+static int check_ptr_off_reg(struct bpf_verifier_env *env,
+			     const struct bpf_reg_state *reg, int regno)
 {
-	/* Access to ctx or passing it to a helper is only allowed in
-	 * its original, unmodified form.
+	/* Access to this pointer-typed register or passing it to a helper
+	 * is only allowed in its original, unmodified form.
 	 */
 
 	if (reg->off) {
-		verbose(env, "dereference of modified ctx ptr R%d off=%d disallowed\n",
-			regno, reg->off);
+		verbose(env,
+			"dereference of modified %s ptr R%d off=%d disallowed\n",
+			reg_type_str[reg->type], regno, reg->off);
 		return -EACCES;
 	}
 
@@ -2917,7 +2918,8 @@ static int check_ctx_reg(struct bpf_verifier_env *env,
 		char tn_buf[48];
 
 		tnum_strn(tn_buf, sizeof(tn_buf), reg->var_off);
-		verbose(env, "variable ctx access var_off=%s disallowed\n", tn_buf);
+		verbose(env, "variable %s access var_off=%s disallowed\n",
+			reg_type_str[reg->type], tn_buf);
 		return -EACCES;
 	}
 
@@ -3197,7 +3199,7 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 			verbose(env, "R%d leaks addr into ctx\n", value_regno);
 			return -EACCES;
 		}
-		err = check_ctx_reg(env, reg, regno);
+		err = check_ptr_off_reg(env, reg, regno);
 		if (err < 0)
 			return err;
 
@@ -3600,6 +3602,23 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 		return 0;
 	}
 
+	switch (type) {
+	case SCALAR_VALUE:
+	/* Pointer types where register offsets are explicitly allowed. */
+	case PTR_TO_PACKET:
+	case PTR_TO_PACKET_META:
+	case PTR_TO_MAP_KEY:
+	case PTR_TO_MAP_VALUE:
+	case PTR_TO_MEM:
+	case PTR_TO_STACK:
+		break;
+	default:
+		err = check_ptr_off_reg(env, reg, regno);
+		if (err < 0)
+			return err;
+		break;
+	}
+
 	if (type_is_pkt_pointer(type) &&
 	    !may_access_direct_pkt_data(env, meta, BPF_READ)) {
 		verbose(env, "helper access to the packet is not allowed\n");
@@ -3633,7 +3652,7 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 		expected_type = PTR_TO_CTX;
 		if (type != expected_type)
 			goto err_type;
-		err = check_ctx_reg(env, reg, regno);
+		err = check_ptr_off_reg(env, reg, regno);
 		if (err < 0)
 			return err;
 	} else if (arg_type == ARG_PTR_TO_SOCK_COMMON) {
@@ -3674,11 +3693,6 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 			verbose(env, "Helper has type %s got %s in R%d\n",
 				kernel_type_name(meta->btf_id),
 				kernel_type_name(reg->btf_id), regno);
-			return -EACCES;
-		}
-		if (!tnum_is_const(reg->var_off) || reg->var_off.value || reg->off) {
-			verbose(env, "R%d is a pointer to in-kernel struct with non-zero offset\n",
-				regno);
 			return -EACCES;
 		}
 	} else if (arg_type == ARG_PTR_TO_FUNC) {
@@ -7082,7 +7096,7 @@ static int check_ld_abs(struct bpf_verifier_env *env, struct bpf_insn *insn)
 			return err;
 	}
 
-	err = check_ctx_reg(env, &regs[ctx_reg], ctx_reg);
+	err = check_ptr_off_reg(env, &regs[ctx_reg], ctx_reg);
 	if (err < 0)
 		return err;
 
