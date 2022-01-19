@@ -6944,6 +6944,11 @@ static int check_ld_imm(struct bpf_verifier_env *env, struct bpf_insn *insn)
 		return 0;
 	}
 
+	/* All special src_reg cases below either assign a pointer type after
+	 * zeroing the offset or reject the program.
+	 */
+	mark_reg_known_zero(env, regs, insn->dst_reg);
+
 	if (insn->src_reg == BPF_PSEUDO_FUNC) {
 		struct bpf_prog_aux *prog_aux = env->prog->aux;
 		const struct btf_type *type;
@@ -6969,7 +6974,6 @@ static int check_ld_imm(struct bpf_verifier_env *env, struct bpf_insn *insn)
 	}
 
 	map = env->used_maps[aux->map_index];
-	mark_reg_known_zero(env, regs, insn->dst_reg);
 	regs[insn->dst_reg].map_ptr = map;
 
 	if (insn->src_reg == BPF_PSEUDO_MAP_VALUE) {
