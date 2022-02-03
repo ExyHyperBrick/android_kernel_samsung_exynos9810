@@ -1300,6 +1300,18 @@ int fuse_access_backing(struct fuse_bpf_args *args,
 void *fuse_access_finalize(struct fuse_bpf_args *args,
 			   struct inode *inode, int mask);
 
+struct fuse_statfs_io {
+	struct fuse_statfs_out out;
+};
+
+int fuse_statfs_initialize(struct fuse_bpf_args *args,
+			   struct fuse_statfs_io *io,
+			   struct dentry *dentry, struct kstatfs *buf);
+int fuse_statfs_backing(struct fuse_bpf_args *args,
+			struct dentry *dentry, struct kstatfs *buf);
+void *fuse_statfs_finalize(struct fuse_bpf_args *args,
+			   struct dentry *dentry, struct kstatfs *buf);
+
 struct fuse_lookup_io {
 	struct fuse_entry_out entry;
 	struct fuse_entry_bpf bpf;

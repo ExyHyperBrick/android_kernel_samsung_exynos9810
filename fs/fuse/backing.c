@@ -13,10 +13,12 @@
 #include <linux/namei.h>
 #include <linux/pagemap.h>
 #include <linux/posix_acl.h>
+#include <linux/statfs.h>
 #include <linux/string.h>
 
 #define FUSE_BPF_RET_MASK	(FUSE_BPF_USER_FILTER | FUSE_BPF_BACKING | \
 				 FUSE_BPF_POST_FILTER)
+#define FUSE_BPF_SUPER_MAGIC	0x65735546
 
 static const void *fuse_bpf_const_end(const void *value, u32 size)
 {
@@ -503,6 +505,128 @@ void *fuse_access_finalize(struct fuse_bpf_args *args,
 	    (in->mask & requested) != requested)
 		return ERR_PTR(-EIO);
 	(void)inode;
+	return NULL;
+}
+
+int fuse_statfs_initialize(struct fuse_bpf_args *args,
+			   struct fuse_statfs_io *io,
+			   struct dentry *dentry, struct kstatfs *buf)
+{
+	memset(io, 0, sizeof(*io));
+	*args = (struct fuse_bpf_args) {
+		.nodeid = get_node_id(d_inode(dentry)),
+		.opcode = FUSE_STATFS,
+		.out_numargs = 1,
+		.out_args[0] = (struct fuse_bpf_arg) {
+			.size = sizeof(io->out),
+			.value = &io->out,
+		},
+	};
+	(void)buf;
+	return 0;
+}
+
+int fuse_statfs_backing(struct fuse_bpf_args *args,
+			struct dentry *dentry, struct kstatfs *buf)
+{
+	struct fuse_statfs_out *out;
+	struct fuse_statfs_io *io;
+	struct path backing_path = { };
+	struct kstatfs lower = { };
+	struct inode *inode = d_inode(dentry);
+	int ret;
+
+	if (args->opcode != FUSE_STATFS ||
+	    args->nodeid != get_node_id(inode) || args->flags ||
+	    args->in_numargs || args->out_numargs != 1 ||
+	    !args->out_args[0].value ||
+	    args->out_args[0].size != sizeof(*out))
+		return -EINVAL;
+	out = args->out_args[0].value;
+	io = container_of(out, struct fuse_statfs_io, out);
+	if (out != &io->out)
+		return -EINVAL;
+	if (!get_fuse_backing_path(dentry, &backing_path))
+		return -EBADF;
+	ret = fuse_validate_backing_path(inode, &backing_path);
+	if (ret)
+		goto out_path;
+
+	ret = vfs_statfs(&backing_path, &lower);
+	if (ret)
+		goto out_path;
+	if (lower.f_bsize < 0 || (u64)lower.f_bsize > U32_MAX ||
+	    lower.f_namelen < 0 || (u64)lower.f_namelen > U32_MAX ||
+	    lower.f_frsize < 0 || (u64)lower.f_frsize > U32_MAX) {
+		ret = -EOVERFLOW;
+		goto out_path;
+	}
+
+	memset(out, 0, sizeof(*out));
+	out->st.blocks = lower.f_blocks;
+	out->st.bfree = lower.f_bfree;
+	out->st.bavail = lower.f_bavail;
+	out->st.files = lower.f_files;
+	out->st.ffree = lower.f_ffree;
+	out->st.bsize = lower.f_bsize;
+	out->st.namelen = lower.f_namelen;
+	out->st.frsize = lower.f_frsize;
+out_path:
+	fuse_put_backing_path(&backing_path);
+	(void)buf;
+	return ret;
+}
+
+void *fuse_statfs_finalize(struct fuse_bpf_args *args,
+			   struct dentry *dentry, struct kstatfs *buf)
+{
+	struct fuse_statfs_out *out;
+	struct fuse_statfs_io *io;
+	struct inode *inode = d_inode(dentry);
+	u32 expected_in;
+	int error = (s32)args->error_in;
+	int i;
+
+	if (error)
+		return ERR_PTR(error < 0 ? error : -EIO);
+	if (args->opcode == FUSE_STATFS)
+		expected_in = 0;
+	else if (args->opcode == (FUSE_STATFS | FUSE_POSTFILTER))
+		expected_in = 1;
+	else
+		return ERR_PTR(-EIO);
+	if (args->nodeid != get_node_id(inode) || args->flags ||
+	    args->in_numargs != expected_in || args->out_numargs != 1 ||
+	    !args->out_args[0].value ||
+	    args->out_args[0].size != sizeof(*out))
+		return ERR_PTR(-EIO);
+	out = args->out_args[0].value;
+	io = container_of(out, struct fuse_statfs_io, out);
+	if (expected_in == 1 &&
+	    (!args->in_args[0].value ||
+	     args->in_args[0].size != sizeof(*out) ||
+	     args->in_args[0].value != out))
+		return ERR_PTR(-EIO);
+	if (out != &io->out || out->st.padding)
+		return ERR_PTR(-EIO);
+	for (i = 0; i < ARRAY_SIZE(out->st.spare); i++)
+		if (out->st.spare[i])
+			return ERR_PTR(-EIO);
+	if ((u64)out->st.bsize > (u64)LONG_MAX ||
+	    (u64)out->st.namelen > (u64)LONG_MAX ||
+	    (u64)out->st.frsize > (u64)LONG_MAX)
+		return ERR_PTR(-EOVERFLOW);
+
+	memset(buf, 0, sizeof(*buf));
+	buf->f_type = FUSE_BPF_SUPER_MAGIC;
+	buf->f_bsize = out->st.bsize;
+	buf->f_frsize = out->st.frsize;
+	buf->f_blocks = out->st.blocks;
+	buf->f_bfree = out->st.bfree;
+	buf->f_bavail = out->st.bavail;
+	buf->f_files = out->st.files;
+	buf->f_ffree = out->st.ffree;
+	buf->f_namelen = out->st.namelen;
 	return NULL;
 }
 

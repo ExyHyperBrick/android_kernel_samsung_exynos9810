@@ -637,6 +637,11 @@ static int fuse_statfs(struct dentry *dentry, struct kstatfs *buf)
 {
 	struct super_block *sb = dentry->d_sb;
 	struct fuse_conn *fc = get_fuse_conn_super(sb);
+#ifdef CONFIG_FUSE_BPF
+	struct inode *inode = d_inode(dentry);
+	struct fuse_inode *fi = get_fuse_inode(inode);
+	struct fuse_err_ret fer;
+#endif
 	FUSE_ARGS(args);
 	struct fuse_statfs_out outarg;
 	int err;
@@ -645,6 +650,18 @@ static int fuse_statfs(struct dentry *dentry, struct kstatfs *buf)
 		buf->f_type = FUSE_SUPER_MAGIC;
 		return 0;
 	}
+
+#ifdef CONFIG_FUSE_BPF
+	if (fi->backing_inode) {
+		fer = fuse_bpf_backing(inode, struct fuse_statfs_io,
+				       fuse_statfs_initialize,
+				       fuse_statfs_backing,
+				       fuse_statfs_finalize, dentry, buf);
+		if (fer.ret)
+			return PTR_ERR_OR_ZERO(fer.result);
+		return -EOPNOTSUPP;
+	}
+#endif
 
 	memset(&outarg, 0, sizeof(outarg));
 	args.in.numargs = 0;
