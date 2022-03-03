@@ -981,7 +981,7 @@ static int sk_psock_verdict_recv(read_descriptor_t *desc, struct sk_buff *skb,
 	struct sk_psock *psock;
 	struct bpf_prog *prog;
 	int ret = __SK_DROP;
-	int len = skb->len;
+	int len = orig_len;
 
 	/* Clone here so read_sock() can consume the original skb. */
 	skb = skb_clone(skb, GFP_ATOMIC);
