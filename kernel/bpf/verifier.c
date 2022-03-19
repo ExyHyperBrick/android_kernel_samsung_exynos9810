@@ -3428,10 +3428,15 @@ static int check_helper_mem_access(struct bpf_verifier_env *env, int regno,
 	case PTR_TO_FLOW_KEYS:
 		return check_flow_keys_access(env, reg->off, access_size);
 	case PTR_TO_MAP_KEY:
+		if (meta && meta->raw_mode) {
+			verbose(env, "R%d cannot write into %s\n", regno,
+				reg_type_str[reg->type]);
+			return -EACCES;
+		}
 		return check_mem_region_access(env, regno, reg->off,
 					       access_size,
 					       reg->map_ptr->key_size,
-					       zero_size_allowed);
+					       false);
 	case PTR_TO_MAP_VALUE:
 		if (check_map_access_type(env, regno, reg->off, access_size,
 					  meta && meta->raw_mode ? BPF_WRITE :
