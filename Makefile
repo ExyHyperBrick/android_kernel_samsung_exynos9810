@@ -470,8 +470,11 @@ asm-generic:
 	            src=uapi/asm obj=arch/$(SRCARCH)/include/generated/uapi/asm
 
 PLATFORM_VERSION=10
+ANDROID_MAJOR_VERSION=q
 @echo "PLATFORM_VERSION: $(PLATFORM_VERSION)"
+@echo "ANDROID_MAJOR_VERSION: $(ANDROID_MAJOR_VERSION)"
 export PLATFORM_VERSION
+export ANDROID_MAJOR_VERSION
 
 ifneq ($(PLATFORM_VERSION), )
 PLATFORM_VERSION_NUMBER=$(shell $(CONFIG_SHELL) $(srctree)/scripts/android-version.sh $(PLATFORM_VERSION))
