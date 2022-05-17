@@ -2220,6 +2220,26 @@ void bpf_prog_array_delete_safe(struct bpf_prog_array __rcu *array,
 		}
 }
 
+int bpf_prog_array_delete_safe_at(struct bpf_prog_array __rcu *array,
+				  int index)
+{
+	struct bpf_prog_array_item *item;
+
+	if (unlikely(index < 0))
+		return -EINVAL;
+
+	for (item = array->items; item->prog; item++) {
+		if (item->prog == &dummy_bpf_prog.prog)
+			continue;
+		if (!index) {
+			WRITE_ONCE(item->prog, &dummy_bpf_prog.prog);
+			return 0;
+		}
+		index--;
+	}
+	return -ENOENT;
+}
+
 int bpf_prog_array_copy(struct bpf_prog_array __rcu *old_array,
 			struct bpf_prog *exclude_prog,
 			struct bpf_prog *include_prog,

@@ -521,6 +521,52 @@ int __cgroup_bpf_replace(struct cgroup *cgrp, struct bpf_cgroup_link *link,
 }
 
 /**
+ * purge_effective_progs() - Recover after effective-array allocation fails
+ * @cgrp: The cgroup whose descendants to traverse
+ * @prog: A program to detach or NULL
+ * @link: A link to detach or NULL
+ * @type: Type of detach operation
+ */
+static void purge_effective_progs(struct cgroup *cgrp, struct bpf_prog *prog,
+				  struct bpf_cgroup_link *link,
+				  enum bpf_attach_type type)
+{
+	struct cgroup_subsys_state *css;
+	struct bpf_prog_array *progs;
+	struct bpf_prog_list *pl;
+	struct list_head *head;
+	struct cgroup *cg;
+	int pos;
+
+	/* recompute effective prog array in place */
+	css_for_each_descendant_pre(css, &cgrp->self) {
+		struct cgroup *desc = container_of(css, struct cgroup, self);
+
+		/* find position of link or prog in effective progs array */
+		for (pos = 0, cg = desc; cg; cg = cgroup_parent(cg)) {
+			if (pos && !(cg->bpf.flags[type] & BPF_F_ALLOW_MULTI))
+				continue;
+
+			head = &cg->bpf.progs[type];
+			list_for_each_entry(pl, head, node) {
+				if (!prog_list_prog(pl))
+					continue;
+				if (pl->prog == prog && pl->link == link)
+					goto found;
+				pos++;
+			}
+		}
+found:
+		BUG_ON(!cg);
+		progs = rcu_dereference_protected(desc->bpf.effective[type], 1);
+
+		/* Remove the program from the array */
+		WARN_ONCE(bpf_prog_array_delete_safe_at(progs, pos),
+			  "Failed to purge a prog from array at index %d", pos);
+	}
+}
+
+/**
  * __cgroup_bpf_detach() - Detach the program from a cgroup, and
  *                         propagate the change to descendants
  * @cgrp: The cgroup which descendants to traverse
@@ -567,6 +613,7 @@ int __cgroup_bpf_detach(struct cgroup *cgrp, struct bpf_prog *prog,
 		desc->bpf.inactive = NULL;
 	}
 
+delete:
 	/* now can actually delete it from this cgroup list */
 	list_del(&pl->node);
 	bpf_cgroup_storages_unlink(pl->storage);
@@ -592,10 +639,11 @@ cleanup:
 		desc->bpf.inactive = NULL;
 	}
 
-	/* and restore back old_prog or link */
+	/* replace the detached program with a dummy in existing arrays */
 	pl->prog = old_prog;
 	pl->link = link;
-	return err;
+	purge_effective_progs(cgrp, old_prog, link, type);
+	goto delete;
 }
 
 static void bpf_cgroup_link_release(struct bpf_link *link)
