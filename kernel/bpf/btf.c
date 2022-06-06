@@ -4213,6 +4213,8 @@ int btf_check_func_arg_match(struct bpf_verifier_env *env, int subprog,
 {
 	struct bpf_verifier_log *log = &env->log;
 	struct bpf_prog *prog = env->prog;
+	enum bpf_prog_type prog_type = prog->type == BPF_PROG_TYPE_EXT ?
+				      prog->aux->linked_prog->type : prog->type;
 	struct btf *btf = prog->aux->btf;
 	const struct btf_param *args;
 	const struct btf_type *t;
@@ -4269,7 +4271,7 @@ int btf_check_func_arg_match(struct bpf_verifier_env *env, int subprog,
 			/* If BTF expects a context, the caller must pass the
 			 * original, unmodified PTR_TO_CTX.
 			 */
-			if (btf_get_prog_ctx_type(log, btf, t, prog->type, i)) {
+			if (btf_get_prog_ctx_type(log, btf, t, prog_type, i)) {
 				if (reg[i + 1].type != PTR_TO_CTX) {
 					const char *kind;
 
