@@ -617,6 +617,16 @@ struct sk_psock *sk_psock_init(struct sock *sk, int node)
 
 	write_lock_bh(&sk->sk_callback_lock);
 
+	/*
+	 * Reject TCP sockets with an existing ULP before the psock is
+	 * created. A later failure in tcp_bpf_update_proto() would leave
+	 * psock teardown unwinding protocol callbacks belonging to the ULP.
+	 */
+	if (sk_is_tcp(sk) && inet_csk(sk)->icsk_ulp_ops) {
+		psock = ERR_PTR(-EINVAL);
+		goto out;
+	}
+
 	if (sk->sk_user_data) {
 		psock = ERR_PTR(-EBUSY);
 		goto out;

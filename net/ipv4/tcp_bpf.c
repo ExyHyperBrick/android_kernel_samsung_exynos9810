@@ -698,8 +698,7 @@ int tcp_bpf_update_proto(struct sock *sk, struct sk_psock *psock,
 		return 0;
 	}
 
-	if (sk->sk_protocol != IPPROTO_TCP ||
-	    inet_csk(sk)->icsk_ulp_ops)
+	if (sk->sk_protocol != IPPROTO_TCP)
 		return -EINVAL;
 
 	family = sk->sk_family == AF_INET6 ? TCP_BPF_IPV6 : TCP_BPF_IPV4;
