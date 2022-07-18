@@ -386,7 +386,7 @@ void reuseport_stop_listen_sock(struct sock *sk)
 		prog = rcu_dereference_protected(reuse->prog,
 						 lockdep_is_held(&reuseport_lock));
 
-		if (sock_net(sk)->ipv4.sysctl_tcp_migrate_req ||
+		if (READ_ONCE(sock_net(sk)->ipv4.sysctl_tcp_migrate_req) ||
 		    (prog && prog->expected_attach_type ==
 		     BPF_SK_REUSEPORT_SELECT_OR_MIGRATE)) {
 			/* Keep the closed listener reachable by its requests. */
@@ -541,7 +541,7 @@ struct sock *reuseport_migrate_sock(struct sock *sk,
 	prog = rcu_dereference(reuse->prog);
 	if (!prog || prog->expected_attach_type !=
 	    BPF_SK_REUSEPORT_SELECT_OR_MIGRATE) {
-		if (sock_net(sk)->ipv4.sysctl_tcp_migrate_req)
+		if (READ_ONCE(sock_net(sk)->ipv4.sysctl_tcp_migrate_req))
 			goto select_by_hash;
 		goto failure;
 	}
