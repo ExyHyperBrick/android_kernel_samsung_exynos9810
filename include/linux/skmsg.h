@@ -249,7 +249,8 @@ static inline void sk_msg_page_add(struct sk_msg *msg, struct page *page,
 
 static inline struct sk_psock *sk_psock(const struct sock *sk)
 {
-	return rcu_dereference_sk_user_data(sk);
+	return __rcu_dereference_sk_user_data_with_flags(sk,
+							 SK_USER_DATA_PSOCK);
 }
 
 static inline bool sk_has_psock(struct sock *sk)
