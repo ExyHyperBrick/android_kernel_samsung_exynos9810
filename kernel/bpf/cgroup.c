@@ -486,8 +486,10 @@ static void replace_effective_prog(struct cgroup *cgrp,
 				pos++;
 			}
 		}
+
+		/* no link or prog match, skip the cgroup of this layer */
+		continue;
 found:
-		BUG_ON(!cg);
 		progs = rcu_dereference_protected(desc->bpf.effective[type], 1);
 		item = &progs->items[pos];
 		WRITE_ONCE(item->prog, link->link.prog);
