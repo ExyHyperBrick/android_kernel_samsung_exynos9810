@@ -134,6 +134,10 @@ struct bpf_reference_state {
 	 * is used purely to inform the user of a reference leak.
 	 */
 	int insn_idx;
+	/* Frame number of the synchronous callback that acquired this
+	 * reference, or zero for a caller reference.
+	 */
+	int callback_ref;
 };
 
 /* state of the program:
