@@ -203,6 +203,7 @@ vmlinux_link()
 gen_btf()
 {
 	local pahole_ver
+	local pahole_flags
 
 	if ! [ -x "$(command -v ${PAHOLE})" ]; then
 		echo >&2 "BTF: ${1}: pahole (${PAHOLE}) is not available"
@@ -214,10 +215,13 @@ gen_btf()
 		echo >&2 "BTF: ${1}: pahole version $(${PAHOLE} --version) is too old, need at least v1.13"
 		return 1
 	fi
+	if [ "${pahole_ver}" -ge "124" ]; then
+		pahole_flags="--skip_encoding_btf_enum64"
+	fi
 
 	info BTF ${2}
 	vmlinux_link "" ${1}
-	LLVM_OBJCOPY=${OBJCOPY} ${PAHOLE} -J ${1}
+	LLVM_OBJCOPY=${OBJCOPY} ${PAHOLE} -J ${pahole_flags} ${1}
 
 	# Create ${2} which contains just .BTF section but no symbols. Add
 	# SHF_ALLOC because .BTF will be part of the vmlinux image. --strip-all
