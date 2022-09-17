@@ -24,6 +24,9 @@
 #include <linux/hall.h>
 #include <linux/notifier.h>
 #include <linux/sec_sysfs.h>
+#ifdef CONFIG_BATTERY_SAMSUNG
+#include <linux/sec_batt.h>
+#endif
 
 #if defined(CONFIG_HALL_NEW_NODE)
 struct device *hall_ic;
@@ -225,6 +228,13 @@ static int hall_probe(struct platform_device *pdev)
 	struct input_dev *input;
 	int error;
 	int wakeup = 0;
+
+#ifdef CONFIG_BATTERY_SAMSUNG
+	if (lpcharge == 1) {
+		pr_err("Do not load driver due to : lpm %d\n", lpcharge);
+		return -ENODEV;
+	}
+#endif
 
 	ddata = kzalloc(sizeof(struct hall_drvdata), GFP_KERNEL);
 	if (!ddata)
