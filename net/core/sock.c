@@ -1112,7 +1112,7 @@ set_rcvbuf:
 		break;
 
 	case SO_INCOMING_CPU:
-		sk->sk_incoming_cpu = val;
+		reuseport_update_incoming_cpu(sk, val);
 		break;
 
 	case SO_CNX_ADVICE:
