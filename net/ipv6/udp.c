@@ -201,7 +201,7 @@ static struct sock *udp6_lib_lookup2(struct net *net,
 				reuseport_result = reuseport_select_sock(sk, hash, skb,
 									 sizeof(struct udphdr));
 				if (reuseport_result &&
-				    !reuseport_has_conns(sk, false))
+				    !reuseport_has_conns(sk))
 					return reuseport_result;
 				matches = 1;
 			}
@@ -282,7 +282,7 @@ begin:
 				if (unlikely(IS_ERR(reuseport_result)))
 					return NULL;
 				if (reuseport_result &&
-				    !reuseport_has_conns(sk, false))
+				    !reuseport_has_conns(sk))
 					return reuseport_result;
 				matches = 1;
 			}
