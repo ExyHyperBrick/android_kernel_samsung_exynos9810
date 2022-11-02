@@ -1317,7 +1317,10 @@ void sock_map_close(struct sock *sk, long timeout)
 	saved_close = psock->saved_close;
 	sock_map_remove(sk, psock);
 	rcu_read_unlock();
-	sk_psock_stop(psock, true);
+	sk_psock_stop(psock);
+	release_sock(sk);
+	cancel_work_sync(&psock->work);
+	lock_sock(sk);
 	sk_psock_put(sk, psock);
 	release_sock(sk);
 	saved_close(sk, timeout);
