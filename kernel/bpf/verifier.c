@@ -4204,11 +4204,11 @@ static int __check_func_call(struct bpf_verifier_env *env, int *insn_idx,
 	/* Transfer references to the callee */
 	err = transfer_reference_state(callee, caller);
 	if (err)
-		return err;
+		goto err_out;
 
 	err = set_callee_state_cb(env, caller, callee, *insn_idx);
 	if (err)
-		return err;
+		goto err_out;
 
 	/* after the call registers r0 - r5 were scratched */
 	for (i = 0; i < CALLER_SAVED_REGS; i++) {
@@ -4228,6 +4228,11 @@ static int __check_func_call(struct bpf_verifier_env *env, int *insn_idx,
 	}
 
 	return 0;
+
+err_out:
+	free_func_state(callee);
+	state->frame[state->curframe + 1] = NULL;
+	return err;
 }
 
 static int set_callee_state(struct bpf_verifier_env *env,
@@ -4335,8 +4340,7 @@ static int prepare_func_exit(struct bpf_verifier_env *env, int *insn_idx)
 		return -EINVAL;
 	}
 
-	state->curframe--;
-	caller = state->frame[state->curframe];
+	caller = state->frame[state->curframe - 1];
 	if (callee->in_callback_fn) {
 		struct tnum range = tnum_range(0, 1);
 
@@ -4374,7 +4378,7 @@ static int prepare_func_exit(struct bpf_verifier_env *env, int *insn_idx)
 
 	/* clear everything in the callee */
 	free_func_state(callee);
-	state->frame[state->curframe + 1] = NULL;
+	state->frame[state->curframe--] = NULL;
 	return 0;
 }
 
