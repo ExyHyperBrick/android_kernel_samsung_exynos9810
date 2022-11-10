@@ -60,26 +60,26 @@ void pcpu_freelist_populate(struct pcpu_freelist *s, void *buf, u32 elem_size,
 {
 	struct pcpu_freelist_head *head;
 	unsigned long flags;
-	int i, cpu, pcpu_entries;
+	unsigned int cpu, cpu_idx, i, j, n, m;
 
-	pcpu_entries = nr_elems / num_possible_cpus() + 1;
-	i = 0;
+	n = nr_elems / num_possible_cpus();
+	m = nr_elems % num_possible_cpus();
 
 	/* disable irq to workaround lockdep false positive
 	 * in bpf usage pcpu_freelist_populate() will never race
 	 * with pcpu_freelist_push()
 	 */
 	local_irq_save(flags);
+	cpu_idx = 0;
 	for_each_possible_cpu(cpu) {
-again:
 		head = per_cpu_ptr(s->freelist, cpu);
-		___pcpu_freelist_push(head, buf);
-		i++;
-		buf += elem_size;
-		if (i == nr_elems)
-			break;
-		if (i % pcpu_entries)
-			goto again;
+		j = n + (cpu_idx < m ? 1 : 0);
+		for (i = 0; i < j; i++) {
+			/* No locking required as this is not visible yet. */
+			___pcpu_freelist_push(head, buf);
+			buf += elem_size;
+		}
+		cpu_idx++;
 	}
 	local_irq_restore(flags);
 }
