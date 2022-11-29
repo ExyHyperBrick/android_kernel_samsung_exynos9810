@@ -79,6 +79,8 @@ struct sk_psock {
 	u32				apply_bytes;
 	u32				cork_bytes;
 	u32				eval;
+	/* Undefined if sk_redir is NULL. */
+	bool				redir_ingress;
 	struct sk_msg			*cork;
 	struct sk_psock_progs		progs;
 	struct sk_psock_parser		parser;
