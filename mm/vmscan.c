@@ -2881,13 +2881,13 @@ static bool shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 
 			mem_cgroup_calculate_protection(root, memcg);
 
-			if (mem_cgroup_below_min(memcg)) {
+			if (mem_cgroup_below_min(root, memcg)) {
 				/*
 				 * Hard protection.
 				 * OOM if no memory can be reclaimed.
 				 */
 				continue;
-			} else if (mem_cgroup_below_low(memcg)) {
+			} else if (mem_cgroup_below_low(root, memcg)) {
 				/*
 				 * Soft protection.
 				 * Protect while other cgroups have
