@@ -1642,6 +1642,50 @@ static void fuse_fs_cleanup(void)
 
 static struct kobject *fuse_kobj;
 
+#ifdef CONFIG_FUSE_BPF
+static ssize_t fuse_bpf_show(struct kobject *kobj,
+			      struct kobj_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "supported\n");
+}
+
+static struct kobj_attribute fuse_bpf_attr = __ATTR_RO(fuse_bpf);
+
+static struct attribute *fuse_bpf_feature_attrs[] = {
+	&fuse_bpf_attr.attr,
+	NULL,
+};
+
+static const struct attribute_group fuse_bpf_features_group = {
+	.name = "features",
+	.attrs = fuse_bpf_feature_attrs,
+};
+
+static ssize_t bpf_prog_type_fuse_show(struct kobject *kobj,
+				       struct kobj_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "%d\n", BPF_PROG_TYPE_FUSE);
+}
+
+static struct kobj_attribute bpf_prog_type_fuse_attr =
+	__ATTR_RO(bpf_prog_type_fuse);
+
+static struct attribute *fuse_bpf_attrs[] = {
+	&bpf_prog_type_fuse_attr.attr,
+	NULL,
+};
+
+static const struct attribute_group fuse_bpf_attr_group = {
+	.attrs = fuse_bpf_attrs,
+};
+
+static const struct attribute_group *fuse_bpf_groups[] = {
+	&fuse_bpf_features_group,
+	&fuse_bpf_attr_group,
+	NULL,
+};
+#endif
+
 static int fuse_sysfs_init(void)
 {
 	int err;
@@ -1656,8 +1700,18 @@ static int fuse_sysfs_init(void)
 	if (err)
 		goto out_fuse_unregister;
 
+#ifdef CONFIG_FUSE_BPF
+	err = sysfs_create_groups(fuse_kobj, fuse_bpf_groups);
+	if (err)
+		goto out_remove_mount_point;
+#endif
+
 	return 0;
 
+#ifdef CONFIG_FUSE_BPF
+ out_remove_mount_point:
+	sysfs_remove_mount_point(fuse_kobj, "connections");
+#endif
  out_fuse_unregister:
 	kobject_put(fuse_kobj);
  out_err:
@@ -1666,6 +1720,9 @@ static int fuse_sysfs_init(void)
 
 static void fuse_sysfs_cleanup(void)
 {
+#ifdef CONFIG_FUSE_BPF
+	sysfs_remove_groups(fuse_kobj, fuse_bpf_groups);
+#endif
 	sysfs_remove_mount_point(fuse_kobj, "connections");
 	kobject_put(fuse_kobj);
 }
