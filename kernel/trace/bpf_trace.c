@@ -920,6 +920,9 @@ static int bpf_send_signal_common(u32 sig, bool group)
 		return -EPERM;
 	if (unlikely(uaccess_kernel()))
 		return -EPERM;
+	/* Task should not be pid=1 to avoid kernel panic. */
+	if (unlikely(is_global_init(current)))
+		return -EPERM;
 
 	if (irqs_disabled()) {
 		if (unlikely(!valid_signal(sig)))
