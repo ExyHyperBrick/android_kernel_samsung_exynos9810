@@ -332,6 +332,102 @@ static int fuse_inode_set(struct inode *inode, void *_nodeidp)
 	return 0;
 }
 
+#ifdef CONFIG_FUSE_BPF
+struct fuse_backing_inode_identifier {
+	u64 nodeid;
+	struct inode *backing_inode;
+};
+
+static int fuse_inode_backing_eq(struct inode *inode, void *_identifier)
+{
+	struct fuse_backing_inode_identifier *identifier = _identifier;
+	struct fuse_inode *fi = get_fuse_inode(inode);
+
+	return fi->nodeid == identifier->nodeid &&
+		fi->backing_inode == identifier->backing_inode;
+}
+
+static int fuse_inode_backing_set(struct inode *inode, void *_identifier)
+{
+	struct fuse_backing_inode_identifier *identifier = _identifier;
+	struct fuse_inode *fi = get_fuse_inode(inode);
+
+	fi->nodeid = identifier->nodeid;
+	fi->backing_inode = identifier->backing_inode;
+	ihold(fi->backing_inode);
+	return 0;
+}
+
+static void fuse_fill_attr_from_inode(struct fuse_attr *attr,
+				      const struct inode *inode)
+{
+	memset(attr, 0, sizeof(*attr));
+	attr->ino = inode->i_ino;
+	attr->size = i_size_read(inode);
+	attr->blocks = inode->i_blocks;
+	attr->atime = inode->i_atime.tv_sec;
+	attr->mtime = inode->i_mtime.tv_sec;
+	attr->ctime = inode->i_ctime.tv_sec;
+	attr->atimensec = inode->i_atime.tv_nsec;
+	attr->mtimensec = inode->i_mtime.tv_nsec;
+	attr->ctimensec = inode->i_ctime.tv_nsec;
+	attr->mode = inode->i_mode;
+	attr->nlink = inode->i_nlink;
+	attr->uid = from_kuid(&init_user_ns, inode->i_uid);
+	attr->gid = from_kgid(&init_user_ns, inode->i_gid);
+	attr->rdev = new_encode_dev(inode->i_rdev);
+	attr->blksize = 1U << inode->i_blkbits;
+}
+
+struct inode *fuse_iget_backing(struct super_block *sb, u64 nodeid,
+				struct inode *backing_inode)
+{
+	struct fuse_backing_inode_identifier identifier = {
+		.nodeid = nodeid,
+		.backing_inode = backing_inode,
+	};
+	struct fuse_conn *fc = get_fuse_conn_super(sb);
+	struct fuse_inode *fi;
+	struct fuse_attr attr;
+	struct inode *inode;
+	unsigned long hash;
+
+	if (!backing_inode)
+		return NULL;
+
+	hash = nodeid ? (unsigned long)nodeid :
+		(unsigned long)backing_inode;
+	fuse_fill_attr_from_inode(&attr, backing_inode);
+
+ retry:
+	inode = iget5_locked(sb, hash, fuse_inode_backing_eq,
+			     fuse_inode_backing_set, &identifier);
+	if (!inode)
+		return NULL;
+
+	if (inode->i_state & I_NEW) {
+		inode->i_flags |= S_NOATIME;
+		if (!fc->writeback_cache || !S_ISREG(attr.mode))
+			inode->i_flags |= S_NOCMTIME;
+		fuse_init_inode(inode, &attr);
+		unlock_new_inode(inode);
+	} else if ((inode->i_mode ^ attr.mode) & S_IFMT) {
+		fuse_make_bad(inode);
+		iput(inode);
+		goto retry;
+	}
+
+	fi = get_fuse_inode(inode);
+	if (nodeid) {
+		spin_lock(&fc->lock);
+		fi->nlookup++;
+		spin_unlock(&fc->lock);
+	}
+	fuse_change_attributes(inode, &attr, 0, 0);
+	return inode;
+}
+#endif
+
 struct inode *fuse_iget(struct super_block *sb, u64 nodeid,
 			int generation, struct fuse_attr *attr,
 			u64 attr_valid, u64 attr_version)

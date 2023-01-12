@@ -786,6 +786,11 @@ struct inode *fuse_iget(struct super_block *sb, u64 nodeid,
 			int generation, struct fuse_attr *attr,
 			u64 attr_valid, u64 attr_version);
 
+#ifdef CONFIG_FUSE_BPF
+struct inode *fuse_iget_backing(struct super_block *sb, u64 nodeid,
+				struct inode *backing_inode);
+#endif
+
 int fuse_lookup_name(struct super_block *sb, u64 nodeid, const struct qstr *name,
 		     struct fuse_entry_out *outarg, struct inode **inode);
 
