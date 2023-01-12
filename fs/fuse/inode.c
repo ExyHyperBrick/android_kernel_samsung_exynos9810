@@ -72,7 +72,25 @@ struct fuse_mount_data {
 	unsigned allow_other:1;
 	unsigned max_read;
 	unsigned blksize;
+	struct bpf_prog *root_bpf;
+	struct file *root_dir;
 };
+
+static void fuse_mount_data_cleanup(struct fuse_mount_data *d)
+{
+#ifdef CONFIG_FUSE_BPF
+	if (d->root_dir) {
+		fput(d->root_dir);
+		d->root_dir = NULL;
+	}
+	if (d->root_bpf) {
+		bpf_prog_put(d->root_bpf);
+		d->root_bpf = NULL;
+	}
+#else
+	(void)d;
+#endif
+}
 
 struct fuse_forget_link *fuse_alloc_forget(void)
 {
@@ -480,6 +498,10 @@ enum {
 	OPT_ALLOW_OTHER,
 	OPT_MAX_READ,
 	OPT_BLKSIZE,
+#ifdef CONFIG_FUSE_BPF
+	OPT_ROOT_BPF,
+	OPT_ROOT_DIR,
+#endif
 	OPT_ERR
 };
 
@@ -492,6 +514,10 @@ static const match_table_t tokens = {
 	{OPT_ALLOW_OTHER,		"allow_other"},
 	{OPT_MAX_READ,			"max_read=%u"},
 	{OPT_BLKSIZE,			"blksize=%u"},
+#ifdef CONFIG_FUSE_BPF
+	{OPT_ROOT_BPF,			"root_bpf=%u"},
+	{OPT_ROOT_DIR,			"root_dir=%u"},
+#endif
 	{OPT_ERR,			NULL}
 };
 
@@ -576,6 +602,33 @@ static int parse_fuse_opt(char *opt, struct fuse_mount_data *d, int is_bdev)
 				return 0;
 			d->blksize = value;
 			break;
+
+#ifdef CONFIG_FUSE_BPF
+		case OPT_ROOT_BPF:
+			if (d->root_bpf || match_int(&args[0], &value) ||
+			    value < 0)
+				return 0;
+			d->root_bpf = fuse_get_bpf_prog(fget(value));
+			if (IS_ERR(d->root_bpf)) {
+				d->root_bpf = NULL;
+				return 0;
+			}
+			break;
+
+		case OPT_ROOT_DIR:
+			if (d->root_dir || match_int(&args[0], &value) ||
+			    value < 0)
+				return 0;
+			d->root_dir = fget(value);
+			if (!d->root_dir)
+				return 0;
+			if (!S_ISDIR(file_inode(d->root_dir)->i_mode)) {
+				fput(d->root_dir);
+				d->root_dir = NULL;
+				return 0;
+			}
+			break;
+#endif
 
 		default:
 			return 0;
@@ -671,15 +724,36 @@ struct fuse_conn *fuse_conn_get(struct fuse_conn *fc)
 }
 EXPORT_SYMBOL_GPL(fuse_conn_get);
 
-static struct inode *fuse_get_root_inode(struct super_block *sb, unsigned mode)
+static struct inode *fuse_get_root_inode(struct super_block *sb,
+					 unsigned mode,
+					 struct bpf_prog *root_bpf,
+					 struct file *root_dir)
 {
 	struct fuse_attr attr;
-	memset(&attr, 0, sizeof(attr));
+	struct inode *inode;
 
+	memset(&attr, 0, sizeof(attr));
 	attr.mode = mode;
 	attr.ino = FUSE_ROOT_ID;
 	attr.nlink = 1;
-	return fuse_iget(sb, 1, 0, &attr, 0, 0);
+	inode = fuse_iget(sb, 1, 0, &attr, 0, 0);
+	if (!inode)
+		return NULL;
+
+#ifdef CONFIG_FUSE_BPF
+	get_fuse_inode(inode)->bpf = root_bpf;
+	if (root_bpf)
+		bpf_prog_inc(root_bpf);
+
+	if (root_dir) {
+		get_fuse_inode(inode)->backing_inode = file_inode(root_dir);
+		ihold(file_inode(root_dir));
+	}
+#else
+	(void)root_bpf;
+	(void)root_dir;
+#endif
+	return inode;
 }
 
 struct fuse_inode_handle {
@@ -1078,7 +1152,7 @@ static int fuse_fill_super(struct super_block *sb, void *data, int silent)
 	struct fuse_dev *fud;
 	struct fuse_conn *fc;
 	struct inode *root;
-	struct fuse_mount_data d;
+	struct fuse_mount_data d = { };
 	struct file *file;
 	struct dentry *root_dentry;
 	struct fuse_req *init_req;
@@ -1155,11 +1229,12 @@ static int fuse_fill_super(struct super_block *sb, void *data, int silent)
 	sb->s_fs_info = fc;
 
 	err = -ENOMEM;
-	root = fuse_get_root_inode(sb, d.rootmode);
+	root = fuse_get_root_inode(sb, d.rootmode, d.root_bpf, d.root_dir);
 	sb->s_d_op = &fuse_root_dentry_operations;
 	root_dentry = d_make_root(root);
 	if (!root_dentry)
 		goto err_dev_free;
+	fuse_init_dentry_root(root_dentry, d.root_dir);
 	/* Root dentry doesn't have .d_revalidate */
 	sb->s_d_op = &fuse_dentry_operations;
 
@@ -1193,6 +1268,7 @@ static int fuse_fill_super(struct super_block *sb, void *data, int silent)
 	 * CPUs after this
 	 */
 	fput(file);
+	fuse_mount_data_cleanup(&d);
 
 	fuse_send_init(fc, init_req);
 
@@ -1213,6 +1289,7 @@ static int fuse_fill_super(struct super_block *sb, void *data, int silent)
  err_fput:
 	fput(file);
  err:
+	fuse_mount_data_cleanup(&d);
 	return err;
 }
 
