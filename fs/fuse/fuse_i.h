@@ -1178,9 +1178,10 @@ ssize_t fuse_bpf_simple_request(struct fuse_conn *fc,
  * Run an operation through its FUSE-BPF prefilter, optional userspace
  * filter, backing implementation, and optional postfilter.
  */
-#define fuse_bpf_backing(inode, io, initialize, backing, finalize, args...) \
+#define fuse_bpf_backing(inode_arg, io, initialize, backing, finalize, \
+			 args...) \
 ({ \
-	struct inode *__fuse_bpf_inode = (inode); \
+	struct inode *__fuse_bpf_inode = (inode_arg); \
 	struct fuse_inode *__fuse_bpf_fi = \
 		get_fuse_inode(__fuse_bpf_inode); \
 	struct fuse_conn *__fuse_bpf_fc = \
@@ -1257,12 +1258,12 @@ ssize_t fuse_bpf_simple_request(struct fuse_conn *fc,
 		__fuse_bpf_fer.result = \
 			ERR_PTR(backing(&__fuse_bpf_args, args)); \
 		__fuse_bpf_fer.ret = true; \
-		if (!(__fuse_bpf_ext_flags & FUSE_BPF_POST_FILTER)) \
-			break; \
-		\
 		if (IS_ERR(__fuse_bpf_fer.result)) \
 			__fuse_bpf_args.error_in = \
 				PTR_ERR(__fuse_bpf_fer.result); \
+		if (!(__fuse_bpf_ext_flags & FUSE_BPF_POST_FILTER)) \
+			break; \
+		\
 		__fuse_bpf_ret = \
 			fuse_bpf_prepare_postfilter(&__fuse_bpf_args); \
 		if (__fuse_bpf_ret) { \
