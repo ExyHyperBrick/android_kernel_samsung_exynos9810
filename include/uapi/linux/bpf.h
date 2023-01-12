@@ -198,6 +198,13 @@ enum bpf_prog_type {
 	BPF_PROG_TYPE_TRACING = 26,
 	BPF_PROG_TYPE_EXT = 28,
 	BPF_PROG_TYPE_SK_LOOKUP = 30,
+
+	/*
+	 * Android discovers this out-of-tree type through
+	 * /sys/fs/fuse/bpf_prog_type_fuse. Preserve value 32 and
+	 * leave Linux 5.15 BPF_PROG_TYPE_SYSCALL slot 31 unused.
+	 */
+	BPF_PROG_TYPE_FUSE = 32,
 };
 
 enum bpf_attach_type {
