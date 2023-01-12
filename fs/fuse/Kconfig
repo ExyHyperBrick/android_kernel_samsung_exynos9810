@@ -17,6 +17,15 @@ config FUSE_FS
 	  If you want to develop a userspace FS, or if you want to use
 	  a filesystem based on FUSE, answer Y or M.
 
+config FUSE_BPF
+	bool "FUSE BPF request filtering"
+	depends on FUSE_FS
+	depends on BPF_SYSCALL
+	help
+	  Extend FUSE with BPF prefilters, backing filesystem operations,
+	  and optional postfilters. Android discovers this out-of-tree
+	  integration through FUSE sysfs feature nodes.
+
 config CUSE
 	tristate "Character device in Userspace support"
 	depends on FUSE_FS
