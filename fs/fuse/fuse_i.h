@@ -201,6 +201,9 @@ struct fuse_file {
 #ifdef CONFIG_FUSE_BPF
 	/** Backing file used by FUSE-BPF operations */
 	struct file *backing_file;
+
+	/** True when OPEN was completed by the backing filesystem */
+	bool is_backing:1;
 #endif
 
 	/** RB node to be linked on fuse_conn->polled_files */
@@ -821,6 +824,8 @@ struct fuse_file *fuse_file_get(struct fuse_file *ff);
 void fuse_file_free(struct fuse_file *ff);
 #ifdef CONFIG_FUSE_BPF
 struct bpf_prog *fuse_get_bpf_prog(struct file *file);
+void fuse_file_release_backing(struct fuse_file *ff);
+void fuse_file_put_backing(struct fuse_file *ff);
 #endif
 void fuse_finish_open(struct inode *inode, struct file *file);
 
@@ -1194,6 +1199,33 @@ int fuse_handle_backing(struct fuse_entry_bpf *entry,
 int fuse_handle_bpf_prog(struct fuse_entry_bpf *entry,
 			 struct inode *parent, struct bpf_prog **prog);
 int fuse_revalidate_backing(struct dentry *entry, unsigned int flags);
+
+struct fuse_open_io {
+	struct fuse_open_in in;
+	struct fuse_open_out out;
+};
+
+int fuse_open_initialize(struct fuse_bpf_args *args,
+			 struct fuse_open_io *io,
+			 struct inode *inode, struct file *file,
+			 bool isdir);
+int fuse_open_backing(struct fuse_bpf_args *args,
+		      struct inode *inode, struct file *file,
+		      bool isdir);
+void *fuse_open_finalize(struct fuse_bpf_args *args,
+			 struct inode *inode, struct file *file,
+			 bool isdir);
+
+int fuse_release_initialize(struct fuse_bpf_args *args,
+			    struct fuse_release_in *in,
+			    struct inode *inode, struct file *file,
+			    int opcode);
+int fuse_release_backing(struct fuse_bpf_args *args,
+			 struct inode *inode, struct file *file,
+			 int opcode);
+void *fuse_release_finalize(struct fuse_bpf_args *args,
+			    struct inode *inode, struct file *file,
+			    int opcode);
 
 /*
  * Run an operation through its FUSE-BPF prefilter, optional userspace
