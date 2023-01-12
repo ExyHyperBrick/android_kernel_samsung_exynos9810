@@ -1174,6 +1174,27 @@ int fuse_bpf_run_filter(struct bpf_prog *prog, struct fuse_bpf_args *args);
 ssize_t fuse_bpf_simple_request(struct fuse_conn *fc,
 				struct fuse_bpf_args *args);
 
+struct fuse_lookup_io {
+	struct fuse_entry_out entry;
+	struct fuse_entry_bpf bpf;
+};
+
+int fuse_lookup_initialize(struct fuse_bpf_args *args,
+			   struct fuse_lookup_io *io,
+			   struct inode *dir, struct dentry *entry,
+			   unsigned int flags);
+int fuse_lookup_backing(struct fuse_bpf_args *args, struct inode *dir,
+			struct dentry *entry, unsigned int flags);
+void *fuse_lookup_finalize(struct fuse_bpf_args *args,
+			   struct inode *dir, struct dentry *entry,
+			   unsigned int flags);
+int fuse_handle_backing(struct fuse_entry_bpf *entry,
+			struct inode **backing_inode,
+			struct path *backing_path);
+int fuse_handle_bpf_prog(struct fuse_entry_bpf *entry,
+			 struct inode *parent, struct bpf_prog **prog);
+int fuse_revalidate_backing(struct dentry *entry, unsigned int flags);
+
 /*
  * Run an operation through its FUSE-BPF prefilter, optional userspace
  * filter, backing implementation, and optional postfilter.
