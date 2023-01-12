@@ -1977,6 +1977,23 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 	}
 	fuse_copy_finish(cs);
 
+#ifdef CONFIG_FUSE_BPF
+	if (!err && !oh.error &&
+	    (req->in.h.opcode == FUSE_LOOKUP ||
+	     req->in.h.opcode == (FUSE_LOOKUP | FUSE_POSTFILTER)) &&
+	    req->out.numargs > 1 && req->out.args[1].value &&
+	    req->out.args[1].size == sizeof(struct fuse_entry_bpf_out)) {
+		struct fuse_entry_bpf_out *out = req->out.args[1].value;
+		struct fuse_entry_bpf *entry =
+			container_of(out, struct fuse_entry_bpf, out);
+
+		if (out->backing_action == FUSE_ACTION_REPLACE)
+			entry->backing_file = fget(out->backing_fd);
+		if (out->bpf_action == FUSE_ACTION_REPLACE)
+			entry->bpf_file = fget(out->bpf_fd);
+	}
+#endif
+
 	spin_lock(&fpq->lock);
 	clear_bit(FR_LOCKED, &req->flags);
 	if (!fpq->connected)
