@@ -67,3 +67,25 @@ const struct bpf_verifier_ops fuse_verifier_ops = {
 
 const struct bpf_prog_ops fuse_prog_ops = {
 };
+
+struct bpf_prog *fuse_get_bpf_prog(struct file *file)
+{
+	struct bpf_prog *prog = ERR_PTR(-EINVAL);
+
+	if (!file || IS_ERR(file))
+		return prog;
+
+	if (file->f_op != &bpf_prog_fops)
+		goto out;
+
+	prog = file->private_data;
+	if (prog->type == BPF_PROG_TYPE_FUSE)
+		bpf_prog_inc(prog);
+	else
+		prog = ERR_PTR(-EINVAL);
+
+out:
+	fput(file);
+	return prog;
+}
+EXPORT_SYMBOL_GPL(fuse_get_bpf_prog);

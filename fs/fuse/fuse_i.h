@@ -29,6 +29,10 @@
 #include <linux/jiffies.h>
 #include <linux/user_namespace.h>
 
+#ifdef CONFIG_FUSE_BPF
+#include <linux/filter.h>
+#endif
+
 /** Max number of pages that can be used in a single read request */
 #define FUSE_MAX_PAGES_PER_REQ 32
 
@@ -60,10 +64,52 @@ struct fuse_forget_link {
 	struct fuse_forget_link *next;
 };
 
+struct bpf_prog;
+
+/** FUSE specific dentry data */
+struct fuse_dentry {
+	union {
+		u64 time;
+		struct rcu_head rcu;
+	};
+#ifdef CONFIG_FUSE_BPF
+	struct path backing_path;
+#endif
+};
+
+static inline struct fuse_dentry *get_fuse_dentry(const struct dentry *entry)
+{
+	return entry->d_fsdata;
+}
+
+#ifdef CONFIG_FUSE_BPF
+static inline void get_fuse_backing_path(const struct dentry *entry,
+					 struct path *path)
+{
+	struct fuse_dentry *fd = get_fuse_dentry(entry);
+
+	if (!fd) {
+		*path = (struct path) { };
+		return;
+	}
+
+	*path = fd->backing_path;
+	path_get(path);
+}
+#endif
+
 /** FUSE inode */
 struct fuse_inode {
 	/** Inode data */
 	struct inode inode;
+
+#ifdef CONFIG_FUSE_BPF
+	/** Backing inode when this object is served from a lower filesystem */
+	struct inode *backing_inode;
+
+	/** Per-inode FUSE request filter */
+	struct bpf_prog *bpf;
+#endif
 
 	/** Unique ID, which identifies the inode between userspace
 	 * and kernel */
@@ -150,6 +196,11 @@ struct fuse_file {
 
 	/** Entry on inode's write_files list */
 	struct list_head write_entry;
+
+#ifdef CONFIG_FUSE_BPF
+	/** Backing file used by FUSE-BPF operations */
+	struct file *backing_file;
+#endif
 
 	/** RB node to be linked on fuse_conn->polled_files */
 	struct rb_node polled_node;
@@ -759,6 +810,9 @@ int fuse_open_common(struct inode *inode, struct file *file, bool isdir);
 struct fuse_file *fuse_file_alloc(struct fuse_conn *fc);
 struct fuse_file *fuse_file_get(struct fuse_file *ff);
 void fuse_file_free(struct fuse_file *ff);
+#ifdef CONFIG_FUSE_BPF
+struct bpf_prog *fuse_get_bpf_prog(struct file *file);
+#endif
 void fuse_finish_open(struct inode *inode, struct file *file);
 
 void fuse_sync_release(struct fuse_file *ff, int flags);
@@ -887,6 +941,7 @@ void fuse_wait_aborted(struct fuse_conn *fc);
 void fuse_invalidate_attr(struct inode *inode);
 
 void fuse_invalidate_entry_cache(struct dentry *entry);
+void fuse_init_dentry_root(struct dentry *root, struct file *backing_dir);
 
 void fuse_invalidate_atime(struct inode *inode);
 

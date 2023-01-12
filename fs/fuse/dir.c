@@ -39,19 +39,29 @@ static void fuse_advise_use_readdirplus(struct inode *dir)
 	set_bit(FUSE_I_ADVISE_RDPLUS, &fi->state);
 }
 
-union fuse_dentry {
-	u64 time;
-	struct rcu_head rcu;
-};
-
 static inline void fuse_dentry_settime(struct dentry *entry, u64 time)
 {
-	((union fuse_dentry *) entry->d_fsdata)->time = time;
+	get_fuse_dentry(entry)->time = time;
 }
 
 static inline u64 fuse_dentry_time(struct dentry *entry)
 {
-	return ((union fuse_dentry *) entry->d_fsdata)->time;
+	return get_fuse_dentry(entry)->time;
+}
+
+void fuse_init_dentry_root(struct dentry *root, struct file *backing_dir)
+{
+#ifdef CONFIG_FUSE_BPF
+	struct fuse_dentry *fd = get_fuse_dentry(root);
+
+	if (backing_dir && fd) {
+		fd->backing_path = backing_dir->f_path;
+		path_get(&fd->backing_path);
+	}
+#else
+	(void)root;
+	(void)backing_dir;
+#endif
 }
 
 /*
@@ -287,14 +297,18 @@ static int invalid_nodeid(u64 nodeid)
 
 static int fuse_dentry_init(struct dentry *dentry)
 {
-	dentry->d_fsdata = kzalloc(sizeof(union fuse_dentry), GFP_KERNEL);
+	dentry->d_fsdata = kzalloc(sizeof(struct fuse_dentry), GFP_KERNEL);
 
 	return dentry->d_fsdata ? 0 : -ENOMEM;
 }
 static void fuse_dentry_release(struct dentry *dentry)
 {
-	union fuse_dentry *fd = dentry->d_fsdata;
+	struct fuse_dentry *fd = get_fuse_dentry(dentry);
 
+#ifdef CONFIG_FUSE_BPF
+	if (fd && fd->backing_path.dentry)
+		path_put(&fd->backing_path);
+#endif
 	kfree_rcu(fd, rcu);
 }
 
