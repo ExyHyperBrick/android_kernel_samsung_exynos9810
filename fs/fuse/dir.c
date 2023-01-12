@@ -172,8 +172,20 @@ static int fuse_dentry_revalidate(struct dentry *entry, unsigned int flags)
 	inode = d_inode_rcu(entry);
 	if (inode && fuse_is_bad(inode))
 		goto invalid;
-	else if (time_before64(fuse_dentry_time(entry), get_jiffies_64()) ||
-		 (flags & LOOKUP_REVAL)) {
+
+#ifdef CONFIG_FUSE_BPF
+	if (get_fuse_dentry(entry) &&
+	    get_fuse_dentry(entry)->backing_path.dentry) {
+		if (flags & LOOKUP_RCU)
+			return -ECHILD;
+		ret = fuse_revalidate_backing(entry, flags);
+		if (ret <= 0)
+			goto out;
+	}
+#endif
+
+	if (time_before64(fuse_dentry_time(entry), get_jiffies_64()) ||
+	    (flags & LOOKUP_REVAL)) {
 		struct fuse_entry_out outarg;
 		FUSE_ARGS(args);
 		struct fuse_forget_link *forget;
@@ -188,15 +200,26 @@ static int fuse_dentry_revalidate(struct dentry *entry, unsigned int flags)
 			goto out;
 
 		fc = get_fuse_conn(inode);
+		parent = dget_parent(entry);
+#ifdef CONFIG_FUSE_BPF
+		if (get_fuse_dentry(entry) &&
+		    get_fuse_dentry(entry)->backing_path.dentry &&
+		    get_fuse_inode(d_inode(parent))->backing_inode) {
+			dput(parent);
+			ret = 1;
+			goto out;
+		}
+#endif
 
 		forget = fuse_alloc_forget();
 		ret = -ENOMEM;
-		if (!forget)
+		if (!forget) {
+			dput(parent);
 			goto out;
+		}
 
 		attr_version = fuse_get_attr_version(fc);
 
-		parent = dget_parent(entry);
 		fuse_lookup_init(fc, &args, get_node_id(d_inode(parent)),
 				 &entry->d_name, &outarg);
 		ret = fuse_simple_request(fc, &args);
@@ -399,6 +422,29 @@ static struct dentry *fuse_lookup(struct inode *dir, struct dentry *entry,
 
 	if (fuse_is_bad(dir))
 		return ERR_PTR(-EIO);
+
+#ifdef CONFIG_FUSE_BPF
+	{
+		struct fuse_err_ret result;
+
+		result = fuse_bpf_backing(dir, struct fuse_lookup_io,
+				 fuse_lookup_initialize,
+				 fuse_lookup_backing,
+				 fuse_lookup_finalize,
+				 dir, entry, flags);
+		if (result.ret) {
+			/*
+			 * Positive lookups are completed by the finalizer through
+			 * d_splice_alias(). Complete handled negative lookups too;
+			 * d_add() also leaves DCACHE_PAR_LOOKUP before atomic_open
+			 * reuses the dentry for creation.
+			 */
+			if (!result.result && d_really_is_negative(entry))
+				d_add(entry, NULL);
+			return result.result;
+		}
+	}
+#endif
 
 	locked = fuse_lock_inode(dir);
 	err = fuse_lookup_name(dir->i_sb, get_node_id(dir), &entry->d_name,
