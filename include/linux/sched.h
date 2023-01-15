@@ -147,6 +147,11 @@ extern bool single_task_running(void);
 extern unsigned long nr_iowait(void);
 extern unsigned long nr_iowait_cpu(int cpu);
 extern void get_iowait_load(unsigned long *nr_waiters, unsigned long *load);
+#ifdef CONFIG_SCHED_HMP
+extern int register_hmp_task_migration_notifier(struct notifier_block *nb);
+#define HMP_UP_MIGRATION       0
+#define HMP_DOWN_MIGRATION     1
+#endif
 #ifdef CONFIG_CPU_QUIET
 extern u64 nr_running_integral(unsigned int cpu);
 #endif
@@ -362,6 +367,7 @@ extern int sched_cpu_starting(unsigned int cpu);
 extern int sched_cpu_activate(unsigned int cpu);
 extern int sched_cpu_deactivate(unsigned int cpu);
 extern void cpuset_cpu_active(void);
+extern int cpuset_cpu_inactive(unsigned int cpu);
 
 #ifdef CONFIG_HOTPLUG_CPU
 extern int sched_cpu_dying(unsigned int cpu);
@@ -998,16 +1004,17 @@ extern void wake_up_q(struct wake_q_head *head);
 #define SD_BALANCE_FORK		0x0008	/* Balance on fork, clone */
 #define SD_BALANCE_WAKE		0x0010  /* Balance on wakeup */
 #define SD_WAKE_AFFINE		0x0020	/* Wake task to waking CPU */
-#define SD_ASYM_CPUCAPACITY	0x0040  /* Domain members have different CPU capacities */
-#define SD_SHARE_CPUCAPACITY	0x0080	/* Domain members share CPU capacity */
+#define SD_ASYM_CPUCAPACITY	0x0040  /* Groups have different max cpu capacities */
+#define SD_SHARE_CPUCAPACITY	0x0080	/* Domain members share cpu capacity */
 #define SD_SHARE_POWERDOMAIN	0x0100	/* Domain members share power domain */
-#define SD_SHARE_PKG_RESOURCES	0x0200	/* Domain members share CPU pkg resources */
+#define SD_SHARE_PKG_RESOURCES	0x0200	/* Domain members share cpu pkg resources */
 #define SD_SERIALIZE		0x0400	/* Only a single load balancing instance */
 #define SD_ASYM_PACKING		0x0800  /* Place busy groups earlier in the domain */
 #define SD_PREFER_SIBLING	0x1000	/* Prefer to place tasks in a sibling domain */
 #define SD_OVERLAP		0x2000	/* sched_domains of this level overlap */
 #define SD_NUMA			0x4000	/* cross-node balancing */
 #define SD_SHARE_CAP_STATES	0x8000  /* Domain members share capacity state */
+#define SD_NO_LOAD_BALANCE     	0x10000  /* flag for hmp scheduler */
 
 #ifdef CONFIG_SCHED_SMT
 static inline int cpu_smt_flags(void)
@@ -1056,6 +1063,30 @@ struct sched_group_energy {
 	struct capacity_state *cap_states; /* ptr to capacity state array */
 };
 
+struct energy_env {
+	struct sched_group	*sg_top;
+	struct sched_group	*sg_cap;
+	int			cap_idx;
+	int			util_delta;
+	int			src_cpu;
+	int			dst_cpu;
+	int			energy;
+	int			payoff;
+	struct task_struct	*task;
+	struct {
+		int before;
+		int after;
+		int delta;
+		int diff;
+	} nrg;
+	struct {
+		int before;
+		int after;
+		int delta;
+	} cap;
+};
+
+
 unsigned long capacity_curr_of(int cpu);
 
 struct sched_group;
@@ -1071,6 +1102,7 @@ struct eas_stats {
 
 	/* select_energy_cpu_brute() stats */
 	u64 secb_attempts;
+	u64 secb_sync;
 	u64 secb_idle_bt;
 	u64 secb_insuff_cap;
 	u64 secb_no_nrg_sav;
@@ -1094,8 +1126,6 @@ struct sched_domain_shared {
 	atomic_t	ref;
 	atomic_t	nr_busy_cpus;
 	int		has_idle_cores;
-
-	bool		overutilized;
 };
 
 struct sched_domain {
@@ -1232,6 +1262,25 @@ extern void wake_up_if_idle(int cpu);
 # define SD_INIT_NAME(type)
 #endif
 
+#ifdef CONFIG_SCHED_HMP
+struct hmp_domain {
+	struct cpumask cpus;
+	struct cpumask possible_cpus;
+	struct list_head hmp_domains;
+};
+
+extern int set_hmp_boost(int enable);
+extern int set_hmp_semiboost(int enable);
+extern int set_hmp_boostpulse(int duration);
+extern int get_hmp_boost(void);
+extern int get_hmp_semiboost(void);
+extern int set_hmp_up_threshold(int value);
+extern int set_hmp_down_threshold(int value);
+extern int set_active_down_migration(int enable);
+extern int set_hmp_aggressive_up_migration(int enable);
+extern int set_hmp_aggressive_yield(int enable);
+#endif /* CONFIG_SCHED_HMP */
+
 #else /* CONFIG_SMP */
 
 struct sched_domain_attr;
@@ -1267,78 +1316,6 @@ struct uts_namespace;
 struct load_weight {
 	unsigned long weight;
 	u32 inv_weight;
-};
-
-/**
- * struct util_est - Estimation utilization of FAIR tasks
- * @enqueued: instantaneous estimated utilization of a task/cpu
- * @ewma:     the Exponential Weighted Moving Average (EWMA)
- *            utilization of a task
- *
- * Support data structure to track an Exponential Weighted Moving Average
- * (EWMA) of a FAIR task's utilization. New samples are added to the moving
- * average each time a task completes an activation. Sample's weight is chosen
- * so that the EWMA will be relatively insensitive to transient changes to the
- * task's workload.
- *
- * The enqueued attribute has a slightly different meaning for tasks and cpus:
- * - task:   the task's util_avg at last task dequeue time
- * - cfs_rq: the sum of util_est.enqueued for each RUNNABLE task on that CPU
- * Thus, the util_est.enqueued of a task represents the contribution on the
- * estimated utilization of the CPU where that task is currently enqueued.
- *
- * Only for tasks we track a moving average of the past instantaneous
- * estimated utilization. This allows to absorb sporadic drops in utilization
- * of an otherwise almost periodic task.
- */
-struct util_est {
-	unsigned int			enqueued;
-	unsigned int			ewma;
-#define UTIL_EST_WEIGHT_SHIFT		2
-};
-
-struct multi_load {
-	u32				period_contrib;
-	u64				runnable_sum;
-	unsigned long			runnable_avg;
-	u32				util_sum;
-	unsigned long			util_avg;
-	u32				util_sum_s;
-	unsigned long			util_avg_s;
-
-	/* for util_est */
-	struct util_est			util_est;
-	struct util_est			util_est_s;
-};
-
-struct multi_load_cfs_rq {
-	atomic_long_t			removed_util_avg, removed_util_avg_s;
-};
-
-#define EMS_PART_ENQUEUE	0x1
-#define EMS_PART_DEQUEUE	0x2
-#define EMS_PART_UPDATE		0x4
-#define EMS_PART_WAKEUP_NEW	0x8
-
-struct part {
-	bool	running;
-
-	u64	period_start;
-	u64	last_updated;
-	u64	active_sum;
-
-#define PART_HIST_SIZE_MAX	20
-	int	hist_idx;
-	int	hist[PART_HIST_SIZE_MAX];
-	int	active_ratio_recent;
-	int	active_ratio_avg;
-	int	active_ratio_max;
-	int	active_ratio_est;
-	int	active_ratio_stdev;
-	int	active_ratio_limit;
-
-	u64	last_boost_time;
-	int	active_ratio_boost;
 };
 
 /*
@@ -1397,14 +1374,30 @@ struct sched_avg {
 	u64 last_update_time, load_sum;
 	u32 util_sum, period_contrib;
 	unsigned long load_avg, util_avg;
-	struct util_est			util_est;
-	struct multi_load		ml;
+#ifdef CONFIG_SCHED_HMP
+	u64 hmp_load_sum, hmp_load_avg;
+	u64 hmp_last_up_migration;
+	u64 hmp_last_down_migration;
+#endif
+};
+
+#ifdef CONFIG_SCHED_EHMP
+#define NOT_ONTIME		1
+#define ONTIME_MIGRATING	2
+#define ONTIME			4
+
+struct ontime_avg {
+	u64 ontime_migration_time;
+	u64 load_sum;
+	unsigned long load_avg;
 };
 
 struct ontime_entity {
-	int migrating;
+	struct ontime_avg avg;
+	int flags;
 	int cpu;
 };
+#endif
 
 #ifdef CONFIG_SCHEDSTATS
 struct sched_statistics {
@@ -1450,6 +1443,7 @@ struct sched_statistics {
 
 	/* energy_aware_wake_cpu() */
 	u64			nr_wakeups_secb_attempts;
+	u64			nr_wakeups_secb_sync;
 	u64			nr_wakeups_secb_idle_bt;
 	u64			nr_wakeups_secb_insuff_cap;
 	u64			nr_wakeups_secb_no_nrg_sav;
@@ -1540,7 +1534,9 @@ struct sched_entity {
 	 */
 	struct sched_avg	avg ____cacheline_aligned_in_smp;
 #endif
-	struct ontime_entity		ontime;
+#ifdef CONFIG_SCHED_EHMP
+	struct ontime_entity	ontime;
+#endif
 };
 
 struct sched_rt_entity {
@@ -1559,18 +1555,14 @@ struct sched_rt_entity {
 	/* rq "owned" by this entity/group: */
 	struct rt_rq		*my_q;
 #endif
-
 #ifdef CONFIG_SMP
-#ifdef CONFIG_SCHED_USE_FLUID_RT
-	int sync_flag;
-#endif
 	/*
 	 * Per entity load average tracking.
 	 *
 	 * Put into separate cache line so it does not
 	 * collide with read-mostly values above.
 	 */
-	struct sched_avg		avg;// ____cacheline_aligned_in_smp;
+	struct sched_avg	avg ____cacheline_aligned_in_smp;
 #endif
 };
 
@@ -1586,7 +1578,6 @@ struct sched_dl_entity {
 	u64 dl_deadline;	/* relative deadline of each instance	*/
 	u64 dl_period;		/* separation of two instances (period) */
 	u64 dl_bw;		/* dl_runtime / dl_deadline		*/
-	u64 dl_density;		/* dl_runtime / dl_deadline		*/
 
 	/*
 	 * Actual scheduling parameters. Initialized with the values above,
@@ -1701,6 +1692,9 @@ struct task_struct {
 	const struct sched_class *sched_class;
 	struct sched_entity se;
 	struct sched_rt_entity rt;
+#ifdef CONFIG_SCHED_USE_FLUID_RT
+	int victim_flag;
+#endif
 #ifdef CONFIG_SCHED_WALT
 	struct ravg ravg;
 	/*
@@ -1708,14 +1702,6 @@ struct task_struct {
 	 * of this task
 	 */
 	u32 init_load_pct;
-#endif
-#ifdef CONFIG_SCHED_USE_FLUID_RT
-	int victim_flag;
-#endif
-
-#ifdef CONFIG_SCHED_EMS
-	struct task_band *band;
-	struct list_head band_members;
 #endif
 
 #ifdef CONFIG_CGROUP_SCHED
@@ -1758,8 +1744,6 @@ struct task_struct {
 	struct plist_node pushable_tasks;
 	struct rb_node pushable_dl_tasks;
 #endif
-
-	unsigned int sse;
 
 	struct mm_struct *mm, *active_mm;
 	/* per-thread vma caching */
@@ -2002,9 +1986,9 @@ struct task_struct {
 	unsigned long ptrace_message;
 	siginfo_t *last_siginfo; /* For ptrace use.  */
 	struct task_io_accounting ioac;
-#ifdef CONFIG_PSI	
-	/* Pressure stall state */	
-	unsigned int			psi_flags;	
+#ifdef CONFIG_PSI
+	/* Pressure stall state */
+	unsigned int			psi_flags;
 #endif
 #if defined(CONFIG_TASK_XACCT)
 	u64 acct_rss_mem1;	/* accumulated rss usage */
@@ -3866,8 +3850,6 @@ static inline unsigned long rlimit_max(unsigned int limit)
 #define SCHED_CPUFREQ_RT	(1U << 0)
 #define SCHED_CPUFREQ_DL	(1U << 1)
 #define SCHED_CPUFREQ_IOWAIT	(1U << 2)
-
-#define SCHED_CPUFREQ_RT_DL	(SCHED_CPUFREQ_RT | SCHED_CPUFREQ_DL)	
 
 #ifdef CONFIG_CPU_FREQ
 struct update_util_data {

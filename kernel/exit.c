@@ -53,7 +53,6 @@
 #include <linux/writeback.h>
 #include <linux/shm.h>
 #include <linux/kcov.h>
-#include <linux/ems.h>
 
 #include "sched/tune.h"
 
@@ -802,7 +801,6 @@ void __noreturn do_exit(long code)
 	}
 
 	exit_signals(tsk);  /* sets PF_EXITING */
-	sync_band(tsk, LEAVE_BAND);
 
 	schedtune_exit_task(tsk);
 

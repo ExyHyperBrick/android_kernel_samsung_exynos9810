@@ -5,8 +5,7 @@
 #include <linux/printk.h>
 #include <linux/rcupdate.h>
 #include <linux/slab.h>
-#include <linux/ems.h>
-#include <linux/ems_service.h>
+#include <linux/ehmp.h>
 
 #include <trace/events/sched.h>
 
@@ -20,7 +19,14 @@ bool schedtune_initialized = false;
 unsigned int sysctl_sched_cfs_boost __read_mostly;
 
 extern struct reciprocal_value schedtune_spc_rdiv;
-struct target_nrg schedtune_target_nrg;
+extern struct target_nrg schedtune_target_nrg;
+
+static int perf_threshold = 0;
+
+int schedtune_perf_threshold(void)
+{
+	return perf_threshold + 1;
+}
 
 /* Performance Boost region (B) threshold params */
 static int perf_boost_idx;
@@ -108,66 +114,47 @@ __schedtune_accept_deltas(int nrg_delta, int cap_delta,
 
 #ifdef CONFIG_CGROUP_SCHEDTUNE
 
+struct group_balancer {
+	/* sum of task utilization in group */
+	unsigned long util;
+
+	/* group balancing threshold */
+	unsigned long threshold;
+
+	/* imbalance ratio by heaviest task */
+	unsigned int imbalance_ratio;
+
+	/* balance ratio by heaviest task */
+	unsigned int balance_ratio;
+
+	/* heaviest task utilization in group */
+	unsigned long heaviest_util;
+
+	/* group utilization update interval */
+	unsigned long update_interval;
+
+	/* next group utilization update time */
+	unsigned long next_update_time;
+
+	/*
+	 * group imbalance time = imbalance_count * update_interval
+	 * imbalance_count >= imbalance_duration -> need balance
+	 */
+	unsigned int imbalance_duration;
+	unsigned int imbalance_count;
+
+	/* utilization tracking window size */
+	unsigned long window;
+
+	/* group balancer locking */
+	raw_spinlock_t lock;
+
+	/* need group balancing? */
+	bool need_balance;
+};
+
 /*
  * EAS scheduler tunables for task groups.
- *
- * When CGroup support is enabled, we have to synchronize two different
- * paths:
- *  - slow path: where CGroups are created/updated/removed
- *  - fast path: where tasks in a CGroups are accounted
- *
- * The slow path tracks (a limited number of) CGroups and maps each on a
- * "boost_group" index. The fastpath accounts tasks currently RUNNABLE on each
- * "boost_group".
- *
- * Once a new CGroup is created, a boost group idx is assigned and the
- * corresponding "boost_group" marked as valid on each CPU.
- * Once a CGroup is release, the corresponding "boost_group" is marked as
- * invalid on each CPU. The CPU boost value (boost_max) is aggregated by
- * considering only valid boost_groups with a non null tasks counter.
- *
- * .:: Locking strategy
- *
- * The fast path uses a spin lock for each CPU boost_group which protects the
- * tasks counter.
- *
- * The "valid" and "boost" values of each CPU boost_group is instead
- * protected by the RCU lock provided by the CGroups callbacks. Thus, only the
- * slow path can access and modify the boost_group attribtues of each CPU.
- * The fast path will catch up the most updated values at the next scheduling
- * event (i.e. enqueue/dequeue).
- *
- *                                                        |
- *                                             SLOW PATH  |   FAST PATH
- *                              CGroup add/update/remove  |   Scheduler enqueue/dequeue events
- *                                                        |
- *                                                        |
- *                                                        |     DEFINE_PER_CPU(struct boost_groups)
- *                                                        |     +--------------+----+---+----+----+
- *                                                        |     |  idle        |    |   |    |    |
- *                                                        |     |  boost_max   |    |   |    |    |
- *                                                        |  +---->lock        |    |   |    |    |
- *  struct schedtune                  allocated_groups    |  |  |  group[    ] |    |   |    |    |
- *  +------------------------------+         +-------+    |  |  +--+---------+-+----+---+----+----+
- *  | idx                          |         |       |    |  |     |  valid  |
- *  | boots / prefer_idle          |         |       |    |  |     |  boost  |
- *  | perf_{boost/constraints}_idx | <---------+(*)  |    |  |     |  tasks  | <------------+
- *  | css                          |         +-------+    |  |     +---------+              |
- *  +-+----------------------------+         |       |    |  |     |         |              |
- *    ^                                      |       |    |  |     |         |              |
- *    |                                      +-------+    |  |     +---------+              |
- *    |                                      |       |    |  |     |         |              |
- *    |                                      |       |    |  |     |         |              |
- *    |                                      +-------+    |  |     +---------+              |
- *    | zmalloc                              |       |    |  |     |         |              |
- *    |                                      |       |    |  |     |         |              |
- *    |                                      +-------+    |  |     +---------+              |
- *    +                              BOOSTGROUPS_COUNT    |  |     BOOSTGROUPS_COUNT        |
- *  schedtune_boostgroup_init()                           |  +                              |
- *                                                        |  schedtune_{en,de}queue_task()  |
- *                                                        |                                 +
- *                                                        |          schedtune_tasks_update()
- *                                                        |
  */
 
 /* SchdTune tunables for a group of tasks */
@@ -195,14 +182,8 @@ struct schedtune {
 	 * towards high performance CPUs */
 	int prefer_perf;
 
-	/* SchedTune util-est */
-	int util_est_en;
-
-	/* Hint to group tasks by process */
-	int band;
-
-	/* SchedTune ontime migration */
-	int ontime_en;
+	/* SchedTune group balancer */
+	struct group_balancer gb;
 };
 
 static inline struct schedtune *css_st(struct cgroup_subsys_state *css)
@@ -236,7 +217,6 @@ root_schedtune = {
 	.perf_constrain_idx = 0,
 	.prefer_idle = 0,
 	.prefer_perf = 0,
-	.band = 0,
 };
 
 int
@@ -270,10 +250,45 @@ schedtune_accept_deltas(int nrg_delta, int cap_delta,
 			perf_boost_idx, perf_constrain_idx);
 }
 
+/*
+ * Maximum number of boost groups to support
+ * When per-task boosting is used we still allow only limited number of
+ * boost groups for two main reasons:
+ * 1. on a real system we usually have only few classes of workloads which
+ *    make sense to boost with different values (e.g. background vs foreground
+ *    tasks, interactive vs low-priority tasks)
+ * 2. a limited number allows for a simpler and more memory/time efficient
+ *    implementation especially for the computation of the per-CPU boost
+ *    value
+ */
+#define BOOSTGROUPS_COUNT 7
+
 /* Array of configured boostgroups */
 static struct schedtune *allocated_group[BOOSTGROUPS_COUNT] = {
 	&root_schedtune,
 	NULL,
+};
+
+/* SchedTune boost groups
+ * Keep track of all the boost groups which impact on CPU, for example when a
+ * CPU has two RUNNABLE tasks belonging to two different boost groups and thus
+ * likely with different boost values.
+ * Since on each system we expect only a limited number of boost groups, here
+ * we use a simple array to keep track of the metrics required to compute the
+ * maximum per-CPU boosting value.
+ */
+struct boost_groups {
+	/* Maximum boost value for all RUNNABLE tasks on a CPU */
+	bool idle;
+	int boost_max;
+	struct {
+		/* The boost for tasks on that boost group */
+		int boost;
+		/* Count of RUNNABLE tasks on that boost group */
+		unsigned tasks;
+	} group[BOOSTGROUPS_COUNT];
+	/* CPU's boost group locking */
+	raw_spinlock_t lock;
 };
 
 /* Boost groups affecting each CPU in the system */
@@ -291,11 +306,6 @@ schedtune_cpu_update(int cpu)
 	/* The root boost group is always active */
 	boost_max = bg->group[0].boost;
 	for (idx = 1; idx < BOOSTGROUPS_COUNT; ++idx) {
-
-		/* Ignore non boostgroups not mapping a cgroup */
-		if (!bg->group[idx].valid)
-			continue;
-
 		/*
 		 * A boost group affects a CPU only if it has
 		 * RUNNABLE tasks on that CPU
@@ -305,7 +315,6 @@ schedtune_cpu_update(int cpu)
 
 		boost_max = max(boost_max, bg->group[idx].boost);
 	}
-
 	/* Ensures boost_max is non-negative when all cgroup boost values
 	 * are neagtive. Avoids under-accounting of cpu capacity which may cause
 	 * task stacking and frequency spikes.*/
@@ -324,9 +333,6 @@ schedtune_boostgroup_update(int idx, int boost)
 	/* Update per CPU boost groups */
 	for_each_possible_cpu(cpu) {
 		bg = &per_cpu(cpu_boost_groups, cpu);
-
-		/* CGroups are never associated to non active cgroups */
-		BUG_ON(!bg->group[idx].valid);
 
 		/*
 		 * Keep track of current boost values to compute the per CPU
@@ -500,26 +506,6 @@ void schedtune_cancel_attach(struct cgroup_taskset *tset)
 	WARN(1, "SchedTune cancel attach not implemented");
 }
 
-static void schedtune_attach(struct cgroup_taskset *tset)
-{
-	struct task_struct *task;
-	struct cgroup_subsys_state *css;
-
-	cgroup_taskset_for_each(task, css, tset)
-		sync_band(task, css_st(css)->band);
-}
-
-static void band_switch(struct schedtune *st)
-{
-	struct css_task_iter it;
-	struct task_struct *p;
-
-	css_task_iter_start(&st->css, &it);
-	while ((p = css_task_iter_next(&it)))
-		sync_band(p, st->band);
-	css_task_iter_end(&it);
-}
-
 /*
  * NOTE: This function must be called while holding the lock on the CPU RQ
  */
@@ -608,41 +594,6 @@ int schedtune_task_boost(struct task_struct *p)
 	return task_boost;
 }
 
-int schedtune_util_est_en(struct task_struct *p)
-{
-	struct schedtune *st;
-	int util_est_en;
-
-	if (unlikely(!schedtune_initialized))
-		return 0;
-
-	/* Get util_est value */
-	rcu_read_lock();
-	st = task_schedtune(p);
-	util_est_en = st->util_est_en;
-	rcu_read_unlock();
-
-	return util_est_en;
-}
-
-int schedtune_ontime_en(struct task_struct *p)
-{
-	struct schedtune *st;
-	int ontime_en;
-
-	if (unlikely(!schedtune_initialized))
-		return 0;
-
-	/* Get ontime value */
-	rcu_read_lock();
-	st = task_schedtune(p);
-	ontime_en = st->ontime_en;
-	rcu_read_unlock();
-
-	return ontime_en;
-
-}
-
 int schedtune_prefer_idle(struct task_struct *p)
 {
 	struct schedtune *st;
@@ -660,78 +611,318 @@ int schedtune_prefer_idle(struct task_struct *p)
 	return prefer_idle;
 }
 
+#ifdef CONFIG_SCHED_EHMP
+static atomic_t kernel_prefer_perf_req[BOOSTGROUPS_COUNT];
+int kernel_prefer_perf(int grp_idx)
+{
+	if (grp_idx >= BOOSTGROUPS_COUNT)
+		return -EINVAL;
+
+	return atomic_read(&kernel_prefer_perf_req[grp_idx]);
+}
+
+void request_kernel_prefer_perf(int grp_idx, int enable)
+{
+	if (grp_idx >= BOOSTGROUPS_COUNT)
+		return;
+
+	if (enable)
+		atomic_inc(&kernel_prefer_perf_req[grp_idx]);
+	else
+		BUG_ON(atomic_dec_return(&kernel_prefer_perf_req[grp_idx]) < 0);
+}
+#else
+static inline int kernel_prefer_perf(int grp_idx) { return 0; }
+#endif
+
+
 int schedtune_prefer_perf(struct task_struct *p)
 {
 	struct schedtune *st;
 	int prefer_perf;
 
-	if (unlikely(!schedtune_initialized))
+	if (!unlikely(schedtune_initialized))
 		return 0;
 
 	/* Get prefer_perf value */
 	rcu_read_lock();
 	st = task_schedtune(p);
-	prefer_perf = max(st->prefer_perf, kpp_status(st->idx));
+	prefer_perf = max(st->prefer_perf, kernel_prefer_perf(st->idx));
 	rcu_read_unlock();
 
 	return prefer_perf;
 }
 
-static u64
-util_est_en_read(struct cgroup_subsys_state *css, struct cftype *cft)
+int schedtune_need_group_balance(struct task_struct *p)
 {
-	struct schedtune *st = css_st(css);
+	bool balance;
 
-	return st->util_est_en;
-}
-
-static int
-util_est_en_write(struct cgroup_subsys_state *css, struct cftype *cft,
-	    u64 util_est_en)
-{
-	struct schedtune *st = css_st(css);
-	st->util_est_en = util_est_en;
-
-	return 0;
-}
-
-static u64
-ontime_en_read(struct cgroup_subsys_state *css, struct cftype *cft)
-{
-	struct schedtune *st = css_st(css);
-
-	return st->ontime_en;
-}
-
-static int
-ontime_en_write(struct cgroup_subsys_state *css, struct cftype *cft,
-		u64 ontime_en)
-{
-	struct schedtune *st = css_st(css);
-	st->ontime_en = ontime_en;
-
-	return 0;
-}
-
-static u64
-band_read(struct cgroup_subsys_state *css, struct cftype *cft)
-{
-	struct schedtune *st = css_st(css);
-
-	return st->band;
-}
-
-static int
-band_write(struct cgroup_subsys_state *css, struct cftype *cft,
-	    u64 band)
-{
-	struct schedtune *st = css_st(css);
-
-	if (st->band == band)
+	if (!unlikely(schedtune_initialized))
 		return 0;
 
-	st->band = band;
-	band_switch(st);
+	rcu_read_lock();
+	balance = task_schedtune(p)->gb.need_balance;
+	rcu_read_unlock();
+
+	return balance;
+}
+
+static inline void
+check_need_group_balance(int group_idx, struct group_balancer *gb)
+{
+	int heaviest_ratio;
+
+	if (!gb->util) {
+		gb->imbalance_count = 0;
+		gb->need_balance = false;
+
+		goto out;
+	}
+
+	heaviest_ratio = gb->heaviest_util * 100 / gb->util;
+
+	if (gb->need_balance) {
+		if (gb->util < gb->threshold || heaviest_ratio < gb->balance_ratio) {
+			gb->imbalance_count = 0;
+			gb->need_balance = false;
+		}
+
+		goto out;
+	}
+
+	if (gb->util >= gb->threshold && heaviest_ratio > gb->imbalance_ratio) {
+		gb->imbalance_count++;
+
+		if (gb->imbalance_count >= gb->imbalance_duration)
+			gb->need_balance = true;
+	} else {
+		gb->imbalance_count = 0;
+	}
+
+out:
+	trace_sched_tune_check_group_balance(group_idx,
+				gb->imbalance_count, gb->need_balance);
+}
+
+static void __schedtune_group_util_update(struct schedtune *st)
+{
+	struct group_balancer *gb = &st->gb;
+	unsigned long now = cpu_rq(0)->clock_task;
+	struct css_task_iter it;
+	struct task_struct *p;
+	struct task_struct *heaviest_p = NULL;
+	unsigned long util_sum = 0;
+	unsigned long heaviest_util = 0;
+	unsigned int total = 0, accumulated = 0;
+
+	if (!raw_spin_trylock(&gb->lock))
+		return;
+
+	if (!gb->update_interval)
+		goto out;
+
+	if (time_before(now, gb->next_update_time))
+		goto out;
+
+	css_task_iter_start(&st->css, &it);
+	while ((p = css_task_iter_next(&it))) {
+		unsigned long clock_task, delta, util;
+
+		total++;
+
+		clock_task = task_rq(p)->clock_task;
+		delta = clock_task - p->se.avg.last_update_time;
+		if (p->se.avg.last_update_time && delta > gb->window)
+			continue;
+
+		util = p->se.avg.util_avg;
+		if (util > heaviest_util) {
+			heaviest_util = util;
+			heaviest_p = p;
+		}
+
+		util_sum += p->se.avg.util_avg;
+		accumulated++;
+	}
+	css_task_iter_end(&it);
+
+	gb->util = util_sum;
+	gb->heaviest_util = heaviest_util;
+	gb->next_update_time = now + gb->update_interval;
+
+	/* if there is no task in group, heaviest_p is always NULL */
+	if (heaviest_p)
+		trace_sched_tune_grouputil_update(st->idx, total, accumulated,
+				gb->util, heaviest_p, gb->heaviest_util);
+
+	check_need_group_balance(st->idx, gb);
+out:
+	raw_spin_unlock(&gb->lock);
+}
+
+void schedtune_group_util_update(void)
+{
+	int idx;
+
+	if (!unlikely(schedtune_initialized))
+		return;
+
+	rcu_read_lock();
+
+	for (idx = 1; idx < BOOSTGROUPS_COUNT; idx++) {
+		struct schedtune *st = allocated_group[idx];
+
+		if (!st)
+			continue;
+		__schedtune_group_util_update(st);
+	}
+
+	rcu_read_unlock();
+}
+
+static u64
+gb_util_read(struct cgroup_subsys_state *css, struct cftype *cft)
+{
+	struct schedtune *st = css_st(css);
+
+	return st->gb.util;
+}
+
+static u64
+gb_heaviest_ratio_read(struct cgroup_subsys_state *css, struct cftype *cft)
+{
+	struct schedtune *st = css_st(css);
+
+	if (!st->gb.util)
+		return 0;
+
+	return st->gb.heaviest_util * 100 / st->gb.util;
+}
+
+static u64
+gb_threshold_read(struct cgroup_subsys_state *css, struct cftype *cft)
+{
+	struct schedtune *st = css_st(css);
+
+	return st->gb.threshold;
+}
+
+static int
+gb_threshold_write(struct cgroup_subsys_state *css, struct cftype *cft,
+	    u64 threshold)
+{
+	struct schedtune *st = css_st(css);
+	struct group_balancer *gb = &st->gb;
+
+	gb->threshold = threshold;
+
+	return 0;
+}
+
+static u64
+gb_imbalance_ratio_read(struct cgroup_subsys_state *css, struct cftype *cft)
+{
+	struct schedtune *st = css_st(css);
+
+	return st->gb.imbalance_ratio;
+}
+
+static int
+gb_imbalance_ratio_write(struct cgroup_subsys_state *css, struct cftype *cft,
+	    u64 ratio)
+{
+	struct schedtune *st = css_st(css);
+	struct group_balancer *gb = &st->gb;
+
+	ratio = min_t(u64, ratio, 100);
+
+	gb->imbalance_ratio = ratio;
+
+	return 0;
+}
+
+static u64
+gb_balance_ratio_read(struct cgroup_subsys_state *css, struct cftype *cft)
+{
+	struct schedtune *st = css_st(css);
+
+	return st->gb.balance_ratio;
+}
+
+static int
+gb_balance_ratio_write(struct cgroup_subsys_state *css, struct cftype *cft,
+	    u64 ratio)
+{
+	struct schedtune *st = css_st(css);
+	struct group_balancer *gb = &st->gb;
+
+	ratio = min_t(u64, ratio, 100);
+
+	gb->balance_ratio = ratio;
+
+	return 0;
+}
+
+static u64
+gb_interval_read(struct cgroup_subsys_state *css, struct cftype *cft)
+{
+	struct schedtune *st = css_st(css);
+
+	return st->gb.update_interval / NSEC_PER_USEC;
+}
+
+static int
+gb_interval_write(struct cgroup_subsys_state *css, struct cftype *cft,
+	    u64 interval_us)
+{
+	struct schedtune *st = css_st(css);
+	struct group_balancer *gb = &st->gb;
+
+	gb->update_interval = interval_us * NSEC_PER_USEC;
+	if (!interval_us) {
+		gb->util = 0;
+		gb->need_balance = false;
+	}
+
+	return 0;
+}
+
+static u64
+gb_duration_read(struct cgroup_subsys_state *css, struct cftype *cft)
+{
+	struct schedtune *st = css_st(css);
+
+	return st->gb.imbalance_duration;
+}
+
+static int
+gb_duration_write(struct cgroup_subsys_state *css, struct cftype *cft,
+	    u64 duration)
+{
+	struct schedtune *st = css_st(css);
+	struct group_balancer *gb = &st->gb;
+
+	gb->imbalance_duration = duration;
+
+	return 0;
+}
+
+static u64
+gb_window_read(struct cgroup_subsys_state *css, struct cftype *cft)
+{
+	struct schedtune *st = css_st(css);
+
+	return st->gb.window / NSEC_PER_MSEC;
+}
+
+static int
+gb_window_write(struct cgroup_subsys_state *css, struct cftype *cft,
+	    u64 window)
+{
+	struct schedtune *st = css_st(css);
+	struct group_balancer *gb = &st->gb;
+
+	gb->window = window * NSEC_PER_MSEC;
 
 	return 0;
 }
@@ -834,39 +1025,79 @@ static struct cftype files[] = {
 		.write_u64 = prefer_perf_write,
 	},
 	{
-		.name = "band",
-		.read_u64 = band_read,
-		.write_u64 = band_write,
+		.name = "gb_util",
+		.read_u64 = gb_util_read,
 	},
 	{
-		.name = "util_est_en",
-		.read_u64 = util_est_en_read,
-		.write_u64 = util_est_en_write,
+		.name = "gb_heaviest_ratio",
+		.read_u64 = gb_heaviest_ratio_read,
 	},
 	{
-		.name = "ontime_en",
-		.read_u64 = ontime_en_read,
-		.write_u64 = ontime_en_write,
+		.name = "gb_threshold",
+		.read_u64 = gb_threshold_read,
+		.write_u64 = gb_threshold_write,
+	},
+	{
+		.name = "gb_imbalance_ratio",
+		.read_u64 = gb_imbalance_ratio_read,
+		.write_u64 = gb_imbalance_ratio_write,
+	},
+	{
+		.name = "gb_balance_ratio",
+		.read_u64 = gb_balance_ratio_read,
+		.write_u64 = gb_balance_ratio_write,
+	},
+	{
+		.name = "gb_interval_us",
+		.read_u64 = gb_interval_read,
+		.write_u64 = gb_interval_write,
+	},
+	{
+		.name = "gb_duration",
+		.read_u64 = gb_duration_read,
+		.write_u64 = gb_duration_write,
+	},
+	{
+		.name = "gb_window_ms",
+		.read_u64 = gb_window_read,
+		.write_u64 = gb_window_write,
 	},
 	{ }	/* terminate */
 };
 
-static void
-schedtune_boostgroup_init(struct schedtune *st, int idx)
+static int
+schedtune_boostgroup_init(struct schedtune *st)
 {
 	struct boost_groups *bg;
 	int cpu;
 
-	/* Initialize per CPUs boost group support */
+	/* Keep track of allocated boost groups */
+	allocated_group[st->idx] = st;
+
+	/* Initialize the per CPU boost groups */
 	for_each_possible_cpu(cpu) {
 		bg = &per_cpu(cpu_boost_groups, cpu);
-		bg->group[idx].boost = 0;
-		bg->group[idx].valid = true;
+		bg->group[st->idx].boost = 0;
+		bg->group[st->idx].tasks = 0;
 	}
 
-	/* Keep track of allocated boost groups */
-	allocated_group[idx] = st;
-	st->idx = idx;
+	return 0;
+}
+
+static void
+schedtune_group_balancer_init(struct schedtune *st)
+{
+	raw_spin_lock_init(&st->gb.lock);
+
+	st->gb.threshold = ULONG_MAX;
+	st->gb.imbalance_ratio = 0;				/* 0% */
+	st->gb.update_interval = 0;				/* disable update */
+	st->gb.next_update_time = cpu_rq(0)->clock_task;
+
+	st->gb.imbalance_duration = 0;
+	st->gb.imbalance_count = 0;
+
+	st->gb.window = 100 * NSEC_PER_MSEC;		/* 100ms */
 }
 
 static struct cgroup_subsys_state *
@@ -898,11 +1129,17 @@ schedtune_css_alloc(struct cgroup_subsys_state *parent_css)
 	if (!st)
 		goto out;
 
+	schedtune_group_balancer_init(st);
+
 	/* Initialize per CPUs boost group support */
-	schedtune_boostgroup_init(st, idx);
+	st->idx = idx;
+	if (schedtune_boostgroup_init(st))
+		goto release;
 
 	return &st->css;
 
+release:
+	kfree(st);
 out:
 	return ERR_PTR(-ENOMEM);
 }
@@ -910,15 +1147,8 @@ out:
 static void
 schedtune_boostgroup_release(struct schedtune *st)
 {
-	struct boost_groups *bg;
-	int cpu;
-
-	/* Reset per CPUs boost group support */
-	for_each_possible_cpu(cpu) {
-		bg = &per_cpu(cpu_boost_groups, cpu);
-		bg->group[st->idx].valid = false;
-		bg->group[st->idx].boost = 0;
-	}
+	/* Reset this boost group */
+	schedtune_boostgroup_update(st->idx, 0);
 
 	/* Keep track of allocated boost groups */
 	allocated_group[st->idx] = NULL;
@@ -929,7 +1159,6 @@ schedtune_css_free(struct cgroup_subsys_state *css)
 {
 	struct schedtune *st = css_st(css);
 
-	/* Release per CPUs boost group support */
 	schedtune_boostgroup_release(st);
 	kfree(st);
 }
@@ -939,7 +1168,6 @@ struct cgroup_subsys schedtune_cgrp_subsys = {
 	.css_free	= schedtune_css_free,
 	.can_attach     = schedtune_can_attach,
 	.cancel_attach  = schedtune_cancel_attach,
-	.attach		= schedtune_attach,
 	.legacy_cftypes	= files,
 	.early_init	= 1,
 };
@@ -954,7 +1182,6 @@ schedtune_init_cgroups(void)
 	for_each_possible_cpu(cpu) {
 		bg = &per_cpu(cpu_boost_groups, cpu);
 		memset(bg, 0, sizeof(struct boost_groups));
-		bg->group[0].valid = true;
 		raw_spin_lock_init(&bg->lock);
 	}
 
@@ -1160,10 +1387,6 @@ schedtune_init(void)
 
 	schedtune_test_nrg(delta_pwr);
 
-#ifdef CONFIG_SCHED_EMS
-nodata:
-	rcu_read_unlock();
-#endif
 #ifdef CONFIG_CGROUP_SCHEDTUNE
 	schedtune_init_cgroups();
 #else
@@ -1172,13 +1395,13 @@ nodata:
 
 	schedtune_spc_rdiv = reciprocal_value(100);
 
+	perf_threshold = find_second_max_cap();
+
 	return 0;
 
-#ifndef CONFIG_SCHED_EMS
 nodata:
 	pr_warning("schedtune: disabled!\n");
 	rcu_read_unlock();
 	return -EINVAL;
-#endif
 }
 postcore_initcall(schedtune_init);

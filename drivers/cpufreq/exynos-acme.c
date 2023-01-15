@@ -20,7 +20,6 @@
 #include <linux/exynos-ss.h>
 #include <linux/cpu_cooling.h>
 #include <linux/suspend.h>
-#include <linux/ems.h>
 
 #include <soc/samsung/cal-if.h>
 #include <soc/samsung/ect_parser.h>
@@ -304,7 +303,6 @@ static int exynos_cpufreq_driver_init(struct cpufreq_policy *policy)
 
 	policy->cur = get_freq(domain);
 	policy->cpuinfo.transition_latency = TRANSITION_LATENCY;
-	policy->iowait_boost_enable = true;
 	cpumask_copy(policy->cpus, &domain->cpus);
 
 	pr_info("CPUFREQ domain%d registered\n", domain->id);
@@ -574,8 +572,6 @@ static int exynos_cpufreq_pm_qos_callback(struct notifier_block *nb,
 {
 	int pm_qos_class = *((int *)v);
 	struct exynos_cpufreq_domain *domain;
-	struct cpufreq_policy *policy;
-	struct cpumask mask;
 	int ret;
 
 	pr_debug("update PM QoS class %d to %ld kHz\n", pm_qos_class, val);
@@ -583,17 +579,6 @@ static int exynos_cpufreq_pm_qos_callback(struct notifier_block *nb,
 	domain = find_domain_pm_qos_class(pm_qos_class);
 	if (!domain)
 		return NOTIFY_BAD;
-
-	cpumask_and(&mask, &domain->cpus, cpu_online_mask);
-	if (cpumask_empty(&mask))
-		return NOTIFY_BAD;
-
-	policy = cpufreq_cpu_get(cpumask_first(&mask));
-	if (!policy)
-		return NOTIFY_BAD;
-
-	if (pm_qos_class == domain->pm_qos_max_class)
-		update_qos_capacity(cpumask_first(&domain->cpus), val, policy->cpuinfo.max_freq);
 
 	ret = need_update_freq(domain, pm_qos_class, val);
 	if (ret < 0)
@@ -869,9 +854,6 @@ static __init int init_table(struct exynos_cpufreq_domain *domain)
 	}
 	domain->freq_table[index].driver_data = index;
 	domain->freq_table[index].frequency = CPUFREQ_TABLE_END;
-
-	init_sched_energy_table(&domain->cpus, domain->table_size, table, volt_table,
-				domain->max_freq, domain->min_freq);
 
 	kfree(volt_table);
 
@@ -1315,8 +1297,6 @@ static int __init exynos_cpufreq_init(void)
 
 		set_boot_qos(domain);
 	}
-
-	set_energy_table_status(true);
 
 	pr_info("Initialized Exynos cpufreq driver\n");
 

@@ -20,6 +20,10 @@ void walt_update_task_ravg(struct task_struct *p, struct rq *rq, int event,
 		u64 wallclock, u64 irqtime);
 void walt_inc_cumulative_runnable_avg(struct rq *rq, struct task_struct *p);
 void walt_dec_cumulative_runnable_avg(struct rq *rq, struct task_struct *p);
+void walt_inc_cfs_cumulative_runnable_avg(struct cfs_rq *rq,
+		struct task_struct *p);
+void walt_dec_cfs_cumulative_runnable_avg(struct cfs_rq *rq,
+		struct task_struct *p);
 void walt_fixup_cumulative_runnable_avg(struct rq *rq, struct task_struct *p,
 					u64 new_task_load);
 
@@ -42,6 +46,10 @@ static inline void walt_update_task_ravg(struct task_struct *p, struct rq *rq,
 		int event, u64 wallclock, u64 irqtime) { }
 static inline void walt_inc_cumulative_runnable_avg(struct rq *rq, struct task_struct *p) { }
 static inline void walt_dec_cumulative_runnable_avg(struct rq *rq, struct task_struct *p) { }
+static inline void walt_inc_cfs_cumulative_runnable_avg(struct cfs_rq *rq,
+		struct task_struct *p) { }
+static inline void walt_dec_cfs_cumulative_runnable_avg(struct cfs_rq *rq,
+		struct task_struct *p) { }
 static inline void walt_fixup_cumulative_runnable_avg(struct rq *rq,
 						      struct task_struct *p,
 						      u64 new_task_load) { }
@@ -57,18 +65,6 @@ static inline u64 walt_ktime_clock(void) { return 0; }
 
 #endif /* CONFIG_SCHED_WALT */
 
-#if defined(CONFIG_CFS_BANDWIDTH) && defined(CONFIG_SCHED_WALT)
-void walt_inc_cfs_cumulative_runnable_avg(struct cfs_rq *rq,
-		struct task_struct *p);
-void walt_dec_cfs_cumulative_runnable_avg(struct cfs_rq *rq,
-		struct task_struct *p);
-#else
-static inline void walt_inc_cfs_cumulative_runnable_avg(struct cfs_rq *rq,
-		struct task_struct *p) { }
-static inline void walt_dec_cfs_cumulative_runnable_avg(struct cfs_rq *rq,
-		struct task_struct *p) { }
-#endif
-
-extern bool walt_disabled;
+extern unsigned int walt_disabled;
 
 #endif

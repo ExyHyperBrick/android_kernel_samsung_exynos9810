@@ -967,41 +967,6 @@ config HAVE_UNSTABLE_SCHED_CLOCK
 config GENERIC_SCHED_CLOCK
 	bool
 
-menu "FAIR Scheduler tunables"
-
-choice
-	prompt "Utilization's PELT half-Life"
-	default PELT_UTIL_HALFLIFE_32
-	help
-	  Allows choosing one of the possible values for the PELT half-life to
-	  be used for the update of the utilization of tasks and CPUs.
-	  The half-life is the amount of [ms] required by the PELT signal to
-	  build up to 50% utilization. The higher the half-life the longer it
-	  takes for a task to be represented as a big one.
-
-	  If not sure, use the default of 32 ms.
-
-config PELT_UTIL_HALFLIFE_32
-	bool "32 ms, default for server"
-
-config PELT_UTIL_HALFLIFE_16
-	bool "16 ms, suggested for interactive workloads"
-	help
-	  Use 16ms as PELT half-life value. This will increase the ramp-up and
-	  decay of utlization and load twice as fast as for the default
-	  configuration using 32ms.
-
-config PELT_UTIL_HALFLIFE_8
-	bool "8 ms, very fast"
-	help
-	  Use 8ms as PELT half-life value. This will increase the ramp-up and
-	  decay of utlization and load four time as fast as for the default
-	  configuration using 32ms.
-
-endchoice
-
-endmenu # FAIR Scheduler tunables"
-
 #
 # For architectures that want to enable the support for NUMA-affine scheduler
 # balancing logic:
@@ -1469,16 +1434,15 @@ config SCHED_TUNE
 
 	  If unsure, say N.
 
-config SCHED_EMS
-	bool "Exynos Mobile Scheduler"
+config SCHED_EHMP
+	bool "Exynos scheduler for Heterogeneous Multi-Processor"
 	depends on SMP
-	default n
 	help
-	  This option supports Exynos mobile scheduler. It is designed to
-	  secure the limits of energy aware scheduler. This option provides
-	  features such as independent boosting functinos such as on-time migration,
-	  and prefer_perf and enhanced prefer_idle that work in conjunction with
-	  SCHEDTUNE.
+	  This option supports Exynos scheduler for HMP architecture. It is
+	  designed to secure the limits of energy aware scheduler. This option
+	  provides features such as independent boosting functinos such as
+	  global boost and on-time migration, and prefer_perf and enhanced
+	  prefer_idle that work in conjunction with SCHEDTUNE.
 
 	  If unsure, say N.
 
@@ -1494,23 +1458,14 @@ config DEFAULT_USE_ENERGY_AWARE
 
 config SCHED_USE_FLUID_RT
 	bool "Enable Fluid RT scheduler feature"
-	depends on SCHED_EMS
+	depends on SMP
 	default n
 	help
-	Basically, the Fluid RT selects the core by a task priority as usual.
-	But beyond the basic behavior, FRT performs the load balancing of
-	RT task by core selection with reference to utilization of rq.
-	And in some circumstances, she allows the task of lower priority
-	to preempt the higher one based on weighted load.
-
-config SIMPLIFIED_ENERGY_MODEL
-	bool "Enable simplified energy model feature"
-	depends on SCHED_EMS
-	default n
-	help
-	  This option enables support for simplified energy model. This allows
-	  using a simple energy table declared per_cpu instead of using the EAS
-	  energy table.
+	  Basically, the Fluid RT selects the core by a task priority as usual.
+	  But beyond the basic behavior, FRT performs the load balancing of
+	  RT task by core selection with reference to utilization of rq.
+	  And in some circumstances, she allows the task with lower priority
+	  to preempt the higher one based on weighted load.
 
 	  Say N if unsure.
 

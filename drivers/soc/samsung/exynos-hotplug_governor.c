@@ -491,10 +491,11 @@ int exynos_hpgov_update_cpu_capacity(int cpu)
 		goto exit;
 
 	cpu = (int) cpumask_first(&mask);
-	sd = rcu_dereference(per_cpu(sd_asym_cpucapacity, cpu));
+	sd = rcu_dereference(per_cpu(sd_ea, cpu));
 	if (!sd)
 		goto exit;
 
+	sd = sd->child;
 	update_group_capacity(sd, cpu);
 
 exit:
@@ -542,7 +543,7 @@ static int exynos_hpgov_update_sysload_info(void)
 
 	rcu_read_lock();
 
-	sd = rcu_dereference(per_cpu(sd_asym_cpucapacity, 0));
+	sd = rcu_dereference(per_cpu(sd_ea, 0));
 	if (!sd) {
 		rcu_read_unlock();
 		return 1; /* Error */
@@ -584,7 +585,7 @@ static struct sched_group * get_cl_group(unsigned int cl)
 	struct sched_domain *sd;
 	struct sched_group *sg;
 
-	sd = rcu_dereference(per_cpu(sd_asym_cpucapacity, 0));
+	sd = rcu_dereference(per_cpu(sd_ea, 0));
 	if (!sd)
 		return NULL;
 
