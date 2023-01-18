@@ -909,6 +909,7 @@ static void do_bpf_send_signal(struct irq_work *entry)
 		group_send_sig_info(work->sig, SEND_SIG_PRIV, work->task);
 	else
 		send_sig_info(work->sig, SEND_SIG_PRIV, work->task);
+	put_task_struct(work->task);
 }
 
 static int bpf_send_signal_common(u32 sig, bool group)
@@ -928,6 +929,7 @@ static int bpf_send_signal_common(u32 sig, bool group)
 		if (work->irq_work.flags & IRQ_WORK_BUSY)
 			return -EBUSY;
 
+		get_task_struct(current);
 		work->task = current;
 		work->sig = sig;
 		work->group = group;
