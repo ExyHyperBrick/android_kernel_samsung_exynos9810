@@ -1395,6 +1395,8 @@ void sock_map_destroy(struct sock *sk)
 		sk_psock_stop(psock);
 		sk_psock_put(sk, psock);
 	}
+	if (WARN_ON_ONCE(saved_destroy == sock_map_destroy))
+		return;
 	if (saved_destroy)
 		saved_destroy(sk);
 }
