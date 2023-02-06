@@ -2825,7 +2825,9 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 		ret = decon_set_vsync_int(info, active);
 		break;
 
+	case S3CFB_WIN_CONFIG_OLD_ALT:
 	case S3CFB_WIN_CONFIG_OLD:
+	case S3CFB_WIN_CONFIG_ALT:
 		memset(&win_data, 0, sizeof(struct decon_win_config_data));
 	case S3CFB_WIN_CONFIG:
 		DPU_EVENT_LOG(DPU_EVT_WIN_CONFIG, &decon->sd, ktime_set(0, 0));
@@ -2998,6 +3000,9 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 		ret = displayport_reg_stand_alone_crc_sorting();
 		break;
 
+	case EXYNOS_DPU_DUMP_OLD_ALT:
+	case EXYNOS_DPU_DUMP_OLD:
+	case EXYNOS_DPU_DUMP_ALT:
 	case EXYNOS_DPU_DUMP:
 		mutex_lock(&decon->lock);
 		if (!IS_DECON_ON_STATE(decon)) {
