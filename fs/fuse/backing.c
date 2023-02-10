@@ -1434,11 +1434,17 @@ int fuse_handle_bpf_prog(struct fuse_entry_bpf *entry,
 
 	spin_lock(&fc->lock);
 	old_prog = *prog;
-	*prog = new_prog;
+	if (!old_prog) {
+		*prog = new_prog;
+		new_prog = NULL;
+		ret = 0;
+	} else {
+		ret = old_prog == new_prog ? 0 : -EINVAL;
+	}
 	spin_unlock(&fc->lock);
-	if (old_prog)
-		bpf_prog_put(old_prog);
-	return 0;
+	if (new_prog)
+		bpf_prog_put(new_prog);
+	return ret;
 }
 
 static int fuse_store_dentry_bpf(struct fuse_entry_bpf *entry,
