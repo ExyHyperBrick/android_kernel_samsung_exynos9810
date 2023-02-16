@@ -4175,6 +4175,7 @@ btf_get_prog_ctx_type(struct bpf_verifier_log *log, struct btf *btf,
 	if (!ctx_struct)
 		return NULL;
 
+again:
 	ctx_tname = btf_name_by_offset(btf_vmlinux, ctx_struct->name_off);
 	if (!ctx_tname) {
 		bpf_log(log, "Please fix kernel include/linux/bpf_types.h\n");
@@ -4182,8 +4183,17 @@ btf_get_prog_ctx_type(struct bpf_verifier_log *log, struct btf *btf,
 	}
 
 	/* Comparing the context type name is sufficient here. */
-	if (strcmp(ctx_tname, tname))
-		return NULL;
+	if (strcmp(ctx_tname, tname)) {
+		/* bpf_user_pt_regs_t is a typedef, so resolve it to the
+		 * underlying struct and check the name again.
+		 */
+		if (!btf_type_is_modifier(ctx_struct))
+			return NULL;
+		while (btf_type_is_modifier(ctx_struct))
+			ctx_struct = btf_type_by_id(btf_vmlinux,
+						    ctx_struct->type);
+		goto again;
+	}
 
 	return ctx_type;
 }
