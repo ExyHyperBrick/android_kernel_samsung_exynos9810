@@ -116,9 +116,19 @@ static int omem_charge(struct sock *sk, unsigned int size)
 	return -ENOMEM;
 }
 
+static bool selem_linked_to_sk_lockless(const struct bpf_sk_storage_elem *selem)
+{
+	return !hlist_unhashed_lockless(&selem->snode);
+}
+
 static bool selem_linked_to_sk(const struct bpf_sk_storage_elem *selem)
 {
 	return !hlist_unhashed(&selem->snode);
+}
+
+static bool selem_linked_to_map_lockless(const struct bpf_sk_storage_elem *selem)
+{
+	return !hlist_unhashed_lockless(&selem->map_node);
 }
 
 static bool selem_linked_to_map(const struct bpf_sk_storage_elem *selem)
@@ -206,7 +216,7 @@ static void selem_unlink_sk(struct bpf_sk_storage_elem *selem)
 	struct bpf_sk_storage *sk_storage;
 	bool free_sk_storage = false;
 
-	if (unlikely(!selem_linked_to_sk(selem)))
+	if (unlikely(!selem_linked_to_sk_lockless(selem)))
 		/* selem has already been unlinked from sk */
 		return;
 
@@ -233,7 +243,7 @@ static void selem_unlink_map(struct bpf_sk_storage_elem *selem)
 	struct bpf_sk_storage_map *smap;
 	struct bucket *b;
 
-	if (unlikely(!selem_linked_to_map(selem)))
+	if (unlikely(!selem_linked_to_map_lockless(selem)))
 		/* selem has already be unlinked from smap */
 		return;
 
@@ -441,7 +451,7 @@ static struct bpf_sk_storage_data *sk_storage_update(struct sock *sk,
 		err = check_flags(old_sdata, map_flags);
 		if (err)
 			return ERR_PTR(err);
-		if (old_sdata && selem_linked_to_sk(SELEM(old_sdata))) {
+		if (old_sdata && selem_linked_to_sk_lockless(SELEM(old_sdata))) {
 			copy_map_value_locked(map, old_sdata->data,
 					      value, false);
 			return old_sdata;
