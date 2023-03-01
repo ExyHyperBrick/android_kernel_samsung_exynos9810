@@ -5117,7 +5117,6 @@
 		#pb-id-cells = <3>;
 		reg = <0 369233920 4096 0 369561600 4096 0 369557504 272>;
 		interrupts = <0 197 0 0 204 0>;
-		dpp,hold-rpm-on-boot;
 		samsung,power-domain = <13>;
 		linux,phandle = <497>;
 		phandle = <497>;
