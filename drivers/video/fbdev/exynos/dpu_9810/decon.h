@@ -680,6 +680,15 @@ struct dpu_size_info {
 	u32 h_out;
 };
 
+struct decon_display_mode {
+	uint32_t index;
+	uint32_t width;
+	uint32_t height;
+	uint32_t mm_width;
+	uint32_t mm_height;
+	uint32_t fps;
+};
+
 #ifdef CONFIG_DECON_EVENT_LOG
 /**
  * Display Subsystem event management status.
@@ -1675,6 +1684,11 @@ int dpu_sysmmu_fault_handler(struct iommu_domain *domain,
 /* HDR support */
 #define S3CFB_GET_HDR_CAPABILITIES _IOW('F', 400, struct decon_hdr_capabilities)
 #define S3CFB_GET_HDR_CAPABILITIES_NUM _IOW('F', 401, struct decon_hdr_capabilities_info)
+
+/* Display mode */
+#define EXYNOS_GET_DISPLAY_MODE_NUM	_IOW('F', 700, u32)
+#define EXYNOS_GET_DISPLAY_MODE		_IOW('F', 701, struct decon_display_mode)
+#define EXYNOS_SET_DISPLAY_MODE		_IOW('F', 702, struct decon_display_mode)
 
 /* cursor async */
 #define DECON_WIN_CURSOR_POS		_IOW('F', 222, struct decon_user_window)
