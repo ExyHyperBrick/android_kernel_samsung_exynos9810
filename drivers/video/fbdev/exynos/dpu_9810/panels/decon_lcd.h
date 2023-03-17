@@ -34,6 +34,14 @@ enum type_of_ddi {
 	TYPE_OF_NORMAL_DDI,
 };
 
+enum {
+	DSU_MODE_NONE = 0,
+	DSU_MODE_1,
+	DSU_MODE_2,
+	DSU_MODE_3,
+	DSU_MODE_MAX,
+};
+
 #define MAX_RES_NUMBER		5
 #define HDR_CAPA_NUM		4
 
