@@ -1809,10 +1809,6 @@ static int __decon_update_regs(struct decon_device *decon, struct decon_reg_data
 	/* TODO: check and wait until the required IDMA is free */
 	decon_reg_chmap_validate(decon, regs);
 
-#ifdef CONFIG_SUPPORT_DSU
-	set_dsu_config(decon, regs);
-#endif
-
 	/* apply multi-resolution configuration */
 	dpu_set_mres_config(decon, regs);
 
@@ -2392,49 +2388,6 @@ void decon_set_full_size_win(struct decon_device *decon,
 	config->dst.f_h = decon->lcd_info->yres;
 }
 
-#ifdef CONFIG_SUPPORT_DSU
-
-#define IGNORE_DSU_CHECK_FAIL
-
-static int check_dsu_info(struct decon_device *decon,
-			struct decon_win_config *config, int idx, struct decon_reg_data *regs)
-{
-	if (decon->dt.out_type != DECON_OUT_DSI)
-		return 0;
-
-	if (regs->dsu.needupdate) {
-		if (config->dst.w > regs->dsu.right ||
-				config->dst.h > regs->dsu.bottom) {
-			decon_err("DSU ERR : win[%d] size is abnormal (w:%d, h:%d, x:%d, y:%d)\n",
-					idx, config->dst.w, config->dst.h,
-					config->dst.x, config->dst.y);
-			decon_err("regs dsu info : right :%d, bottom : %d\n",
-				regs->dsu.right, regs->dsu.bottom);
-#ifdef IGNORE_DSU_CHECK_FAIL
-			decon_set_full_size_win(decon, config);
-#else
-			return -EINVAL;
-#endif
-		}
-	} else {
-		if (config->dst.w > decon->dsu.right ||
-				config->dst.h > decon->dsu.bottom) {
-			decon_err("DSU ERR : win[%d] size is abnormal (w:%d, h:%d, x:%d, y:%d)\n",
-					idx, config->dst.w, config->dst.h,
-					config->dst.x, config->dst.y);
-			decon_err("decon dsu info : right :%d, bottom : %d\n",
-				decon->dsu.right, decon->dsu.bottom);
-#ifdef IGNORE_DSU_CHECK_FAIL
-			decon_set_full_size_win(decon, config);
-#else
-			return -EINVAL;
-#endif
-		}
-	}
-	return 0;
-}
-#endif
-
 
 static int decon_prepare_win_config(struct decon_device *decon,
 		struct decon_win_config_data *win_data,
@@ -2471,16 +2424,6 @@ static int decon_prepare_win_config(struct decon_device *decon,
 		case DECON_WIN_STATE_CURSOR:	/* cursor async */
 			if (decon_set_win_blocking_mode(decon, i, win_config, regs))
 				break;
-#ifdef CONFIG_SUPPORT_DSU
-			ret = check_dsu_info(decon, config, i, regs);
-			if (ret) {
-				decon_err("DSU:ERR:%s:failed to check dsu info\n", __func__);
-#ifndef IGNORE_DSU_CHECK_FAIL
-				win_regs->wincon &= ~WIN_EN_F(i);
-				break;
-#endif
-			}
-#endif
 			regs->num_of_window++;
 			ret = decon_set_win_buffer(decon, config, regs, i);
 			if (!ret) {
@@ -2558,13 +2501,6 @@ static int decon_set_win_config(struct decon_device *decon,
 		ret = -ENOMEM;
 		goto err;
 	}
-#ifdef CONFIG_SUPPORT_DSU
-	if (decon->dt.out_type == DECON_OUT_DSI) {
-		ret = set_dsu_win_config(decon, win_data->config, regs);
-		if (ret)
-			decon_err("DECON:ERR:%s:failed to set dsu info\n", __func__);
-	}
-#endif
 	num_of_window = decon_get_active_win_count(decon, win_data);
 	if (num_of_window) {
 		win_data->retire_fence = decon_create_fence(decon, &sync_file);
@@ -2744,10 +2680,7 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 		ret = decon_set_vsync_int(info, active);
 		break;
 
-#ifdef CONFIG_SUPPORT_DSU
 	case S3CFB_WIN_CONFIG_OLD:
-		memset(&win_data, 0, sizeof(struct decon_win_config_data));
-#endif
 	case S3CFB_WIN_CONFIG:
 		argp = (struct decon_win_config_data __user *)arg;
 		DPU_EVENT_LOG(DPU_EVT_WIN_CONFIG, &decon->sd, ktime_set(0, 0));
@@ -4009,10 +3942,6 @@ static int decon_probe(struct platform_device *pdev)
 
 #if defined(CONFIG_EXYNOS_COMMON_PANEL)
 	decon_set_bypass(decon, false);
-#endif
-
-#ifdef CONFIG_SUPPORT_DSU
-	init_dsu_info(decon);
 #endif
 	ret = decon_initial_display(decon, false);
 	if (ret)

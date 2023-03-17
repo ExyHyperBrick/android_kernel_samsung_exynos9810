@@ -28,9 +28,6 @@
 #if defined(CONFIG_EXYNOS_COMMON_PANEL)
 #include "disp_err.h"
 #endif
-#ifdef CONFIG_SUPPORT_DSU
-#include "dsu.h"
-#endif
 #if defined(CONFIG_EXYNOS_DECON_LCD_S6E3HA2K)
 #include "./panels/s6e3ha2k_param.h"
 #elif defined(CONFIG_EXYNOS_DECON_LCD_EMUL_DISP)
@@ -276,9 +273,6 @@ struct dsim_lcd_driver {
 	int (*doze)(struct dsim_device *dsim);
 	int (*doze_suspend)(struct dsim_device *dsim);
 #endif
-#ifdef CONFIG_SUPPORT_DSU
-	int (*dsu)(struct dsim_device *dsim, struct dsu_info *dsu);
-#endif
 	int (*notify)(struct dsim_device *dsim, void *data);
 	int (*set_error_cb)(struct dsim_device *dsim);
 	int (*mres)(struct dsim_device *dsim, int mres_idx);
@@ -436,9 +430,6 @@ int dsim_function_reset(struct dsim_device *dsim);
 void parse_lcd_info(struct device_node *, struct decon_lcd *);
 #endif
 
-#ifdef CONFIG_SUPPORT_DSU
-void dsim_reg_set_dsu(u32 id, struct decon_lcd *lcd_info);
-#endif
 static inline bool IS_DSIM_ON_STATE(struct dsim_device *dsim)
 {
 #ifdef CONFIG_SUPPORT_DOZE
@@ -477,7 +468,4 @@ static inline bool IS_DSIM_OFF_STATE(struct dsim_device *dsim)
 #define DSIM_IOC_SET_ERROR_CB	_IOW('D', 51, struct disp_error_cb_info *)
 #endif
 
-#ifdef CONFIG_SUPPORT_DSU
-#define DSIM_IOC_DSU			_IOW('D', 30, struct dsu_info *)
-#endif
 #endif /* __SAMSUNG_DSIM_H__ */

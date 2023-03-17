@@ -2390,67 +2390,6 @@ void decon_reg_get_clock_ratio(struct decon_clocks *clks,
 		clks->decon[CLK_ID_DPLL]);
 }
 
-#ifdef CONFIG_SUPPORT_DSU
-void decon_reg_set_dsu(u32 id, enum decon_dsi_mode dsi_mode,
-		struct decon_param *p)
-{
-	u32 width;
-	u32 overlap_w = 0;
-	enum decon_rgb_order rgb_order = DECON_RGB;
-	enum decon_scaler_path s_path = SCALERPATH_OFF;
-	enum decon_data_path d_path = DPATH_DSCENC0_OUTFIFO0_DSIMIF0;
-	struct decon_lcd *lcd_info = p->lcd_info;
-
-	width = lcd_info->xres;
-
-	decon_info("%s: xres : %d, yres : %d\n",
-		__func__, lcd_info->xres, lcd_info->yres);
-
-	decon_reg_set_blender_bg_image_size(id, dsi_mode, lcd_info);
-
-	decon_reg_set_scaled_image_size(id, dsi_mode, lcd_info);
-
-	if (lcd_info->dsc_enabled)
-		rgb_order = DECON_RGB;
-	else
-		rgb_order = DECON_BGR;
-	decon_reg_set_rgb_order(id, rgb_order);
-
-	if (lcd_info->dsc_enabled) {
-		if (lcd_info->dsc_cnt == 1)
-			d_path = (id == 0) ?
-				DPATH_DSCENC0_OUTFIFO0_DSIMIF0 :
-				DECON2_DSCENC2_OUTFIFO0_DPIF;
-		else if (lcd_info->dsc_cnt == 2 && !id)
-			d_path = DPATH_DSCC_DSCENC01_OUTFIFO01_DSIMIF0;
-		else
-			decon_err("[decon%d] dsc_cnt=%d : not supported\n",
-				id, lcd_info->dsc_cnt);
-
-		decon_reg_set_data_path(id, d_path, s_path);
-		/* call decon_reg_config_data_path_size () inside */
-		dsc_reg_init(id, p, overlap_w, 0);
-	} else {
-		if (dsi_mode == DSI_MODE_DUAL_DSI)
-			d_path = DPATH_NOCOMP_SPLITTER_OUTFIFO01_DSIMIF01;
-		else
-			d_path = (id == 0) ?
-				DPATH_NOCOMP_OUTFIFO0_DSIMIF0 :
-				DECON2_NOCOMP_OUTFIFO0_DPIF;
-
-		decon_reg_set_data_path(id, d_path, s_path);
-
-		decon_reg_config_data_path_size(id,
-			lcd_info->xres, lcd_info->yres, overlap_w, NULL, p);
-	}
-	decon_reg_per_frame_off(id);
-
-	decon_reg_set_rgb_order(id, rgb_order);
-	//decon_reg_config_data_path_size(id, width, lcd_info->yres, overlap_w);
-	//decon_reg_set_dispif_size(id, width, lcd_info->yres);
-}
-#endif
-
 void decon_reg_set_mres(u32 id, struct decon_param *p)
 {
 	struct decon_lcd *lcd_info = p->lcd_info;

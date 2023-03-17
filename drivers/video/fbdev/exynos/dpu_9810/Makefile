@@ -15,7 +15,6 @@ obj-$(CONFIG_SOC_EXYNOS9810) += dsim_reg.o dpp_reg.o decon_reg.o
 obj-$(CONFIG_EXYNOS_DECON_9810) += decon.o
 obj-$(CONFIG_DECON_EVENT_LOG) += event_log.o
 obj-$(CONFIG_EXYNOS9810_BTS) += bts.o
-obj-$(CONFIG_SUPPORT_DSU) += dsu.o
 #obj-$(CONFIG_SUPPORT_DOZE) += decon_doze.o dsim_doze.o
 decon-y += decon_core.o decon_dsi.o decon_displayport.o helper.o win_update.o cursor.o
 obj-y += panels/

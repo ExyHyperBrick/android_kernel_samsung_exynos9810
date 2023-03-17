@@ -296,33 +296,12 @@ void dpu_prepare_win_update_config(struct decon_device *decon,
 	struct decon_win_config *win_config = win_data->config;
 	bool reconfigure = false;
 	struct decon_rect r;
-#ifdef CONFIG_SUPPORT_DSU
-	struct decon_lcd dsu_info;
-#endif
 
 	if (!decon->win_up.enabled)
 		return;
 
 	if (decon->dt.out_type != DECON_OUT_DSI)
 		return;
-
-#ifdef CONFIG_SUPPORT_DSU
-	if (regs->dsu.needupdate) {
-		memset(&dsu_info, 0, sizeof(struct decon_lcd));
-
-		dsu_info.xres = regs->dsu.right;
-		dsu_info.yres = regs->dsu.bottom;
-
-		DPU_FULL_RECT(&regs->up_region, &dsu_info);
-
-		memcpy(&decon->win_up.prev_up_region, &regs->up_region,
-			sizeof(struct decon_rect));
-
-		decon_info("DECON:INFO:%s: DSU Config fullupdate : %d %d\n",
-			__func__, regs->up_region.left, regs->up_region.bottom);
-		return;
-	}
-#endif
 
 	/* If LCD resolution is changed, window update is ignored */
 	if (dpu_need_mres_config(decon, win_config, regs)) {
