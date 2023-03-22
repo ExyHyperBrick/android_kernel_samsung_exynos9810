@@ -103,7 +103,6 @@ static int decon_devfreq_change_task(void *data)
 }
 #endif
 
-#if defined(CONFIG_SOC_EXYNOS9810)
 int decon_register_irq(struct decon_device *decon)
 {
 	struct device *dev = decon->dev;
@@ -156,72 +155,6 @@ int decon_register_irq(struct decon_device *decon)
 
 	return ret;
 }
-#else
-int decon_register_irq(struct decon_device *decon)
-{
-	struct device *dev = decon->dev;
-	struct platform_device *pdev;
-	struct resource *res;
-	int ret = 0;
-
-	pdev = container_of(dev, struct platform_device, dev);
-
-	if (decon->dt.psr_mode == DECON_VIDEO_MODE) {
-		/* Get IRQ resource and register IRQ handler. */
-		/* 0: FIFO irq */
-		res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
-		ret = devm_request_irq(dev, res->start, decon_irq_handler,
-				IRQF_PERF_CRITICAL, pdev->name, decon);
-		if (ret) {
-			decon_err("failed to install FIFO irq\n");
-			return ret;
-		}
-	}
-
-	/* 1: FRAME START */
-	res = platform_get_resource(pdev, IORESOURCE_IRQ, 1);
-	ret = devm_request_irq(dev, res->start, decon_irq_handler,
-			IRQF_PERF_CRITICAL, pdev->name, decon);
-	if (ret) {
-		decon_err("failed to install FRAME START irq\n");
-		return ret;
-	}
-
-	/* 2: FRAME DONE */
-	res = platform_get_resource(pdev, IORESOURCE_IRQ, 2);
-	ret = devm_request_irq(dev, res->start, decon_irq_handler,
-			IRQF_PERF_CRITICAL, pdev->name, decon);
-	if (ret) {
-		decon_err("failed to install FRAME DONE irq\n");
-		return ret;
-	}
-
-	/* 3: EXTRA: resource conflict, timeout and error irq */
-	res = platform_get_resource(pdev, IORESOURCE_IRQ, 3);
-	ret = devm_request_irq(dev, res->start, decon_irq_handler,
-			IRQF_PERF_CRITICAL, pdev->name, decon);
-	if (ret) {
-		decon_err("failed to install EXTRA irq\n");
-		return ret;
-	}
-
-	/*
-	 * If below IRQs are needed, please define irq number sequence
-	 * like below
-	 *
-	 * DECON0
-	 * 4: DIMMING_START
-	 * 5: DIMMING_END
-	 * 6: DQE_DIMMING_START
-	 * 7: DQE_DIMMING_END
-	 *
-	 * DECON2
-	 * 4: VSTATUS
-	 */
-
-	return ret;
-}
-#endif
 
 int decon_get_clocks(struct decon_device *decon)
 {

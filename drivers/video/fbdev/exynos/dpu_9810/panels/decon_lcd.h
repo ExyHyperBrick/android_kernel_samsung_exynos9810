@@ -72,9 +72,7 @@ struct stdphy_pms {
 	unsigned int p;
 	unsigned int m;
 	unsigned int s;
-#if defined(CONFIG_SOC_EXYNOS9810)
 	unsigned int k;
-#endif
 #if defined(CONFIG_EXYNOS_DSIM_DITHER)
 	unsigned int mfr;
 	unsigned int mrr;

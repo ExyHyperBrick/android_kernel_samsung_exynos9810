@@ -66,7 +66,6 @@ static void __dsim_dump(struct dsim_device *dsim)
 	print_hex_dump(KERN_ERR, "", DUMP_PREFIX_ADDRESS, 32, 4,
 			dsim->res.regs, 0xFC, false);
 
-#if defined(CONFIG_SOC_EXYNOS9810)
 	dsim_info("=== DSIM %d DPHY SFR DUMP ===\n", dsim->id);
 	/* DPHY dump */
 	/* PMSK */
@@ -91,7 +90,6 @@ static void __dsim_dump(struct dsim_device *dsim)
 	/* Data lane : D3 */
 	print_hex_dump(KERN_ERR, "", DUMP_PREFIX_ADDRESS, 32, 4,
 		dsim->res.phy_regs + 0x2080, 0x30, false);
-#endif
 
 	/* restore to avoid size mismatch (possible config error at DECON) */
 	dsim_reg_enable_shadow_read(dsim->id, 1);
@@ -792,10 +790,8 @@ static int _dsim_enable(struct dsim_device *dsim, enum dsim_state state)
 		}
 	}
 
-#if defined(CONFIG_SOC_EXYNOS9810)
 	/* choose OSC_CLK */
 	dsim_reg_set_link_clock(dsim->id, 0);
-#endif
 	/* Enable DPHY reset : DPHY reset start */
 	dsim_reg_dphy_resetn(dsim->id, 1);
 
@@ -808,9 +804,7 @@ static int _dsim_enable(struct dsim_device *dsim, enum dsim_state state)
 
 	dsim_reg_set_lanes(dsim->id, dsim->data_lane, 1);
 	dsim_reg_dphy_resetn(dsim->id, 0); /* Release DPHY reset */
-#if defined(CONFIG_SOC_EXYNOS9810)
 	dsim_reg_set_link_clock(dsim->id, 1);	/* Selection to word clock */
-#endif
 	dsim_reg_set_esc_clk_on_lane(dsim->id, 1, dsim->data_lane);
 	dsim_reg_enable_word_clock(dsim->id, 1);
 
@@ -1067,10 +1061,8 @@ static int dsim_exit_ulps(struct dsim_device *dsim)
 
 	enable_irq(dsim->res.irq);
 
-#if defined(CONFIG_SOC_EXYNOS9810)
 	/* choose OSC_CLK */
 	dsim_reg_set_link_clock(dsim->id, 0);
-#endif
 	/* Enable DPHY reset : DPHY reset start */
 	dsim_reg_dphy_resetn(dsim->id, 1);
 	/* DSIM Link SW reset */
@@ -1081,9 +1073,7 @@ static int dsim_exit_ulps(struct dsim_device *dsim)
 
 	dsim_reg_set_lanes(dsim->id, dsim->data_lane, 1);
 	dsim_reg_dphy_resetn(dsim->id, 0); /* release DPHY reset */
-#if defined(CONFIG_SOC_EXYNOS9810)
 	dsim_reg_set_link_clock(dsim->id, 1);	/* Selection to word clock */
-#endif
 
 	dsim_reg_set_esc_clk_on_lane(dsim->id, 1, dsim->data_lane);
 	dsim_reg_enable_word_clock(dsim->id, 1);
@@ -1586,7 +1576,6 @@ static int dsim_init_resources(struct dsim_device *dsim, struct platform_device 
 		return -EINVAL;
 	}
 
-#if defined(CONFIG_SOC_EXYNOS9810)
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 	if (!res) {
 		dsim_err("failed to get mem resource\n");
@@ -1599,7 +1588,6 @@ static int dsim_init_resources(struct dsim_device *dsim, struct platform_device 
 		dsim_err("failed to remap DSIM DPHY SFR region\n");
 		return -EINVAL;
 	}
-#endif
 
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	if (!res) {
@@ -1762,11 +1750,7 @@ static int dsim_runtime_resume(struct device *dev)
 }
 
 static const struct of_device_id dsim_of_match[] = {
-#if defined(CONFIG_SOC_EXYNOS9810)
 	{ .compatible = "samsung,exynos9-dsim" },
-#else
-	{ .compatible = "samsung,exynos8-dsim" },
-#endif
 	{},
 };
 MODULE_DEVICE_TABLE(of, dsim_of_match);

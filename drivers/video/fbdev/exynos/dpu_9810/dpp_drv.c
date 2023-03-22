@@ -1190,11 +1190,7 @@ static int dpp_runtime_resume(struct device *dev)
 }
 
 static const struct of_device_id dpp_of_match[] = {
-#if defined(CONFIG_SOC_EXYNOS9810)
 	{ .compatible = "samsung,exynos9-dpp" },
-#else
-	{ .compatible = "samsung,exynos8-dpp" },
-#endif
 	{},
 };
 MODULE_DEVICE_TABLE(of, dpp_of_match);
