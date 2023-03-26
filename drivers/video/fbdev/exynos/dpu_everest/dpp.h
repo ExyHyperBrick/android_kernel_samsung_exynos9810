@@ -26,7 +26,7 @@
 #include <soc/samsung/bts.h>
 
 #include "decon.h"
-#include "regs-dpp.h"
+#include "./cal_9810/regs-dpp.h"
 
 extern int dpp_log_level;
 

@@ -1,5 +1,5 @@
 /*
- * linux/drivers/video/fbdev/exynos/dpu_9810/decon_reg.c
+ * linux/drivers/video/fbdev/exynos/dpu_everest/decon_reg.c
  *
  * Copyright 2013-2017 Samsung Electronics
  *	  SeungBeom Park <sb1.park@samsung.com>
@@ -9,7 +9,7 @@
  * published by the Free Software Foundation.
  */
 
-#include "decon.h"
+#include "../decon.h"
 /* current setting for 3HF4 & 3HA6 does not support VESA_SCR_V4 */
 /* #define VESA_SCR_V4 */
 /******************* CAL raw functions implementation *************************/

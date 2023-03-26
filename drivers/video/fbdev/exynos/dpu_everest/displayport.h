@@ -33,7 +33,7 @@
 #include <linux/displayport_bigdata.h>
 
 #include "secdp_unit_test.h"
-#include "regs-displayport.h"
+#include "./cal_9810/regs-displayport.h"
 #include "./panels/decon_lcd.h"
 #include "hdr_metadata.h"
 

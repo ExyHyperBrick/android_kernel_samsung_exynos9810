@@ -13,7 +13,7 @@
 #include <linux/of_gpio.h>
 #include <video/mipi_display.h>
 /* TODO : remove dsim dependent code */
-#include "../../dpu_9810/decon.h"
+#include "../../dpu_everest/decon.h"
 #include "../panel.h"
 #include "s6e3ha6.h"
 #include "s6e3ha6_panel.h"

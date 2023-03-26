@@ -1,4 +1,4 @@
-/* linux/drivers/video/exynos/fbdev/dpu_9810/dpp_regs.c
+/* linux/drivers/video/exynos/fbdev/dpu_everest/dpp_regs.c
  *
  * Copyright (c) 2017 Samsung Electronics Co., Ltd.
  *		http://www.samsung.com
@@ -16,9 +16,9 @@
 #include <linux/ktime.h>
 #include <video/exynos_hdr_tunables.h>
 
-#include "dpp.h"
-#include "dpp_coef.h"
-#include "hdr_lut.h"
+#include "../dpp.h"
+#include "../dpp_coef.h"
+#include "../hdr_lut.h"
 
 #define DPP_SC_RATIO_MAX	((1 << 20) * 8 / 8)
 #define DPP_SC_RATIO_7_8	((1 << 20) * 8 / 7)

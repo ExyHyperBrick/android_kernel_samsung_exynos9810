@@ -1,5 +1,5 @@
 /*
- * linux/drivers/video/fbdev/exynos/dpu_9810/disp_err.h
+ * linux/drivers/video/fbdev/exynos/dpu_everest/disp_err.h
  *
  * Source file for display error info
  *

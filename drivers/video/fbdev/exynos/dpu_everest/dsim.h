@@ -19,7 +19,7 @@
 #include <media/v4l2-subdev.h>
 
 #include "./panels/decon_lcd.h"
-#include "regs-dsim.h"
+#include "./cal_9810/regs-dsim.h"
 
 #if defined(CONFIG_EXYNOS_COMMON_PANEL)
 #include "disp_err.h"

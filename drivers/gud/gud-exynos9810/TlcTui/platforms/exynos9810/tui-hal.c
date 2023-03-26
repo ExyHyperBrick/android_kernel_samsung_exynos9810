@@ -29,7 +29,7 @@
 #include <linux/ion.h>
 #include <ion_priv.h>
 #include <linux/scatterlist.h>
-#include "../../../video/fbdev/exynos/dpu_9810/decon.h"
+#include "../../../video/fbdev/exynos/dpu_everest/decon.h"
 #include <t-base-tui.h>
 #include "dciTui.h"
 #include "tlcTui.h"

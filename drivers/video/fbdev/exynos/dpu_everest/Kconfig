@@ -1,12 +1,12 @@
-config EXYNOS_DECON_9810
-	bool "Samsung Exynos9810 Display system (DPP, DECON, MIPI, HDMI)"
+config EXYNOS_EVEREST
+	bool "Custom Everest Display system (DPP, DECON, MIPI, HDMI) [dpu20 hybrid]"
 	default y
 	depends on FB
 
-if EXYNOS_DECON_9810
+if EXYNOS_EVEREST
 config EXYNOS_DECON_FB
 	bool "Samsung DECON Framebuffer driver"
-	depends on EXYNOS_DECON_9810
+	depends on EXYNOS_EVEREST
 	select MEDIA_EXYNOS
 	default y
 	help
@@ -15,19 +15,19 @@ config EXYNOS_DECON_FB
 
 config EXYNOS_DPP
 	bool "Samsung Exynos Display Post Processor driver"
-	depends on EXYNOS_DECON_9810
+	depends on EXYNOS_EVEREST
 	default y
 
 config EXYNOS_MIPI_DSIM
 	bool "Samsung Exynos MIPI-DSI driver"
-	depends on EXYNOS_DECON_9810
+	depends on EXYNOS_EVEREST
 	default y
 	help
 	  Enable MIPI-DSI driver.
 
 config EXYNOS_DISPLAYPORT
 	bool "Samsung Exynos DISPLAYPORT driver"
-	depends on EXYNOS_DECON_9810
+	depends on EXYNOS_EVEREST
 	default y
 	help
 	  Enable DISPLAYPORT driver.
@@ -39,32 +39,32 @@ config DISPLAYPORT_ENG
 
 config LOGGING_BIGDATA_BUG
 	bool "Logging extra information when decon bug"
-	depends on EXYNOS_DECON_9810
+	depends on EXYNOS_EVEREST
 	default y
 
 config EXYNOS_ZEBU_EMUL_DISP
 	bool "Zebu Emulator Display driver"
-	depends on EXYNOS_DECON_9810
+	depends on EXYNOS_EVEREST
 	default n
 
 config FB_WINDOW_UPDATE
         bool "DECON window update mode"
-        depends on EXYNOS_DECON_9810
+        depends on EXYNOS_EVEREST
         default n
 
 config DECON_BLOCKING_MODE
 	bool "DECON blocking mode"
-        depends on EXYNOS_DECON_9810
+        depends on EXYNOS_EVEREST
         default y
 
 config DECON_EVENT_LOG
 	bool "Display sub-system event logger (DECON/DSIM/DPP)"
-        depends on EXYNOS_DECON_9810
+        depends on EXYNOS_EVEREST
         default y
 
 config DECON_HIBER
 	bool "DECON hiber mode"
-        depends on EXYNOS_DECON_9810
+        depends on EXYNOS_EVEREST
         default n
 
 config EXYNOS_HIBERNATION_THREAD
@@ -74,12 +74,12 @@ config EXYNOS_HIBERNATION_THREAD
 
 config SUPPORT_DOZE
 	bool "Suppot Doze mode to aod service"
-		depends on EXYNOS_DECON_9810
+		depends on EXYNOS_EVEREST
 		default n
 
 config EXYNOS_AFBC
 	bool "Display sub-system AFBC stream"
-        depends on EXYNOS_DECON_9810
+        depends on EXYNOS_EVEREST
         default n
 
 config EXYNOS_DSIM_DITHER
@@ -89,45 +89,45 @@ config EXYNOS_DSIM_DITHER
 
 config DECON_BTS_LEGACY
 	bool "Legacy BTS scheme of display"
-        depends on EXYNOS_DECON_9810
+        depends on EXYNOS_EVEREST
         default n
 
 config DPU_2_0_FENCE
 	bool "fence is signaled at the beginning of a frame"
-        depends on EXYNOS_DECON_9810
+        depends on EXYNOS_EVEREST
         default n
 
 config FB_TEST
 	bool "FB test only"
-        depends on EXYNOS_DECON_9810
+        depends on EXYNOS_EVEREST
         default n
 
 config DSIM_CMD_TEST
 	bool "DSIM command test only"
-        depends on EXYNOS_DECON_9810
+        depends on EXYNOS_EVEREST
         default n
 
 config DPU_2_0_RELEASE_FENCES
 	bool "Release fence FD is created per each enable window"
-        depends on EXYNOS_DECON_9810
+        depends on EXYNOS_EVEREST
         default n
 
 
 config SUPPORT_DSU
 	tristate "Support Dynamic Scale Up (Multi-Resolution)"
-	depends on EXYNOS_DECON_9810
+	depends on EXYNOS_EVEREST
 	default n
 
 config EXYNOS_MULTIRESOLUTION
 	bool "Multi resolution LCD support"
-	depends on EXYNOS_DECON_9810 && FB_WINDOW_UPDATE
+	depends on EXYNOS_EVEREST && FB_WINDOW_UPDATE
 	default y
 
 config EXYNOS_VIRTUAL_DISPLAY
 	bool "Virtual display mode"
-	depends on EXYNOS_DECON_9810
+	depends on EXYNOS_EVEREST
 
 endif
 
-source "drivers/video/fbdev/exynos/dpu_9810/panels/Kconfig"
-source "drivers/video/fbdev/exynos/dpu_9810/dp_logger/Kconfig"
+source "drivers/video/fbdev/exynos/dpu_everest/panels/Kconfig"
+source "drivers/video/fbdev/exynos/dpu_everest/dp_logger/Kconfig"

@@ -9,12 +9,12 @@
  * published by the Free Software Foundation.
 */
 
-#include "displayport.h"
+#include "../displayport.h"
 #if defined(CONFIG_PHY_SAMSUNG_USB_CAL)
-#include "../../../drivers/phy/phy-samsung-usb-cal.h"
-#include "../../../drivers/phy/phy-exynos-usbdp.h"
+#include "../../../../drivers/phy/phy-samsung-usb-cal.h"
+#include "../../../../drivers/phy/phy-exynos-usbdp.h"
 #include <linux/usb/otg-fsm.h>
-#include "../../../drivers/usb/dwc3/dwc3-exynos.h"
+#include "../../../../drivers/usb/dwc3/dwc3-exynos.h"
 #endif
 
 u32 phy_tune_parameters[4][4][3] = {

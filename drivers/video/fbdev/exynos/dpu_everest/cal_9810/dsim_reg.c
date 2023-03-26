@@ -9,7 +9,7 @@
  * published by the Free Software Foundation.
  */
 
-#include "dsim.h"
+#include "../dsim.h"
 
 /* These definitions are need to guide from AP team */
 #define DSIM_STOP_STATE_CNT		0xA

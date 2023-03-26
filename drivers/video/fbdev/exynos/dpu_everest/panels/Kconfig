@@ -1,5 +1,5 @@
 config EXYNOS_DECON_LCD
-	depends on EXYNOS_DECON_9810
+	depends on EXYNOS_EVEREST
 	bool "Select LCD panel driver"
 
 config EXYNOS_COMMON_PANEL

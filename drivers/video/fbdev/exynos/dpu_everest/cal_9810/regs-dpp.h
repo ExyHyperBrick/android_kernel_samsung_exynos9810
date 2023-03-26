@@ -1,4 +1,4 @@
-/* linux/drivers/video/fbdev/dpu_9810/regs-dpp.h
+/* linux/drivers/video/fbdev/dpu_everest/regs-dpp.h
  *
  * Copyright (c) 2017 Samsung Electronics Co., Ltd.
  *		http://www.samsung.com

@@ -42,7 +42,7 @@
 #include "../panel/panel_drv.h"
 #endif
 
-#include "regs-decon.h"
+#include "./cal_9810/regs-decon.h"
 
 #include "./panels/decon_lcd.h"
 #include "dsim.h"

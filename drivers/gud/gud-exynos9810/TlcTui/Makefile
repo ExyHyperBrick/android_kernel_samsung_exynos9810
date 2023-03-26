@@ -26,5 +26,5 @@ ccflags-y += -I$(GUD_ROOT_FOLDER)/MobiCoreDriver/public
 ccflags-y += -I$(GUD_ROOT_FOLDER)/TlcTui/inc \
 	     -I$(GUD_ROOT_FOLDER)/TlcTui/public \
 	     -I$(GUD_ROOT_FOLDER)/TlcTui \
-	     -Idrivers/video/fbdev/exynos/dpu_9810 \
+	     -Idrivers/video/fbdev/exynos/dpu_everest \
 	     -Idrivers/staging/android/ion/
