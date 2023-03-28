@@ -2442,7 +2442,7 @@ static int tcp_prog_seq_show(struct bpf_prog *prog,
 static void bpf_iter_tcp_put_batch(struct bpf_tcp_iter_state *iter)
 {
 	while (iter->cur_sk < iter->end_sk)
-		sock_put(iter->batch[iter->cur_sk++]);
+		sock_gen_put(iter->batch[iter->cur_sk++]);
 }
 
 static int bpf_iter_tcp_realloc_batch(struct bpf_tcp_iter_state *iter,
@@ -2581,7 +2581,7 @@ static void *bpf_iter_tcp_seq_next(struct seq_file *seq, void *v,
 	if (iter->cur_sk < iter->end_sk) {
 		st->num++;
 		st->offset++;
-		sock_put(iter->batch[iter->cur_sk++]);
+		sock_gen_put(iter->batch[iter->cur_sk++]);
 	}
 
 	if (iter->cur_sk < iter->end_sk)
