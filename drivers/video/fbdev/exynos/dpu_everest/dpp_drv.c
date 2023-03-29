@@ -947,8 +947,7 @@ static irqreturn_t dma_irq_handler(int irq, void *priv)
 
 		if (irqs & ODMA_STATUS_FRAMEDONE_IRQ) {
 			dpp->d.done_count++;
-			if (dpp->id == ODMA_WB)
-				wake_up_interruptible_all(&dpp->framedone_wq);
+			wake_up_interruptible_all(&dpp->framedone_wq);
 			DPU_EVENT_LOG(DPU_EVT_DPP_FRAMEDONE, &dpp->sd,
 					ktime_set(0, 0));
 			goto irq_end;

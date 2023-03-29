@@ -129,7 +129,7 @@ static void decon_up_list_saved(void)
 	int i;
 	struct decon_device *decon;
 
-	for (i = 0; i < 3; i++) {
+	for (i = 0; i < MAX_DECON_CNT; i++) {
 		decon = get_decon_drvdata(i);
 		if (decon) {
 			if (!list_empty(&decon->up.list) || !list_empty(&decon->up.saved_list)) {
@@ -311,7 +311,7 @@ static int decon_dpui_notifier_callback(struct notifier_block *self,
 #endif /* CONFIG_LOGGING_BIGDATA_BUG */
 
 /* ---------- CHECK FUNCTIONS ----------- */
-static void decon_win_conig_to_regs_param
+static void decon_win_config_to_regs_param
 	(int transp_length, struct decon_win_config *win_config,
 	 struct decon_window_regs *win_regs, enum decon_idma_type idma_type,
 	 int idx)
@@ -1604,7 +1604,7 @@ static int decon_set_win_buffer(struct decon_device *decon,
 
 	alpha_length = dpu_get_alpha_len(config->format);
 	regs->protection[idx] = config->protection;
-	decon_win_conig_to_regs_param(alpha_length, config,
+	decon_win_config_to_regs_param(alpha_length, config,
 				&regs->win_regs[idx], config->idma_type, idx);
 
 	return 0;
@@ -2500,7 +2500,7 @@ static int decon_prepare_win_config(struct decon_device *decon,
 			win_regs->colormap = config->color;
 
 			/* decon_set_full_size_win(decon, config); */
-			decon_win_conig_to_regs_param(0, config, win_regs,
+			decon_win_config_to_regs_param(0, config, win_regs,
 					config->idma_type, i);
 			ret = 0;
 			break;
@@ -3652,9 +3652,7 @@ static void decon_parse_dt(struct decon_device *decon)
 			decon_info("out1 idx(%d). 0: DSI0 1: DSI1 2: DSI2\n",
 					decon->dt.out_idx[1]);
 		}
-	}
 
-	if (decon->dt.out_type == DECON_OUT_DSI) {
 		te_eint = of_get_child_by_name(decon->dev->of_node, "te_eint");
 		if (!te_eint) {
 			decon_info("No DT node for te_eint\n");
