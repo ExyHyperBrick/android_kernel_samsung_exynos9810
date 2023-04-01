@@ -69,11 +69,9 @@ int panel_reprobe(struct panel_device *panel);
 #endif
 static int panel_display_off(struct panel_device *panel);
 
-#ifdef CONFIG_SUPPORT_DOZE
 #define CONFIG_SET_1p5_ALPM
 #define BUCK_ALPM_VOLT		1500000
 #define BUCK_NORMAL_VOLT	1600000
-#endif
 /**
  * get_lcd info - get lcd global information.
  * @arg: key string of lcd information
@@ -329,7 +327,6 @@ static int __panel_seq_hmd_on(struct panel_device *panel)
 	return ret;
 }
 #endif
-#ifdef CONFIG_SUPPORT_DOZE
 static int __panel_seq_exit_alpm(struct panel_device *panel)
 {
 	int ret = 0;
@@ -481,7 +478,6 @@ static int __panel_seq_set_alpm(struct panel_device *panel)
 #endif
 	return ret;
 }
-#endif
 
 #ifdef CONFIG_ACTIVE_CLOCK
 static int __panel_seq_active_clock(struct panel_device *panel, int send_img)
@@ -1284,14 +1280,12 @@ retry_sleep_out:
 				__func__, panel_state_names[state->cur_state]);
 		goto do_exit;
 	case PANEL_STATE_ALPM:
-#ifdef CONFIG_SUPPORT_DOZE
 		ret = __panel_seq_exit_alpm(panel);
 		if (ret) {
 			panel_err("PANEL:ERR:%s:failed to panel exit alpm\n",
 				__func__);
 			goto do_exit;
 		}
-#endif
 		break;
 	case PANEL_STATE_OFF:
 		ret = panel_power_on(panel);
@@ -1352,7 +1346,6 @@ do_exit:
 	return ret;
 }
 
-#ifdef CONFIG_SUPPORT_DOZE
 static int panel_update_doze(struct panel_device *panel)
 {
 	int ret = 0;
@@ -1468,7 +1461,6 @@ do_exit:
 	return ret;
 }
 
-#endif //CONFIG_SUPPORT_DOZE
 
 
 
@@ -1763,7 +1755,6 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 		panel_info("PANEL:INFO:%s:PANEL_IOC_PANEL_DUMP\n", __func__);
 		ret = panel_debug_dump(panel);
 		break;
-#ifdef CONFIG_SUPPORT_DOZE
 	case PANEL_IOC_DOZE:
 	case PANEL_IOC_DOZE_SUSPEND:
 		panel_info("PANEL:INFO:%s:PANEL_IOC_%s\n", __func__,
@@ -1771,7 +1762,6 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 		ret = panel_doze(panel, cmd);
 		mdnie_update(&panel->mdnie);
 		break;
-#endif
 #ifdef CONFIG_SUPPORT_DSU
 	case PANEL_IOC_SET_DSU:
 		panel_info("PANEL:INFO:%s:PANEL_IOC_SET_DSU\n", __func__);
@@ -2036,7 +2026,6 @@ static int panel_parse_regulator(struct panel_device *panel)
 					__func__, tmp_str);
 				goto parse_regulator_err;
 			}
-#ifdef CONFIG_SUPPORT_DOZE
 #ifdef CONFIG_SET_1p5_ALPM
 			if (i == REGULATOR_1p6V) {
 				ret = regulator_set_voltage(reg[i], 1600000, 1600000);
@@ -2046,7 +2035,6 @@ static int panel_parse_regulator(struct panel_device *panel)
 					goto parse_regulator_err;
 				}
 			}
-#endif
 #endif
 			if (panel->state.connect_panel == PANEL_DISCONNECT) {
 				panel_info("PANEL:INFO:%s:panel was disconnected: disable : %s\n",

@@ -683,7 +683,6 @@ static int getidx_hmd_dimming_mtptbl(struct maptbl *tbl)
 }
 #endif /* CONFIG_SUPPORT_HMD */
 
-#ifdef CONFIG_SUPPORT_DOZE
 #ifdef CONFIG_SUPPORT_AOD_BL
 static int init_aod_dimming_table(struct maptbl *tbl)
 {
@@ -711,7 +710,6 @@ static int init_aod_dimming_table(struct maptbl *tbl)
 
 	return 0;
 }
-#endif
 #endif
 
 #if (PANEL_BACKLIGHT_PAC_STEPS == 512 || PANEL_BACKLIGHT_PAC_STEPS == 256)
@@ -1329,7 +1327,6 @@ static int getidx_lpm_table(struct maptbl *tbl)
 	panel_bl = &panel->panel_bl;
 	props = &panel->panel_data.props;
 
-#ifdef CONFIG_SUPPORT_DOZE
 #ifdef CONFIG_SUPPORT_AOD_BL
 	switch (props->alpm_mode) {
 	case ALPM_LOW_BR:
@@ -1385,7 +1382,6 @@ static int getidx_lpm_table(struct maptbl *tbl)
 
 	pr_debug("%s alpm_mode %d, layer %d row %d\n",
 			__func__, props->alpm_mode, layer, row);
-#endif
 #endif
 	props->cur_alpm_mode = props->alpm_mode;
 

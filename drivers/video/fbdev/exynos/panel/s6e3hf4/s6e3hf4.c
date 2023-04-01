@@ -537,7 +537,6 @@ int getidx_lpm_table(struct maptbl *tbl)
 	int row = 0;
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
 	struct panel_properties *props = &panel->panel_data.props;
-#ifdef CONFIG_SUPPORT_DOZE
 		switch (props->alpm_mode) {
 			case ALPM_LOW_BR:
 				row = 0;
@@ -558,7 +557,6 @@ int getidx_lpm_table(struct maptbl *tbl)
 				break;
 	}
 	props->cur_alpm_mode = props->alpm_mode;
-#endif
 	pr_info("%s: mode:%d ncol:%d\n", __func__, props->alpm_mode, tbl->ncol);
 	return tbl->ncol * row;
 }

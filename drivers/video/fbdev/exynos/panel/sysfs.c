@@ -1590,7 +1590,6 @@ static ssize_t hmt_on_store(struct device *dev,
 }
 #endif /* CONFIG_SUPPORT_HMD */
 
-#ifdef CONFIG_SUPPORT_DOZE
 static int set_alpm_mode(struct panel_device *panel, int mode)
 {
 	int ret = 0;
@@ -1682,7 +1681,6 @@ static int set_alpm_mode(struct panel_device *panel, int mode)
 
 	return ret;
 }
-#endif
 
 static ssize_t alpm_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t size)
@@ -1700,19 +1698,15 @@ static ssize_t alpm_store(struct device *dev,
 		return rc;
 	}
 
-#ifdef CONFIG_SUPPORT_DOZE
 	if (set_alpm_mode(panel, value)) {
 		panel_err("PANEL:ERR:%s:failed to set alpm (value %d)\n",
 				__func__, value);
 		goto exit_store;
 	}
-#endif
 	panel_info("PANEL:INFO:%s:value %d, alpm_mode %d\n",
 			__func__, value, panel_data->props.alpm_mode);
 
-#ifdef CONFIG_SUPPORT_DOZE
 exit_store:
-#endif
 	mutex_unlock(&panel->io_lock);
 	return size;
 }

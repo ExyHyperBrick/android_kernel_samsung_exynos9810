@@ -353,10 +353,8 @@ static inline int panel_aod_power_off(struct panel_device *panel)
 
 #define PANEL_IOC_PANEL_RESET			_IO(PANEL_IOC_BASE, 13)
 
-#ifdef CONFIG_SUPPORT_DOZE
 #define PANEL_IOC_DOZE					_IO(PANEL_IOC_BASE, 31)
 #define PANEL_IOC_DOZE_SUSPEND			_IO(PANEL_IOC_BASE, 32)
-#endif
 
 #ifdef CONFIG_SUPPORT_DSU
 #define PANEL_IOC_SET_DSU				_IOW(PANEL_IOC_BASE, 41, struct dsu_info *)

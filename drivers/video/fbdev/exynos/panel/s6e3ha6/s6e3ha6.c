@@ -610,7 +610,6 @@ int getidx_resolution_table(struct maptbl *tbl)
 int getidx_lpm_table(struct maptbl *tbl)
 {
 	int row = 0;
-#ifdef CONFIG_SUPPORT_DOZE
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
 	struct panel_properties *props = &panel->panel_data.props;
 		switch (props->alpm_mode) {
@@ -633,7 +632,6 @@ int getidx_lpm_table(struct maptbl *tbl)
 				break;
 	}
 	props->cur_alpm_mode = props->alpm_mode;
-#endif
 	return tbl->ncol * row;
 }
 

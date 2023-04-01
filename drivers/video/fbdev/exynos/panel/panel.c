@@ -1589,12 +1589,8 @@ int check_panel_active(struct panel_device *panel, const char *caller)
 
 	state = &panel->state;
 	dsi_state = panel_dsi_get_state(panel);
-#ifdef CONFIG_SUPPORT_DOZE
 	if (dsi_state == DSIM_STATE_OFF ||
 		dsi_state == DSIM_STATE_DOZE_SUSPEND) {
-#else
-	if (dsi_state == DSIM_STATE_OFF) {
-#endif
 		panel_err("PANEL:WARN:%s:dsim %s\n",
 				caller, (dsi_state == DSIM_STATE_OFF) ?
 				"off" : "doze_suspend");

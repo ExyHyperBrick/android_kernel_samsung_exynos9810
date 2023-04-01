@@ -69,12 +69,12 @@ config EXTEND_LIVE_CLOCK
 	default n
 
 config SUPPORT_AOD_BL
-	depends on EXYNOS_DECON_LCD && SUPPORT_DOZE
+	depends on EXYNOS_DECON_LCD
 	tristate "Support AOD(Active On Display) BL(BackLight) Driver"
 	default n
 
 config DONT_SUPPORT_SEAMLESS_AOD
-	depends on EXYNOS_DECON_LCD && SUPPORT_DOZE
+	depends on EXYNOS_DECON_LCD
 	tristate "Don't Support Seamless AOD"
 	default n
 
@@ -95,7 +95,7 @@ config EXYNOS_DECON_LCD_S6E3HA8
 	tristate "S6E3HA8 AMOLED LCD DRIVER"
 
 config ACTIVE_CLOCK
-	depends on EXYNOS_DECON_LCD && SUPPORT_DOZE
+	depends on EXYNOS_DECON_LCD
 	tristate "Support DDI Active Clock Feature"
 	default n
 
