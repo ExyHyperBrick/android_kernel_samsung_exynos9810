@@ -310,13 +310,9 @@ enum decon_idma_type {
 enum decon_state {
 	DECON_STATE_INIT = 0,
 	DECON_STATE_ON,
-#ifdef CONFIG_SUPPORT_DOZE
 	DECON_STATE_DOZE,
-#endif
 	DECON_STATE_HIBER,
-#ifdef CONFIG_SUPPORT_DOZE
 	DECON_STATE_DOZE_SUSPEND,
-#endif
 	DECON_STATE_OFF,
 	DECON_STATE_TUI,
 };
@@ -761,10 +757,8 @@ typedef enum dpu_event_type {
 	DPU_EVT_WINUP_UPDATE_REGION,
 	DPU_EVT_WINUP_FLAGS,
 	DPU_EVT_WINUP_APPLY_REGION,
-#ifdef CONFIG_SUPPORT_DOZE
 	DPU_EVT_DOZE,
 	DPU_EVT_DOZE_SUSPEND,
-#endif
 	DPU_EVT_MAX, /* End of EVENT */
 } dpu_event_t;
 
@@ -1491,13 +1485,9 @@ void log_decon_bigdata(struct decon_device *decon);
 
 enum disp_pwr_mode {
 	DISP_PWR_OFF = 0,
-#ifdef CONFIG_SUPPORT_DOZE
 	DISP_PWR_DOZE,
-#endif
 	DISP_PWR_NORMAL,
-#ifdef CONFIG_SUPPORT_DOZE
 	DISP_PWR_DOZE_SUSPEND,
-#endif
 	DISP_PWR_MAX,
 };
 
@@ -1512,33 +1502,22 @@ static inline bool IS_DECON_ON_STATE(struct decon_device *decon)
 {
 	return decon->state == DECON_STATE_INIT ||
 		decon->state == DECON_STATE_ON ||
-#ifdef CONFIG_SUPPORT_DOZE
 		decon->state == DECON_STATE_DOZE ||
-#endif
 		decon->state == DECON_STATE_TUI;
 }
 
 static inline bool IS_DECON_OFF_STATE(struct decon_device *decon)
 {
 	return decon->state == DECON_STATE_HIBER ||
-#ifdef CONFIG_SUPPORT_DOZE
 		decon->state == DECON_STATE_DOZE_SUSPEND ||
-#endif
 		decon->state == DECON_STATE_OFF;
 }
 
-#ifdef CONFIG_SUPPORT_DOZE
 static inline bool IS_DECON_DOZE_STATE(struct decon_device *decon)
 {
 	return decon->state == DECON_STATE_DOZE ||
 		decon->state == DECON_STATE_DOZE_SUSPEND;
 }
-#else
-static inline bool IS_DECON_DOZE_STATE(struct decon_device *decon)
-{
-	return false;
-}
-#endif
 
 static inline bool IS_DECON_HIBER_STATE(struct decon_device *decon)
 {
@@ -1678,9 +1657,7 @@ int dpu_sysmmu_fault_handler(struct iommu_domain *domain,
 #define EXYNOS_DPU_DUMP		_IOW('F', 302, \
 						struct decon_win_config_data)
 
-#ifdef CONFIG_SUPPORT_DOZE
 #define S3CFB_POWER_MODE		_IOW('F', 223, __u32)
-#endif
 
 /* HDR support */
 #define S3CFB_GET_HDR_CAPABILITIES _IOW('F', 400, struct decon_hdr_capabilities)

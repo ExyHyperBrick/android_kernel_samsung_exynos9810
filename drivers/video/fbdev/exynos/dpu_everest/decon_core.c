@@ -65,13 +65,9 @@ EXPORT_SYMBOL(decon_drvdata);
 static char *decon_state_names[] = {
 	"INIT",
 	"ON",
-#ifdef CONFIG_SUPPORT_DOZE
 	"DOZE",
-#endif
 	"HIBER",
-#ifdef CONFIG_SUPPORT_DOZE
 	"DOZE_SUSPEND",
-#endif
 	"OFF",
 	"TUI",
 };
@@ -548,7 +544,6 @@ int decon_set_out_sd_state(struct decon_device *decon,
 						decon->out_sd[i]->name);
 				goto err;
 			}
-#ifdef CONFIG_SUPPORT_DOZE
 		} else if (state == DECON_STATE_DOZE) {
 			ret = v4l2_subdev_call(decon->out_sd[i], core, ioctl,
 					DSIM_IOC_DOZE, NULL);
@@ -557,7 +552,6 @@ int decon_set_out_sd_state(struct decon_device *decon,
 						decon_state_names[state], ret);
 				goto err;
 			}
-#endif
 		} else if (state == DECON_STATE_ON) {
 			if (prev_state == DECON_STATE_HIBER) {
 #ifdef CONFIG_DECON_HIBER
@@ -577,7 +571,6 @@ int decon_set_out_sd_state(struct decon_device *decon,
 					goto err;
 				}
 			}
-#ifdef CONFIG_SUPPORT_DOZE
 		} else if (state == DECON_STATE_DOZE_SUSPEND) {
 			ret = v4l2_subdev_call(decon->out_sd[i], core, ioctl,
 					DSIM_IOC_DOZE_SUSPEND, NULL);
@@ -586,7 +579,6 @@ int decon_set_out_sd_state(struct decon_device *decon,
 						decon_state_names[state], ret);
 				goto err;
 			}
-#endif
 #ifdef CONFIG_DECON_HIBER
 		} else if (state == DECON_STATE_HIBER) {
 			ret = v4l2_subdev_call(decon->out_sd[i], core, ioctl,
@@ -703,7 +695,6 @@ out:
 	return ret;
 };
 
-#ifdef CONFIG_SUPPORT_DOZE
 static int decon_doze(struct decon_device *decon)
 {
 	int ret = 0;
@@ -732,7 +723,6 @@ out:
 	mutex_unlock(&decon->lock);
 	return ret;
 }
-#endif
 
 int cmu_dpu_dump(void)
 {
@@ -937,7 +927,6 @@ out:
 	return ret;
 }
 
-#ifdef CONFIG_SUPPORT_DOZE
 static int decon_doze_suspend(struct decon_device *decon)
 {
 	int ret = 0;
@@ -965,29 +954,24 @@ out:
 	mutex_unlock(&decon->lock);
 	return ret;
 }
-#endif
 
 struct disp_pwr_state decon_pwr_state[] = {
 	[DISP_PWR_OFF] = {
 		.state = DECON_STATE_OFF,
 		.set_pwr_state = (set_pwr_state_t)decon_disable,
 	},
-#ifdef CONFIG_SUPPORT_DOZE
 	[DISP_PWR_DOZE] = {
 		.state = DECON_STATE_DOZE,
 		.set_pwr_state = (set_pwr_state_t)decon_doze,
 	},
-#endif
 	[DISP_PWR_NORMAL] = {
 		.state = DECON_STATE_ON,
 		.set_pwr_state = (set_pwr_state_t)decon_enable,
 	},
-#ifdef CONFIG_SUPPORT_DOZE
 	[DISP_PWR_DOZE_SUSPEND] = {
 		.state = DECON_STATE_DOZE_SUSPEND,
 		.set_pwr_state = (set_pwr_state_t)decon_doze_suspend,
 	},
-#endif
 };
 
 int decon_update_pwr_state(struct decon_device *decon, u32 mode)
@@ -1013,7 +997,6 @@ int decon_update_pwr_state(struct decon_device *decon, u32 mode)
 						__func__, DISP_PWR_NORMAL);
 				return -EIO;
 			}
-#ifdef CONFIG_SUPPORT_DOZE
 		} else if (mode == DISP_PWR_DOZE_SUSPEND) {
 			ret = decon_doze(decon);
 			if (ret < 0) {
@@ -1021,7 +1004,6 @@ int decon_update_pwr_state(struct decon_device *decon, u32 mode)
 						__func__, DISP_PWR_DOZE);
 				return -EIO;
 			}
-#endif
 		}
 	}
 
@@ -2745,9 +2727,7 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 	bool active;
 	u32 crc_bit, crc_start;
 	u32 crc_data[2];
-#ifdef CONFIG_SUPPORT_DOZE
 	u32 pwr_mode;
-#endif
 	u32 dm_num;
 
 	decon_hiber_block_exit(decon);
@@ -2961,7 +2941,6 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 		decon_dump(decon, REQ_DSI_DUMP);
 		break;
 
-#ifdef CONFIG_SUPPORT_DOZE
 	case S3CFB_POWER_MODE:
 		if (get_user(pwr_mode, (u32 __user *)arg)) {
 			ret = -EFAULT;
@@ -2981,7 +2960,6 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 					__func__, decon->id, pwr_mode);
 		}
 		break;
-#endif
 	case DECON_WIN_CURSOR_POS:	/* cursor async */
 		if (copy_from_user(&user_window,
 			(struct decon_user_window __user *)arg,

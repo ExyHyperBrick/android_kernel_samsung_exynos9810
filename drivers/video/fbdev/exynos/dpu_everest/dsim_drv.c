@@ -45,13 +45,9 @@ EXPORT_SYMBOL(dsim_drvdata);
 static char *dsim_state_names[] = {
 	"INIT",
 	"ON",
-#ifdef CONFIG_SUPPORT_DOZE
 	"DOZE",
-#endif
 	"ULPS",
-#ifdef CONFIG_SUPPORT_DOZE
 	"DOZE_SUSPEND",
-#endif
 	"OFF",
 };
 
@@ -863,7 +859,6 @@ out:
 	return ret;
 }
 
-#ifdef CONFIG_SUPPORT_DOZE
 static int dsim_doze(struct dsim_device *dsim)
 {
 	int ret;
@@ -891,7 +886,6 @@ static int dsim_doze(struct dsim_device *dsim)
 out:
 	return ret;
 }
-#endif
 
 static int _dsim_disable(struct dsim_device *dsim, enum dsim_state state)
 {
@@ -959,7 +953,6 @@ out:
 	return ret;
 }
 
-#ifdef CONFIG_SUPPORT_DOZE
 static int dsim_doze_suspend(struct dsim_device *dsim)
 {
 	int ret;
@@ -986,7 +979,6 @@ static int dsim_doze_suspend(struct dsim_device *dsim)
 out:
 	return ret;
 }
-#endif
 
 static int dsim_enter_ulps(struct dsim_device *dsim)
 {
@@ -1137,7 +1129,6 @@ static long dsim_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 	case EXYNOS_DPU_GET_ACLK:
 		return clk_get_rate(dsim->res.aclk);
 
-#ifdef CONFIG_SUPPORT_DOZE
 	case DSIM_IOC_DOZE:
 		ret = dsim_doze(dsim);
 		break;
@@ -1145,7 +1136,6 @@ static long dsim_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 	case DSIM_IOC_DOZE_SUSPEND:
 		ret = dsim_doze_suspend(dsim);
 		break;
-#endif
 
 #if defined(CONFIG_EXYNOS_COMMON_PANEL)
 	case DSIM_IOC_NOTIFY:

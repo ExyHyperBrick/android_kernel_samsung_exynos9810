@@ -143,13 +143,9 @@ enum {
 enum dsim_state {
 	DSIM_STATE_INIT,
 	DSIM_STATE_ON,		/* HS clock was enabled. */
-#ifdef CONFIG_SUPPORT_DOZE
 	DSIM_STATE_DOZE,	/* HS clock was enabled. */
-#endif
 	DSIM_STATE_ULPS,	/* DSIM was entered ULPS state */
-#ifdef CONFIG_SUPPORT_DOZE
 	DSIM_STATE_DOZE_SUSPEND,	/* DSIM is suspend state */
-#endif
 	DSIM_STATE_OFF		/* DSIM is suspend state */
 };
 
@@ -255,10 +251,8 @@ struct dsim_lcd_driver {
 	int (*sleepin)(struct dsim_device *dsim);
 	int (*sleepout)(struct dsim_device *dsim);
 	int (*reset)(struct dsim_device *dsim);
-#ifdef CONFIG_SUPPORT_DOZE
 	int (*doze)(struct dsim_device *dsim);
 	int (*doze_suspend)(struct dsim_device *dsim);
-#endif
 	int (*notify)(struct dsim_device *dsim, void *data);
 	int (*set_error_cb)(struct dsim_device *dsim);
 	int (*mres)(struct dsim_device *dsim, int mres_idx);
@@ -414,20 +408,14 @@ void parse_lcd_info(struct device_node *, struct decon_lcd *);
 
 static inline bool IS_DSIM_ON_STATE(struct dsim_device *dsim)
 {
-#ifdef CONFIG_SUPPORT_DOZE
 	return (dsim->state == DSIM_STATE_ON ||
 			dsim->state == DSIM_STATE_DOZE);
-#else
-	return (dsim->state == DSIM_STATE_ON);
-#endif
 }
 
 static inline bool IS_DSIM_OFF_STATE(struct dsim_device *dsim)
 {
 	return (dsim->state == DSIM_STATE_ULPS ||
-#ifdef CONFIG_SUPPORT_DOZE
 			dsim->state == DSIM_STATE_DOZE_SUSPEND ||
-#endif
 			dsim->state == DSIM_STATE_OFF);
 }
 
@@ -438,10 +426,8 @@ static inline bool IS_DSIM_OFF_STATE(struct dsim_device *dsim)
 
 #define DSIM_IOC_SET_CONFIG		_IOW('D', 10, u32)
 
-#ifdef CONFIG_SUPPORT_DOZE
 #define DSIM_IOC_DOZE           _IOW('D', 20, u32)
 #define DSIM_IOC_DOZE_SUSPEND   _IOW('D', 21, u32)
-#endif
 
 #if defined(CONFIG_EXYNOS_COMMON_PANEL)
 #define DSIM_IOC_NOTIFY			_IOW('D', 50, u32)

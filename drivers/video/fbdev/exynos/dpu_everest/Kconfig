@@ -72,11 +72,6 @@ config EXYNOS_HIBERNATION_THREAD
         depends on DECON_HIBER
         default n
 
-config SUPPORT_DOZE
-	bool "Suppot Doze mode to aod service"
-		depends on EXYNOS_EVEREST
-		default n
-
 config EXYNOS_AFBC
 	bool "Display sub-system AFBC stream"
         depends on EXYNOS_EVEREST

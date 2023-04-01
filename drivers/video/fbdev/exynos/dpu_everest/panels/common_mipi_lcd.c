@@ -597,7 +597,6 @@ static int common_lcd_notify(struct dsim_device *dsim, void *data)
 	return 0;
 }
 
-#ifdef CONFIG_SUPPORT_DOZE
 static int common_lcd_doze(struct dsim_device *dsim)
 {
 	int ret;
@@ -623,7 +622,6 @@ static int common_lcd_doze_suspend(struct dsim_device *dsim)
 
 	return 0;
 }
-#endif
 
 #ifdef CONFIG_SUPPORT_DSU
 static int common_lcd_dsu(struct dsim_device *dsim, int mres_idx)
@@ -660,10 +658,8 @@ struct dsim_lcd_driver common_mipi_lcd_driver = {
 	.displayon	= common_lcd_displayon,
 	.notify		= common_lcd_notify,
 	.set_error_cb	= common_lcd_set_error_cb,
-#ifdef CONFIG_SUPPORT_DOZE
 	.doze		= common_lcd_doze,
 	.doze_suspend	= common_lcd_doze_suspend,
-#endif
 #ifdef CONFIG_SUPPORT_DSU
 	.mres = common_lcd_dsu,
 #endif
