@@ -21,16 +21,7 @@
 #ifndef _GPEXBE_MEM_USAGE_H_
 #define _GPEXBE_MEM_USAGE_H_
 
-/**
- * gpexbe_mem_usage_init() - initializes mem usage monitoring module
- *
- * Return: 0 on successs
- */
 int gpexbe_mem_usage_init(void);
-
-/**
- * gpexbe_mem_usage_term() - terminates mem usage monitoring module
- */
 void gpexbe_mem_usage_term(void);
 
 #endif /* _GPEXBE_MEM_USAGE_H_ */

@@ -30,11 +30,9 @@
 #define MAX_ATTRS 128
 #define SYSFS_KOBJECT_GROUP_NAME "gpu"
 
-struct kbase_device *pkbdev;
-struct exynos_context mali_exynos_ctx;
-
 struct _utils_info {
 	struct device *dev;
+	struct kbase_device *kbdev;
 	int debug_level;
 	sysfs_device_read_func show_gpu_model_cb;
 };
@@ -265,12 +263,7 @@ struct device *gpex_utils_get_device(void)
 
 struct kbase_device *gpex_utils_get_kbase_device(void)
 {
-	return pkbdev;
-}
-
-struct exynos_context *gpex_utils_get_exynos_context(void)
-{
-	return &mali_exynos_ctx;
+	return utils_info.kbdev;
 }
 
 /************************************************************************
@@ -280,7 +273,7 @@ struct exynos_context *gpex_utils_get_exynos_context(void)
 int gpex_utils_init(struct device **dev)
 {
 	utils_info.dev = *dev;
-	pkbdev = container_of(dev, struct kbase_device, dev);
+	utils_info.kbdev = container_of(dev, struct kbase_device, dev);
 
 	utils_info.debug_level = WARNING;
 
@@ -294,8 +287,6 @@ int gpex_utils_init(struct device **dev)
 
 	GPEX_UTILS_SYSFS_KOBJECT_FILE_ADD_RO(gpu_model, show_gpu_model);
 
-	mali_exynos_ctx.utils_info = &utils_info;
-
 	return 0;
 }
 
@@ -305,6 +296,4 @@ void gpex_utils_term(void)
 	gpex_utils_sysfs_device_term();
 	utils_info.dev = NULL;
 	utils_info.show_gpu_model_cb = NULL;
-
-	memset(&mali_exynos_ctx, 0, sizeof(struct exynos_context));
 }

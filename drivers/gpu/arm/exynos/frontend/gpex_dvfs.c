@@ -33,7 +33,7 @@
 #include "gpu_dvfs_governor.h"
 #include "gpex_dvfs_internal.h"
 
-static struct dvfs_info dvfs;
+struct dvfs_info dvfs;
 
 static int gpu_dvfs_handler_init(void);
 static int gpu_dvfs_handler_deinit(void);
@@ -289,8 +289,6 @@ int gpex_dvfs_init(struct device **dev)
 	gpex_dvfs_sysfs_init(&dvfs);
 
 	gpex_dvfs_external_init(&dvfs);
-
-	gpex_utils_get_exynos_context()->dvfs = &dvfs;
 
 	return 0;
 }
