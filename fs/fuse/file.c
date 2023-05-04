@@ -2481,7 +2481,7 @@ static int fuse_setlk(struct file *file, struct file_lock *fl, int flock)
 }
 
 #ifdef CONFIG_FUSE_BPF
-static int fuse_backing_lock_target(struct file *file,
+static int fuse_backing_file_target(struct file *file,
 				    struct file **backing_out)
 {
 	struct fuse_file *ff = file->private_data;
@@ -2507,6 +2507,27 @@ static int fuse_backing_lock_target(struct file *file,
 	return 0;
 }
 
+static long fuse_backing_file_ioctl(struct file *file,
+				    unsigned int command,
+				    unsigned long arg,
+				    unsigned int flags)
+{
+	struct file *backing_file;
+	long ret;
+
+	if (flags & FUSE_IOCTL_COMPAT)
+		return -ENOTTY;
+
+	ret = fuse_backing_file_target(file, &backing_file);
+	if (ret)
+		return ret;
+	if (!backing_file->f_op->unlocked_ioctl)
+		return -ENOTTY;
+
+	ret = backing_file->f_op->unlocked_ioctl(backing_file, command, arg);
+	return ret == -ENOIOCTLCMD ? -ENOTTY : ret;
+}
+
 static void fuse_copy_lock_result(struct file_lock *upper,
 				  const struct file_lock *lower)
 {
@@ -2525,7 +2546,7 @@ static int fuse_backing_file_lock(struct file *file, int cmd,
 	struct file_lock lower;
 	int ret;
 
-	ret = fuse_backing_lock_target(file, &backing_file);
+	ret = fuse_backing_file_target(file, &backing_file);
 	if (ret)
 		return ret;
 	if (!fl || fl->fl_file != file || !(fl->fl_flags & FL_POSIX) ||
@@ -2593,7 +2614,7 @@ static int fuse_backing_file_flock(struct file *file, int cmd,
 	struct file_lock lower;
 	int ret;
 
-	ret = fuse_backing_lock_target(file, &backing_file);
+	ret = fuse_backing_file_target(file, &backing_file);
 	if (ret)
 		return ret;
 	if (!fl || fl->fl_file != file || !(fl->fl_flags & FL_FLOCK) ||
@@ -3114,16 +3135,16 @@ long fuse_ioctl_common(struct file *file, unsigned int cmd,
 	struct inode *inode = file_inode(file);
 	struct fuse_conn *fc = get_fuse_conn(inode);
 
-#ifdef CONFIG_FUSE_BPF
-	if (fuse_file_has_backing(file))
-		return -ENOTTY;
-#endif
-
 	if (!fuse_allow_current_process(fc))
 		return -EACCES;
 
 	if (fuse_is_bad(inode))
 		return -EIO;
+
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_file_has_backing(file))
+		return fuse_backing_file_ioctl(file, cmd, arg, flags);
+#endif
 
 	return fuse_do_ioctl(file, cmd, arg, flags);
 }
