@@ -38,44 +38,10 @@ extern int dpp_log_level;
 /* about 1msec @ ACLK=630MHz */
 #define INIT_RCV_NUM		630000
 
-#define SRC_SIZE_MULTIPLE	1
 #define SRC_WIDTH_MIN		16
 #define SRC_WIDTH_MAX		65534
 #define SRC_HEIGHT_MIN		16
 #define SRC_HEIGHT_MAX		8190
-#define IMG_SIZE_MULTIPLE	1
-#define IMG_WIDTH_MIN		16
-#define IMG_WIDTH_MAX		4096
-#define IMG_HEIGHT_MIN		16
-#define IMG_HEIGHT_MAX		4096
-#define IMG_ROT_HEIGHT_MAX	2160
-#define SRC_OFFSET_MULTIPLE	1
-
-#define SCALED_WIDTH_MIN	16
-#define SCALED_WIDTH_MAX	4096
-#define SCALED_HEIGHT_MIN	16
-#define SCALED_HEIGHT_MAX	4096
-#define SCALED_SIZE_MULTIPLE	1
-#define SCALED_SIZE_MULTIPLE	1
-
-#define BLK_WIDTH_MIN		4
-#define BLK_WIDTH_MAX		4096
-#define BLK_HEIGHT_MIN		1
-#define BLK_HEIGHT_MAX		4096
-#define BLK_SIZE_MULTIPLE	1
-#define BLK_SIZE_MULTIPLE	1
-
-#define DST_SIZE_MULTIPLE	1
-#define DST_SIZE_WIDTH_MIN	16
-#define DST_SIZE_WIDTH_MAX	8190
-#define DST_SIZE_HEIGHT_MIN	16
-#define DST_SIZE_HEIGHT_MAX	8190
-#define DST_OFFSET_MULTIPLE	1
-#define DST_IMG_MULTIPLE	1
-#define DST_IMG_WIDTH_MIN	16
-#define DST_IMG_WIDTH_MAX	4096
-#define DST_IMG_HEIGHT_MIN	16
-#define DST_IMG_HEIGHT_MAX	4096
 
 #define check_align(width, height, align_w, align_h)\
 	(IS_ALIGNED(width, align_w) && IS_ALIGNED(height, align_h))
@@ -445,6 +411,8 @@ void dma_reg_set_test_pattern(u32 id, u32 pat_id, u32 pat_dat[4]);
 void dma_reg_set_ch_map(u32 id, u32 dpp_id, u32 to_pat);
 void dma_reg_set_test_en(u32 id,u32 en);
 
+struct dpp_restriction;
+
 /* DPP low-level APIs exposed to DPP driver */
 void dpp_reg_irq_enable(u32 id);
 void dpp_reg_init(u32 id, unsigned long attr);
@@ -453,7 +421,7 @@ void dpp_reg_configure_params(u32 id, struct dpp_params_info *p, unsigned long a
 u32 dpp_reg_get_irq_status(u32 id);
 void dpp_reg_clear_irq(u32 id, u32 irq);
 void dpp_constraints_params(struct dpp_size_constraints *vc,
-					struct dpp_img_format *vi);
+					struct dpp_img_format *vi, struct dpp_restriction *res);
 int dpp_reg_wait_idle_status(int id, unsigned long timeout, unsigned long attr);
 void dma_reg_set_recovery_num(u32 id, u32 rcv_num);
 
