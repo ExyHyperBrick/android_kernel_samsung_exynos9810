@@ -1043,8 +1043,6 @@ static int decon_dp_disable(struct decon_device *decon)
 
 	decon_to_psr_info(decon, &psr);
 	ret = decon_reg_stop(decon->id, decon->dt.out_idx[0], &psr, true);
-	if (!ret)
-		decon_reg_reset(decon->id);
 	if (ret < 0)
 		decon_dump(decon, REQ_DSI_DUMP);
 
