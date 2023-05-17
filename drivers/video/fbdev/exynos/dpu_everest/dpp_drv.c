@@ -1117,6 +1117,7 @@ static void dpp_parse_restriction(struct dpp_device *dpp, struct device_node *n)
 		dpp->restriction.src_h_rot_max = dpp->restriction.src_h.max;
 }
 
+#ifdef CONFIG_EXYNOS_EVEREST_DEBUG
 static void dpp_print_restriction(struct dpp_device *dpp)
 {
 	struct dpp_restriction *res = &dpp->restriction;
@@ -1144,6 +1145,7 @@ static void dpp_print_restriction(struct dpp_device *dpp)
 
 	dpp_info("src_h_rot_max[%d]\n", res->src_h_rot_max);
 }
+#endif
 
 static void dpp_parse_dt(struct dpp_device *dpp, struct device *dev)
 {
@@ -1159,6 +1161,7 @@ static void dpp_parse_dt(struct dpp_device *dpp, struct device *dev)
 	of_property_read_u32(node, "attr", (u32 *)&dpp->attr);
 	dpp_info("attributes = 0x%lx\n", dpp->attr);
 
+#ifdef CONFIG_EXYNOS_EVEREST_DEBUG
 	switch (dpp->id) {
 	case IDMA_G0:
 		dpp_info("IDMA type is IDMA_G0");
@@ -1185,14 +1188,19 @@ static void dpp_parse_dt(struct dpp_device *dpp, struct device *dev)
 		dpp_info("Unknown IDMA type");
 		break;
 	}
+#endif
 
 	if (dpp->id == IDMA_G0) {
 		dpp_parse_restriction(dpp, node);
+#ifdef CONFIG_EXYNOS_EVEREST_DEBUG
 		dpp_print_restriction(dpp);
+#endif
 	} else {
 		memcpy(&dpp->restriction, &dpp0->restriction,
 				sizeof(struct dpp_restriction));
+#ifdef CONFIG_EXYNOS_EVEREST_DEBUG
 		dpp_print_restriction(dpp);
+#endif
 	}
 
 	memcpy(res->format, default_fmt, sizeof(u32) * DEFAULT_FMT_CNT);

@@ -122,6 +122,11 @@ config EXYNOS_VIRTUAL_DISPLAY
 	bool "Virtual display mode"
 	depends on EXYNOS_EVEREST
 
+config EXYNOS_EVEREST_DEBUG
+	bool "Everest DPU debugging info"
+	depends on EXYNOS_EVEREST
+	default y
+
 endif
 
 source "drivers/video/fbdev/exynos/dpu_everest/panels/Kconfig"
