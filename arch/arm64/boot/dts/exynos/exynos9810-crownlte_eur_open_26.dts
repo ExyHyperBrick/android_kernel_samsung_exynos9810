@@ -5397,61 +5397,87 @@
 		interrupts = <0 82 0 0 122 0 0 126 0 0 83 0 0 127 0 0 81 0>;
 	};
 
+	/* IDMA_G0 */
 	dpp@369233920 {
 		compatible = "samsung,exynos9-dpp";
 		#pb-id-cells = <3>;
 		reg = <0 369233920 4096 0 369561600 4096 0 369557504 272>;
 		interrupts = <0 197 0 0 204 0>;
+		attr = <327686>;
+		src_f_w = <16 65534 1>;
+		src_f_h = <16 8190 1>;
+		src_w = <16 4096 1>;
+		src_h = <16 4096 1>;
+		src_xy_align = <1 1>;
+		dst_f_w = <16 8190 1>;
+		dst_f_h = <16 8190 1>;
+		dst_w = <16 4096 1>;
+		dst_h = <16 4096 1>;
+		dst_xy_align = <1 1>;
+		blk_w = <4 4096 1>;
+		blk_h = <1 4096 1>;
+		blk_xy_align = <1 1>;
+		src_h_rot_max = <2160>;
 		samsung,power-domain = <13>;
 		linux,phandle = <497>;
 		phandle = <497>;
 	};
 
+	/* IDMA_G1 */
 	dpp@369238016 {
 		compatible = "samsung,exynos9-dpp";
 		#pb-id-cells = <3>;
 		reg = <0 369238016 4096 0 369565696 4096>;
 		interrupts = <0 198 0 0 205 0>;
+		attr = <327686>;
 		samsung,power-domain = <13>;
 		linux,phandle = <498>;
 		phandle = <498>;
 	};
 
+	/* IDMA_VG0 */
 	dpp@369242112 {
 		compatible = "samsung,exynos9-dpp";
 		#pb-id-cells = <3>;
 		reg = <0 369242112 4096 0 369569792 4096>;
 		interrupts = <0 199 0 0 206 0>;
+		attr = <327702>;
 		samsung,power-domain = <13>;
 		linux,phandle = <499>;
 		phandle = <499>;
 	};
 
+	/* IDMA_VG1 */
 	dpp@369246208 {
 		compatible = "samsung,exynos9-dpp";
 		#pb-id-cells = <3>;
 		reg = <0 369246208 4096 0 369573888 4096>;
 		interrupts = <0 200 0 0 207 0>;
+		attr = <327702>;
 		samsung,power-domain = <13>;
 		linux,phandle = <500>;
 		phandle = <500>;
 	};
 
+	/* IDMA_VGF0 */
 	dpp@369250304 {
 		compatible = "samsung,exynos9-dpp";
 		#pb-id-cells = <3>;
 		reg = <0 369250304 4096 0 369577984 4096>;
 		interrupts = <0 201 0 0 208 0>;
+		attr = <327799>;
 		samsung,power-domain = <13>;
 		linux,phandle = <501>;
 		phandle = <501>;
 	};
 
+	/* IDMA_VGF1 */
 	dpp@369254400 {
 		compatible = "samsung,exynos9-dpp";
 		#pb-id-cells = <3>;
 		reg = <0 369254400 4096 0 369582080 4096>;
 		interrupts = <0 202 0 0 209 0>;
+		attr = <327807>;
 		samsung,power-domain = <13>;
 		linux,phandle = <502>;
 		phandle = <502>;
