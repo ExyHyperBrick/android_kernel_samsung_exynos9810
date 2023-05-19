@@ -3165,10 +3165,15 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 	case EXYNOS_DISP_RESTRICTIONS:
 		argp_res = (struct dpp_restrictions_info  __user *)arg;
 
-		for (i = 0; i < decon->dt.max_win; ++i)
+		for (i = 0; i < decon->dt.max_win; ++i) {
 			v4l2_subdev_call(decon->dpp_sd[i], core, ioctl,
 					DPP_GET_RESTRICTION, &disp_res.dpp_ch[i]);
 
+#ifdef CONFIG_EXYNOS_EVEREST_DEBUG
+			decon_info("DECON:INFO:%s:DPP_RESTRICTIONS:0x%x\n",
+				__func__, disp_res.dpp_ch[i].attr);
+#endif
+		}
 		disp_res.ver = DISP_RESTRICTION_VER;
 		disp_res.dpp_cnt = decon->dt.max_win;
 
