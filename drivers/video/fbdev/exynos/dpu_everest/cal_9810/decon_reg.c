@@ -2233,15 +2233,6 @@ void decon_reg_set_window_control(u32 id, int win_idx,
 }
 
 
-void decon_reg_update_req_and_unmask(u32 id, struct decon_mode_info *psr)
-{
-	decon_reg_update_req_global(id);
-
-	if (psr->psr_mode == DECON_MIPI_COMMAND_MODE)
-		decon_reg_set_trigger(id, psr, DECON_TRIG_ENABLE);
-}
-
-
 int decon_reg_wait_update_done_and_mask(u32 id,
 		struct decon_mode_info *psr, u32 timeout)
 {
@@ -2315,70 +2306,6 @@ u32 decon_reg_get_height(u32 id, int dsi_mode)
 {
 	/* TBD */
 	return 0;
-}
-
-const double decon_clocks_table[][CLK_ID_MAX] = {
-	/* VCLK, ECLK, ACLK, PCLK, DISP_PLL, resolution, MIC_ratio, DSC count */
-	{  71,   168, 400, 66,   71, 1080 * 1920,    MIC_COMP_BYPASS,  0},
-	{  63,   168, 400, 66,   63, 1440 * 2560, MIC_COMP_RATIO_1_2,  0},
-	{41.7, 137.5, 400, 66, 62.5, 1440 * 2560, MIC_COMP_RATIO_1_3,  0},
-	{ 141, 137.5, 400, 66,  141, 1440 * 2560,    MIC_COMP_BYPASS,  0},
-	{  42,   337, 400, 66,   42, 1440 * 2560,    MIC_COMP_BYPASS,  1},
-	{  42,   168, 400, 66,   42, 1440 * 2560,    MIC_COMP_BYPASS,  2},
-};
-
-void decon_reg_get_clock_ratio(struct decon_clocks *clks,
-				struct decon_lcd *lcd_info)
-{
-	int i = (sizeof(decon_clocks_table) /
-			sizeof(decon_clocks_table[0]) - 1);
-
-	/* set reset value */
-	clks->decon[CLK_ID_VCLK] = decon_clocks_table[0][CLK_ID_VCLK];
-	clks->decon[CLK_ID_ECLK] = decon_clocks_table[0][CLK_ID_ECLK];
-	clks->decon[CLK_ID_ACLK] = decon_clocks_table[0][CLK_ID_ACLK];
-	clks->decon[CLK_ID_PCLK] = decon_clocks_table[0][CLK_ID_PCLK];
-	clks->decon[CLK_ID_DPLL] = decon_clocks_table[0][CLK_ID_DPLL];
-
-	for (; i >= 0; i--) {
-		if (decon_clocks_table[i][CLK_ID_RESOLUTION]
-				!= lcd_info->xres * lcd_info->yres) {
-			continue;
-		}
-
-		if (!lcd_info->mic_enabled && !lcd_info->dsc_enabled) {
-			if (decon_clocks_table[i][CLK_ID_MIC_RATIO]
-					!= MIC_COMP_BYPASS)
-				continue;
-		}
-
-		if (lcd_info->mic_enabled) {
-			if (decon_clocks_table[i][CLK_ID_MIC_RATIO]
-					!= lcd_info->mic_ratio)
-				continue;
-		}
-
-		if (lcd_info->dsc_enabled) {
-			if (decon_clocks_table[i][CLK_ID_DSC_RATIO]
-					!= lcd_info->dsc_cnt)
-				continue;
-		}
-
-		clks->decon[CLK_ID_VCLK] = decon_clocks_table[i][CLK_ID_VCLK];
-		clks->decon[CLK_ID_ECLK] = decon_clocks_table[i][CLK_ID_ECLK];
-		clks->decon[CLK_ID_ACLK] = decon_clocks_table[i][CLK_ID_ACLK];
-		clks->decon[CLK_ID_PCLK] = decon_clocks_table[i][CLK_ID_PCLK];
-		clks->decon[CLK_ID_DPLL] = decon_clocks_table[i][CLK_ID_DPLL];
-		break;
-	}
-
-	decon_dbg("%s: VCLK %ld ECLK %ld ACLK %ld PCLK %ld DPLL %ld\n",
-		__func__,
-		clks->decon[CLK_ID_VCLK],
-		clks->decon[CLK_ID_ECLK],
-		clks->decon[CLK_ID_ACLK],
-		clks->decon[CLK_ID_PCLK],
-		clks->decon[CLK_ID_DPLL]);
 }
 
 void decon_reg_set_mres(u32 id, struct decon_param *p)

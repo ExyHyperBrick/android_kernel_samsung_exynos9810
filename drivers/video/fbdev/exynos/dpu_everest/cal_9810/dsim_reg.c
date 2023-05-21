@@ -341,12 +341,6 @@ void dsim_reg_sw_reset(u32 id)
 		dsim_err("%s is timeout.\n", __func__);
 }
 
-void dsim_reg_dphy_reset(u32 id)
-{
-	dsim_write_mask(id, DSIM_SWRST, 0, DSIM_DPHY_RST); /* reset low */
-	dsim_write_mask(id, DSIM_SWRST, ~0, DSIM_DPHY_RST); /* reset release */
-}
-
 void dsim_reg_dphy_resetn(u32 id, u32 en)
 {
 	u32 val = en ? 1 : 0;
