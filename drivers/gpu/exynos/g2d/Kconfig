@@ -2,3 +2,12 @@ config EXYNOS_GRAPHICS_G2D
 	bool "FIMG2D support"
 	help
 	  This enables FIMG2D driver of Exynos SoCs.
+
+if EXYNOS_GRAPHICS_G2D
+
+config G2D_FENCE_DEBUG
+	bool "FIMG2D fence debugging info"
+	depends on EXYNOS_GRAPHICS_G2D
+	default n
+
+endif
