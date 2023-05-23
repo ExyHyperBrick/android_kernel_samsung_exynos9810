@@ -1019,6 +1019,7 @@ static void sk_psock_verdict_data_ready(struct sock *sk)
 {
 	struct socket *sock = sk->sk_socket;
 	read_descriptor_t desc;
+	int copied;
 
 	if (unlikely(!sock || !sock->ops || !sock->ops->read_sock))
 		return;
@@ -1026,7 +1027,16 @@ static void sk_psock_verdict_data_ready(struct sock *sk)
 	desc.arg.data = sk;
 	desc.error = 0;
 	desc.count = 1;
-	sock->ops->read_sock(sk, &desc, sk_psock_verdict_recv);
+	copied = sock->ops->read_sock(sk, &desc, sk_psock_verdict_recv);
+	if (copied >= 0) {
+		struct sk_psock *psock;
+
+		rcu_read_lock();
+		psock = sk_psock(sk);
+		if (psock && psock->saved_data_ready)
+			psock->saved_data_ready(sk);
+		rcu_read_unlock();
+	}
 }
 
 static void sk_psock_write_space(struct sock *sk)
