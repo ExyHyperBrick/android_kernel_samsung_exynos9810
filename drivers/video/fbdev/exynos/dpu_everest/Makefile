@@ -17,6 +17,6 @@ obj-$(CONFIG_SOC_EXYNOS9810) += ./cal_9810/dsim_reg.o ./cal_9810/dpp_reg.o ./cal
 obj-$(CONFIG_EXYNOS_EVEREST) += decon.o
 obj-$(CONFIG_DECON_EVENT_LOG) += event_log.o
 obj-$(CONFIG_EXYNOS9810_BTS) += bts.o
-decon-y += decon_core.o decon_dsi.o decon_displayport.o decon_wb.o helper.o win_update.o cursor.o
+decon-y += decon_core.o decon_dsi.o decon_displayport.o decon_wb.o fence.o helper.o win_update.o cursor.o
 obj-y += panels/
 obj-y += dp_logger/
