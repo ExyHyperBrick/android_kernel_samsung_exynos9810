@@ -87,11 +87,6 @@ config DECON_BTS_LEGACY
         depends on EXYNOS_EVEREST
         default n
 
-config DPU_2_0_FENCE
-	bool "fence is signaled at the beginning of a frame"
-        depends on EXYNOS_EVEREST
-        default n
-
 config FB_TEST
 	bool "FB test only"
         depends on EXYNOS_EVEREST
@@ -101,12 +96,6 @@ config DSIM_CMD_TEST
 	bool "DSIM command test only"
         depends on EXYNOS_EVEREST
         default n
-
-config DPU_2_0_RELEASE_FENCES
-	bool "Release fence FD is created per each enable window"
-        depends on EXYNOS_EVEREST
-        default n
-
 
 config SUPPORT_DSU
 	tristate "Support Dynamic Scale Up (Multi-Resolution)"

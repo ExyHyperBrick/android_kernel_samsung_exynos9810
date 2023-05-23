@@ -1619,11 +1619,9 @@ void decon_dump(struct decon_device *decon, int dsi_dump);
 void decon_to_psr_info(struct decon_device *decon, struct decon_mode_info *psr);
 void decon_to_init_param(struct decon_device *decon, struct decon_param *p);
 void decon_create_timeline(struct decon_device *decon, char *name);
-#if defined(CONFIG_DPU_2_0_RELEASE_FENCES)
 void decon_create_release_fences(struct decon_device *decon,
 		struct decon_win_config_data *win_data,
 		struct sync_file *sync_file);
-#endif
 int decon_create_fence(struct decon_device *decon, struct sync_file **sync_file);
 void decon_wait_fence(struct sync_file *fence);
 void decon_signal_fence(struct decon_device *decon);

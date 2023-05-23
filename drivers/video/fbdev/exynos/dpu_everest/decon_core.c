@@ -2611,9 +2611,7 @@ static int decon_set_win_config(struct decon_device *decon,
 			sizeof(struct decon_rect));
 
 	if (num_of_window) {
-#if defined(CONFIG_DPU_2_0_RELEASE_FENCES)
 		decon_create_release_fences(decon, win_data, sync_file);
-#endif
 	}
 
 	decon_hiber_block(decon);
@@ -2848,20 +2846,11 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 			decon_err("DECON:ERR:%s:failed to set win config\n", __func__);
 			break;
 		}
-#if defined(CONFIG_DPU_2_0_RELEASE_FENCES)
 		if (copy_to_user((void __user *)arg, &win_data, _IOC_SIZE(cmd))) {
 			ret = -EFAULT;
 			break;
 		}
 		break;
-#else
-		if (copy_to_user(&((struct decon_win_config_data __user *)arg)->retire_fence,
-				 &win_data.retire_fence, sizeof(int))) {
-			ret = -EFAULT;
-			break;
-		}
-		break;
-#endif
 	case S3CFB_GET_HDR_CAPABILITIES:
 		ret = decon_get_hdr_capa(decon, &hdr_capa);
 		if (ret)

@@ -17,11 +17,7 @@
 void decon_create_timeline(struct decon_device *decon, char *name)
 {
 	decon->timeline = sync_timeline_create(name);
-#if defined(CONFIG_DPU_2_0_FENCE)
 	decon->timeline_max = 0;
-#else
-	decon->timeline_max = 1;
-#endif
 	if (decon->dt.out_type == DECON_OUT_WB)
 		decon->timeline_max = 0;
 }
@@ -65,7 +61,6 @@ int decon_get_valid_fd(void)
 	return fd;
 }
 
-#if defined(CONFIG_DPU_2_0_RELEASE_FENCES)
 void decon_create_release_fences(struct decon_device *decon,
 		struct decon_win_config_data *win_data,
 		struct sync_file *sync_file)
@@ -99,7 +94,6 @@ err:
 	}
 	return;
 }
-#endif
 
 int decon_create_fence(struct decon_device *decon, struct sync_file **sync_file)
 {
