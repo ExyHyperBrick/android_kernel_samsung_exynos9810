@@ -2119,6 +2119,7 @@ struct sk_psock;
 int tcp_bpf_update_proto(struct sock *sk, struct sk_psock *psock,
 			 bool restore);
 
+void tcp_eat_skb(struct sock *sk, struct sk_buff *skb);
 int tcp_bpf_sendmsg_redir(struct sock *sk, bool ingress,
 			  struct sk_msg *msg, u32 bytes, int flags);
 
