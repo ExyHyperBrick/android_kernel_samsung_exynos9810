@@ -426,9 +426,16 @@ static void sk_psock_skb_state(struct sk_psock *psock,
 	spin_unlock_bh(&psock->ingress_lock);
 }
 
+static void sk_psock_retry(struct sk_psock *psock)
+{
+	if (sk_psock_test_state(psock, SK_PSOCK_TX_ENABLED))
+		schedule_delayed_work(&psock->work, 1);
+}
+
 static void sk_psock_backlog(struct work_struct *work)
 {
-	struct sk_psock *psock = container_of(work, struct sk_psock, work);
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct sk_psock *psock = container_of(dwork, struct sk_psock, work);
 	struct sk_psock_work_state *state = &psock->work_state;
 	struct sk_buff *skb = NULL;
 	bool ingress;
@@ -461,6 +468,11 @@ start:
 				if (ret == -EAGAIN) {
 					sk_psock_skb_state(psock, state, skb,
 							   len, off);
+
+					/* Delay slightly to prioritize any
+					 * other work that might be here.
+					 */
+					sk_psock_retry(psock);
 					goto end;
 				}
 				/* Hard errors break pipe and stop xmit. */
@@ -515,7 +527,7 @@ struct sk_psock *sk_psock_init(struct sock *sk, int node)
 	INIT_LIST_HEAD(&psock->link);
 	spin_lock_init(&psock->link_lock);
 
-	INIT_WORK(&psock->work, sk_psock_backlog);
+	INIT_DELAYED_WORK(&psock->work, sk_psock_backlog);
 	mutex_init(&psock->work_mutex);
 	INIT_LIST_HEAD(&psock->ingress_msg);
 	spin_lock_init(&psock->ingress_lock);
@@ -595,7 +607,7 @@ static void sk_psock_destroy_deferred(struct work_struct *gc)
 	if (sk_psock_test_state(psock, SK_PSOCK_RX_STRP_ENABLED))
 		strp_done(&psock->parser.strp);
 
-	cancel_work_sync(&psock->work);
+	cancel_delayed_work_sync(&psock->work);
 	mutex_destroy(&psock->work_mutex);
 
 	psock_progs_drop(&psock->progs);
@@ -731,7 +743,7 @@ static void sk_psock_verdict_apply(struct sk_psock *psock,
 			spin_lock_bh(&psock->ingress_lock);
 			if (sk_psock_test_state(psock, SK_PSOCK_TX_ENABLED)) {
 				skb_queue_tail(&psock->ingress_skb, skb);
-				schedule_work(&psock->work);
+				schedule_delayed_work(&psock->work, 0);
 				err = 0;
 			}
 			spin_unlock_bh(&psock->ingress_lock);
@@ -763,7 +775,7 @@ static void sk_psock_verdict_apply(struct sk_psock *psock,
 			goto out_free;
 		}
 		skb_queue_tail(&psock_other->ingress_skb, skb);
-		schedule_work(&psock_other->work);
+		schedule_delayed_work(&psock_other->work, 0);
 		spin_unlock_bh(&psock_other->ingress_lock);
 		break;
 	case __SK_DROP:
@@ -844,7 +856,7 @@ static void sk_psock_write_space(struct sock *sk)
 	rcu_read_lock();
 	psock = sk_psock(sk);
 	if (likely(psock && sk_psock_test_state(psock, SK_PSOCK_TX_ENABLED)))
-		schedule_work(&psock->work);
+		schedule_delayed_work(&psock->work, 0);
 	write_space = psock->saved_write_space;
 	rcu_read_unlock();
 	write_space(sk);
