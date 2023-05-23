@@ -448,13 +448,16 @@ static void dsim_bts_print_info(struct bts_decon_info *info)
 static void dsim_underrun_info(struct dsim_device *dsim)
 {
 #if defined(CONFIG_EXYNOS9810_BTS)
-	struct decon_device *decon;
+	struct decon_device *decon = get_decon_drvdata(0);
 	int i;
 
 	dsim_info("\tMIF(%lu), INT(%lu), DISP(%lu)\n",
 			cal_dfs_get_rate(ACPM_DVFS_MIF),
 			cal_dfs_get_rate(ACPM_DVFS_INT),
 			cal_dfs_get_rate(ACPM_DVFS_DISP));
+
+	if (decon == NULL)
+ 		return;
 
 	for (i = 0; i < MAX_DECON_CNT; ++i) {
 		decon = get_decon_drvdata(i);
