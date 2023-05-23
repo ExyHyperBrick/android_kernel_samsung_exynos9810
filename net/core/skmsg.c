@@ -870,6 +870,7 @@ static int sk_psock_verdict_apply(struct sk_psock *psock,
 		}
 		break;
 	case __SK_REDIRECT:
+		tcp_eat_skb(psock->sk, skb);
 		err = -EIO;
 		sk_other = skb_bpf_redirect_fetch(skb);
 		/* This error is a buggy BPF program, it returned a redirect
@@ -901,7 +902,8 @@ static int sk_psock_verdict_apply(struct sk_psock *psock,
 	default:
 out_free:
 		skb_bpf_redirect_clear(skb);
-		kfree_skb(skb);
+		tcp_eat_skb(psock->sk, skb);
+		sock_drop(psock->sk, skb);
 	}
 
 	return err;
@@ -927,8 +929,7 @@ static void sk_psock_strp_read(struct strparser *strp, struct sk_buff *skb)
 		skb_dst_drop(skb);
 		skb_bpf_redirect_clear(skb);
 		ret = sk_psock_bpf_run(psock, prog, skb);
-		if (ret == SK_PASS)
-			skb_bpf_set_strparser(skb);
+		skb_bpf_set_strparser(skb);
 		ret = sk_psock_map_verd(ret, skb_bpf_redirect_fetch(skb));
 	}
 	sk_psock_verdict_apply(psock, skb, ret);
@@ -995,7 +996,8 @@ static int sk_psock_verdict_recv(read_descriptor_t *desc, struct sk_buff *skb,
 	psock = sk_psock(sk);
 	if (unlikely(!psock)) {
 		len = 0;
-		kfree_skb(skb);
+		tcp_eat_skb(sk, skb);
+		sock_drop(sk, skb);
 		goto out;
 	}
 	skb_set_owner_r(skb, sk);

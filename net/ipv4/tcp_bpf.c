@@ -10,6 +10,24 @@
 
 #include <net/inet_common.h>
 
+
+void tcp_eat_skb(struct sock *sk, struct sk_buff *skb)
+{
+	struct tcp_sock *tcp;
+	u32 copied;
+
+	if (!skb || !skb->len || sk->sk_protocol != IPPROTO_TCP)
+		return;
+	if (skb_bpf_strparser(skb))
+		return;
+
+	tcp = tcp_sk(sk);
+	copied = tcp->copied_seq + skb->len;
+	WRITE_ONCE(tcp->copied_seq, copied);
+	tcp_rcv_space_adjust(sk);
+	tcp_cleanup_rbuf(sk, skb->len);
+}
+
 static bool is_next_msg_fin(struct sk_psock *psock)
 {
 	struct scatterlist *sge;
@@ -54,8 +72,10 @@ static int tcp_msg_wait_data(struct sock *sk, struct sk_psock *psock,
 int tcp_bpf_recvmsg_parser(struct sock *sk, struct msghdr *msg, size_t len,
 			   int nonblock, int flags, int *addr_len)
 {
+	struct tcp_sock *tcp = tcp_sk(sk);
+	u32 seq = tcp->copied_seq;
 	struct sk_psock *psock;
-	int copied;
+	int copied = 0;
 
 	if (unlikely(flags & MSG_ERRQUEUE))
 		return inet_recv_error(sk, msg, len, addr_len);
@@ -91,9 +111,12 @@ msg_bytes_ready:
 
 		if (is_fin) {
 			copied = 0;
+			seq++;
 			goto out;
 		}
 	}
+	if (copied > 0)
+		seq += copied;
 	if (!copied) {
 		int data, err = 0;
 		long timeo;
@@ -131,6 +154,10 @@ msg_bytes_ready:
 		copied = -EAGAIN;
 	}
 out:
+	WRITE_ONCE(tcp->copied_seq, seq);
+	tcp_rcv_space_adjust(sk);
+	if (copied > 0)
+		tcp_cleanup_rbuf(sk, copied);
 	release_sock(sk);
 	sk_psock_put(sk, psock);
 	return copied;
