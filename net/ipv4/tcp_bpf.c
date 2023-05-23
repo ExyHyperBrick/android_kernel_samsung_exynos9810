@@ -68,6 +68,19 @@ int tcp_bpf_recvmsg_parser(struct sock *sk, struct msghdr *msg, size_t len,
 		return tcp_recvmsg(sk, msg, len, nonblock, flags, addr_len);
 
 	lock_sock(sk);
+
+	/* Data can arrive before accept() assigns sk_socket. Re-run the
+	 * saved receive callback while the socket is locked so the verdict
+	 * path drains any packets left on sk_receive_queue.
+	 */
+	if (unlikely(!skb_queue_empty(&sk->sk_receive_queue))) {
+		sk->sk_data_ready(sk);
+		if (unlikely(!skb_queue_empty(&sk->sk_receive_queue))) {
+			copied = -EAGAIN;
+			goto out;
+		}
+	}
+
 msg_bytes_ready:
 	copied = sk_msg_recvmsg(sk, psock, msg, len, flags);
 	/* The typical case for EFAULT is a graceful shutdown with a FIN.
