@@ -99,7 +99,7 @@ struct sk_psock {
 	/* Serializes backlog processing for this psock. */
 	struct mutex			work_mutex;
 	struct sk_psock_work_state	work_state;
-	struct work_struct		work;
+	struct delayed_work		work;
 	union {
 		struct rcu_head		rcu;
 		struct work_struct	gc;
