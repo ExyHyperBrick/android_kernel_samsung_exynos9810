@@ -136,9 +136,14 @@ static void decon_up_list_saved(void)
 		if (decon) {
 			if (!list_empty(&decon->up.list) || !list_empty(&decon->up.saved_list)) {
 				decon->up_list_saved = true;
+#if defined(CONFIG_SUPPORT_LEGACY_FENCE)
 				decon_info("\n=== DECON%d TIMELINE %d MAX %d ===\n",
 						decon->id, decon->timeline->value,
 						decon->timeline_max);
+#else
+				decon_info("\n=== DECON%d TIMELINE %d ===\n",
+						decon->id, atomic_read(&decon->fence.timeline));
+#endif
 			} else {
 				decon->up_list_saved = false;
 			}
@@ -425,7 +430,12 @@ static void decon_free_dma_buf(struct decon_device *decon,
 		return;
 
 	if (dma->fence)
+#if defined(CONFIG_SUPPORT_LEGACY_FENCE)
 		fput(dma->fence->file);
+#else
+		dma_fence_put(dma->fence);
+		dma->fence = NULL;
+#endif
 	ion_iovmm_unmap(dma->attachment, dma->dma_addr);
 
 	dma_buf_unmap_attachment(dma->attachment, dma->sg_table,
@@ -1522,7 +1532,11 @@ static int decon_set_win_buffer(struct decon_device *decon,
 	int ret;
 	u32 alpha_length;
 	struct decon_rect r;
+#if defined(CONFIG_SUPPORT_LEGACY_FENCE)
 	struct sync_file *fence = NULL;
+#else
+	struct dma_fence *fence = NULL;
+#endif
 	u32 config_size = 0;
 	u32 alloc_size = 0;
 	u32 byte_per_pixel = 4;
@@ -1545,7 +1559,11 @@ static int decon_set_win_buffer(struct decon_device *decon,
 
 	if (config->acq_fence >= 0) {
 		/* fence is managed by buffer not plane */
+#if defined(CONFIG_SUPPORT_LEGACY_FENCE)
 		fence = sync_file_fdget(config->acq_fence);
+#else
+		fence = sync_file_get_fence(config->acq_fence);
+#endif
 		regs->dma_buf_data[idx][0].fence = fence;
 		if (!fence) {
 			decon_err("failed to import fence fd\n");
@@ -2303,7 +2321,12 @@ end:
 
 	decon_release_old_bufs(decon, regs, old_dma_bufs, old_plane_cnt);
 	/* signal to acquire fence */
+#if defined(CONFIG_SUPPORT_LEGACY_FENCE)
 	decon_signal_fence(decon);
+#else
+	decon_signal_fence(regs->retire_fence);
+	dma_fence_put(regs->retire_fence);
+#endif
 	decon_systrace(decon, 'E', "decon_update_regs", 0);
 
 	DPU_EVENT_LOG(DPU_EVT_FENCE_RELEASE, &decon->sd, ktime_set(0, 0));
@@ -2576,7 +2599,11 @@ static int decon_set_win_config(struct decon_device *decon,
 		if (win_data->retire_fence < 0)
 			goto err;
 		fd_install(win_data->retire_fence, sync_file->file);
+#if defined(CONFIG_SUPPORT_LEGACY_FENCE)
 		decon_signal_fence(decon);
+#else
+		decon_signal_fence(sync_file->fence);
+#endif
 		goto err;
 	}
 
@@ -2592,7 +2619,9 @@ static int decon_set_win_config(struct decon_device *decon,
 		if (win_data->retire_fence < 0)
 			goto err_prepare;
 	} else {
+#if defined(CONFIG_SUPPORT_LEGACY_FENCE)
 		decon->timeline_max++;
+#endif
 		win_data->retire_fence = -1;
 	}
 
@@ -2612,6 +2641,9 @@ static int decon_set_win_config(struct decon_device *decon,
 
 	if (num_of_window) {
 		decon_create_release_fences(decon, win_data, sync_file);
+#if !defined(CONFIG_SUPPORT_LEGACY_FENCE)
+		regs->retire_fence = dma_fence_get(sync_file->fence);
+#endif
 	}
 
 	decon_hiber_block(decon);
@@ -2650,7 +2682,11 @@ err_prepare:
 	if (win_data->retire_fence >= 0) {
 		/* video mode should keep previous buffer object */
 		if (decon->lcd_info->mode == DECON_MIPI_COMMAND_MODE)
+#if defined(CONFIG_SUPPORT_LEGACY_FENCE)
 			decon_signal_fence(decon);
+#else
+			decon_signal_fence(sync_file->fence);
+#endif
 		fput(sync_file->file);
 		put_unused_fd(win_data->retire_fence);
 	}

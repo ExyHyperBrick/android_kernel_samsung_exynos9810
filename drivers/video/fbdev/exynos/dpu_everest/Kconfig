@@ -116,6 +116,11 @@ config EXYNOS_EVEREST_DEBUG
 	depends on EXYNOS_EVEREST
 	default y
 
+config SUPPORT_LEGACY_FENCE
+	bool "Support legacy fence API"
+	depends on EXYNOS_EVEREST
+	default y
+
 endif
 
 source "drivers/video/fbdev/exynos/dpu_everest/panels/Kconfig"
