@@ -31,7 +31,11 @@ static inline void dpu_event_log_decon
 
 	log = &decon->d.event_log[idx];
 
+#if defined(CONFIG_SUPPORT_KERNEL_4_9)
 	if (time.tv64)
+#else
+	if (time)
+#endif
 		log->time = time;
 	else
 		log->time = ktime_get();
@@ -89,7 +93,11 @@ static inline void dpu_event_log_dsim
 
 	log = &decon->d.event_log[idx];
 
+#if defined(CONFIG_SUPPORT_KERNEL_4_9)
 	if (time.tv64)
+#else
+	if (time)
+#endif
 		log->time = time;
 	else
 		log->time = ktime_get();
@@ -144,7 +152,11 @@ static inline void dpu_event_log_dpp
 
 	log = &decon->d.event_log[idx];
 
+#if defined(CONFIG_SUPPORT_KERNEL_4_9)
 	if (time.tv64)
+#else
+	if (time)
+#endif
 		log->time = time;
 	else
 		log->time = ktime_get();

@@ -121,6 +121,11 @@ config SUPPORT_LEGACY_FENCE
 	depends on EXYNOS_EVEREST
 	default y
 
+config SUPPORT_KERNEL_4_9
+	bool "Support kernel version 4.9"
+	depends on EXYNOS_EVEREST
+	default y
+
 endif
 
 source "drivers/video/fbdev/exynos/dpu_everest/panels/Kconfig"

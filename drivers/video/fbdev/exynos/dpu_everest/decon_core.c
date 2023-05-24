@@ -1165,6 +1165,7 @@ int decon_wait_for_vsync(struct decon_device *decon, u32 timeout)
 	timestamp = decon->vsync.timestamp;
 	decon_activate_vsync(decon);
 
+#if defined(CONFIG_SUPPORT_KERNEL_4_9)
 	if (timeout) {
 		ret = wait_event_interruptible_timeout(decon->vsync.wait,
 				!ktime_equal(timestamp,
@@ -1175,6 +1176,16 @@ int decon_wait_for_vsync(struct decon_device *decon, u32 timeout)
 				!ktime_equal(timestamp,
 						decon->vsync.timestamp));
 	}
+#else
+	if (timeout) {
+		ret = wait_event_interruptible_timeout(decon->vsync.wait,
+				timestamp != decon->vsync.timestamp,
+				msecs_to_jiffies(timeout));
+	} else {
+		ret = wait_event_interruptible(decon->vsync.wait,
+				timestamp != decon->vsync.timestamp);
+	}
+#endif
 
 	decon_deactivate_vsync(decon);
 
