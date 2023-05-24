@@ -21,11 +21,9 @@
 #include <linux/clk-provider.h>
 #include <linux/console.h>
 #include <linux/dma-buf.h>
-#if defined(CONFIG_ION_EXYNOS)
 #include <linux/exynos_ion.h>
 #include <linux/ion.h>
 #include <linux/exynos_iovmm.h>
-#endif
 #include <linux/highmem.h>
 #include <linux/memblock.h>
 #include <linux/bug.h>
@@ -425,7 +423,6 @@ static void decon_free_unused_buf(struct decon_device *decon,
 static void decon_free_dma_buf(struct decon_device *decon,
 		struct decon_dma_buf_data *dma)
 {
-#if defined(CONFIG_ION_EXYNOS)
 	if (!dma->dma_addr)
 		return;
 
@@ -445,7 +442,6 @@ static void decon_free_dma_buf(struct decon_device *decon,
 	dma_buf_put(dma->dma_buf);
 	ion_free(decon->ion_client, dma->ion_handle);
 	memset(dma, 0, sizeof(struct decon_dma_buf_data));
-#endif
 }
 
 void decon_set_black_window(struct decon_device *decon)
@@ -1355,7 +1351,6 @@ int decon_set_vsync_int(struct fb_info *info, bool active)
 	return 0;
 }
 
-#if defined(CONFIG_ION_EXYNOS)
 static unsigned int decon_map_ion_handle(struct decon_device *decon,
 		struct device *dev, struct decon_dma_buf_data *dma,
 		struct ion_handle *ion_handle, struct dma_buf *buf, int win_no)
@@ -1403,13 +1398,11 @@ err_buf_map_attachment:
 err_buf_map_attach:
 	return 0;
 }
-#endif
 
 static int decon_import_buffer(struct decon_device *decon, int idx,
 		struct decon_win_config *config,
 		struct decon_reg_data *regs)
 {
-#if defined(CONFIG_ION_EXYNOS)
 	struct ion_handle *handle = NULL;
 	struct dma_buf *buf = NULL;
 	struct decon_dma_buf_data *dma_buf_data = NULL;
@@ -1468,9 +1461,6 @@ static int decon_import_buffer(struct decon_device *decon, int idx,
 
 fail:
 	return ret;
-#else
-	return 0;
-#endif
 }
 
 int decon_check_limitation(struct decon_device *decon, int idx,
@@ -2180,11 +2170,6 @@ static void decon_update_vgf_info(struct decon_device *decon,
 				afbc_info->size[0] =
 					regs->dma_buf_data[i][0].dma_buf->size;
 
-#if 0//defined(CONFIG_ION_EXYNOS)
-			afbc_info->v_addr[0] = ion_map_kernel(
-				decon->ion_client,
-				regs->dma_buf_data[i][0].ion_handle);
-#endif
 		}
 
 		if (test_bit(IDMA_VGF1, &decon->cur_using_dpp)) {
@@ -2197,11 +2182,6 @@ static void decon_update_vgf_info(struct decon_device *decon,
 				afbc_info->size[1] =
 					regs->dma_buf_data[i][0].dma_buf->size;
 
-#if 0//defined(CONFIG_ION_EXYNOS)
-			afbc_info->v_addr[1] = ion_map_kernel(
-				decon->ion_client,
-				regs->dma_buf_data[i][0].ion_handle);
-#endif
 		}
 	}
 
@@ -3469,12 +3449,10 @@ static int decon_fb_alloc_memory(struct decon_device *decon, struct decon_win *w
 	struct device *dev = NULL;
 	unsigned int real_size, virt_size, size;
 	dma_addr_t map_dma;
-#if defined(CONFIG_ION_EXYNOS)
 	struct ion_handle *handle;
 	struct dma_buf *buf;
 	void *vaddr;
 	unsigned int ret;
-#endif
 
 	decon_dbg("%s +\n", __func__);
 	dev_info(decon->dev, "allocating memory for display\n");
@@ -3494,7 +3472,6 @@ static int decon_fb_alloc_memory(struct decon_device *decon, struct decon_win *w
 
 	dev_info(decon->dev, "want %u bytes for window[%d]\n", size, win->idx);
 
-#if defined(CONFIG_ION_EXYNOS)
 	handle = ion_alloc(decon->ion_client, (size_t)size, 0,
 					EXYNOS_ION_HEAP_SYSTEM_MASK, 0);
 	if (IS_ERR(handle)) {
@@ -3532,17 +3509,6 @@ static int decon_fb_alloc_memory(struct decon_device *decon, struct decon_win *w
 	map_dma = win->dma_buf_data[0].dma_addr;
 
 	dev_info(decon->dev, "alloated memory\n");
-#else
-	fbi->screen_base = dma_alloc_writecombine(decon->dev, size,
-						  &map_dma, GFP_KERNEL);
-	if (!fbi->screen_base)
-		return -ENOMEM;
-
-	dev_dbg(decon->dev, "mapped %x to %p\n",
-		(unsigned int)map_dma, fbi->screen_base);
-
-	memset(fbi->screen_base, 0x0, size);
-#endif
 	fbi->fix.smem_start = map_dma;
 
 	dev_info(decon->dev, "fb start addr = 0x%x\n", (u32)fbi->fix.smem_start);
@@ -3551,13 +3517,11 @@ static int decon_fb_alloc_memory(struct decon_device *decon, struct decon_win *w
 
 	return 0;
 
-#ifdef CONFIG_ION_EXYNOS
 err_map:
 	dma_buf_put(buf);
 err_share_dma_buf:
 	ion_free(decon->ion_client, handle);
 	return -ENOMEM;
-#endif
 }
 
 #if defined(CONFIG_FB_TEST)
@@ -3866,20 +3830,16 @@ static int decon_init_resources(struct decon_device *decon,
 		goto err;
 	}
 
-#if defined(CONFIG_ION_EXYNOS)
 	decon->ion_client = exynos_ion_client_create(name);
 	if (IS_ERR(decon->ion_client)) {
 		decon_err("failed to ion_client_create\n");
 		ret = PTR_ERR(decon->ion_client);
 		goto err_ion;
 	}
-#endif
 
 	return 0;
-#if defined(CONFIG_ION_EXYNOS)
 err_ion:
 	iounmap(decon->res.ss_regs);
-#endif
 err:
 	return ret;
 }

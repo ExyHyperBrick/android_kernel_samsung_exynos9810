@@ -1380,13 +1380,11 @@ err:
 
 static int dpp_remove(struct platform_device *pdev)
 {
-#if defined(CONFIG_ION_EXYNOS)
 	struct dpp_device *dpp = platform_get_drvdata(pdev);
 
 	iovmm_deactivate(dpp->dev);
 
 	dpp_info("%s driver unloaded\n", pdev->name);
-#endif
 	return 0;
 }
 

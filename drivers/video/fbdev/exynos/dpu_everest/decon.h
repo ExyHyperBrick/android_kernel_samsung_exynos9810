@@ -29,11 +29,9 @@
 #if defined(CONFIG_EXYNOS_ITMON)
 #include <soc/samsung/exynos-itmon.h>
 #endif
-#if defined(CONFIG_ION_EXYNOS)
 #include <linux/exynos_ion.h>
 #include <linux/ion.h>
 #include <linux/exynos_iovmm.h>
-#endif
 #ifdef CONFIG_SEC_ABC
 #include <linux/sti/abc_common.h>
 #endif

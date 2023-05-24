@@ -32,9 +32,7 @@
 #include <sound/samsung/dp_ado.h>
 #include <linux/smc.h>
 #include <linux/switch.h>
-#if defined(CONFIG_ION_EXYNOS)
 #include <linux/exynos_iovmm.h>
-#endif
 
 #include "../../../drivers/phy/phy-exynos-usbdrd.h"
 #include "displayport.h"
@@ -4180,14 +4178,12 @@ static int displayport_probe(struct platform_device *pdev)
 
 	pm_runtime_enable(dev);
 
-#if defined(CONFIG_ION_EXYNOS)
 	ret = iovmm_activate(dev);
 	if (ret) {
 		displayport_err("failed to activate iovmm\n");
 		goto err_dt;
 	}
 	iovmm_set_fault_handler(dev, dpu_sysmmu_fault_handler, NULL);
-#endif
 
 	displayport->idle_ip_index =
 		exynos_get_idle_ip_index(dev_name(&pdev->dev));
