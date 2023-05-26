@@ -601,7 +601,7 @@ static int dpp_check_format(struct dpp_device *dpp, struct dpp_params_info *p)
  */
 static int dpp_check_limitation(struct dpp_device *dpp, struct dpp_params_info *p)
 {
-	int ret;
+	int ret = 0;
 	struct dpp_img_format vi;
 
 	ret = dpp_check_scale_ratio(p);
@@ -1049,11 +1049,6 @@ irq_end:
 	return IRQ_HANDLED;
 }
 
-static int dpp_get_clocks(struct dpp_device *dpp)
-{
-	return 0;
-}
-
 static void dpp_parse_restriction(struct dpp_device *dpp, struct device_node *n)
 {
 	u32 range[3] = {0, };
@@ -1340,15 +1335,11 @@ static int dpp_probe(struct platform_device *pdev)
 	dpp = devm_kzalloc(dev, sizeof(*dpp), GFP_KERNEL);
 	if (!dpp) {
 		dpp_err("failed to allocate dpp device.\n");
-		ret = -ENOMEM;
-		goto err;
+		return -ENOMEM;
 	}
 	dpp_parse_dt(dpp, dev);
 
 	dpp_drvdata[dpp->id] = dpp;
-	ret = dpp_get_clocks(dpp);
-	if (ret)
-		goto err_clk;
 
 	spin_lock_init(&dpp->slock);
 	spin_lock_init(&dpp->dma_slock);
@@ -1357,7 +1348,7 @@ static int dpp_probe(struct platform_device *pdev)
 
 	ret = dpp_init_resources(dpp, pdev);
 	if (ret)
-		goto err_clk;
+		kfree(dpp);
 
 	dpp_init_subdev(dpp);
 	platform_set_drvdata(pdev, dpp);
@@ -1371,11 +1362,6 @@ static int dpp_probe(struct platform_device *pdev)
 	dpp_info("dpp%d is probed successfully\n", dpp->id);
 
 	return 0;
-
-err_clk:
-	kfree(dpp);
-err:
-	return ret;
 }
 
 static int dpp_remove(struct platform_device *pdev)
