@@ -5491,6 +5491,8 @@
 		src_h_rot_max = <2160>;
 		scale_down = <1>;
 		scale_up = <1>;
+		fmt_cnt = <4>;
+		fmt = <15 16 17 18>;
 		samsung,power-domain = <13>;
 		linux,phandle = <494>;
 		phandle = <494>;
@@ -5505,6 +5507,8 @@
 		attr = <327686>;
 		scale_down = <1>;
 		scale_up = <1>;
+		fmt_cnt = <4>;
+		fmt = <15 16 17 18>;
 		samsung,power-domain = <13>;
 		linux,phandle = <495>;
 		phandle = <495>;
@@ -5519,6 +5523,8 @@
 		attr = <327702>;
 		scale_down = <1>;
 		scale_up = <1>;
+		fmt_cnt = <4>;
+		fmt = <15 16 17 18 19 20 22 23 24 25 30 31 32 33 34 35>;
 		samsung,power-domain = <13>;
 		linux,phandle = <496>;
 		phandle = <496>;
@@ -5533,6 +5539,8 @@
 		attr = <327702>;
 		scale_down = <1>;
 		scale_up = <1>;
+		fmt_cnt = <4>;
+		fmt = <15 16 17 18 19 20 22 23 24 25 30 31 32 33 34 35>;
 		samsung,power-domain = <13>;
 		linux,phandle = <497>;
 		phandle = <497>;
@@ -5547,6 +5555,8 @@
 		attr = <327799>;
 		scale_down = <2>;
 		scale_up = <8>;
+		fmt_cnt = <4>;
+		fmt = <15 16 17 18 19 20 22 23 24 25 30 31 32 33 34 35>;
 		samsung,power-domain = <13>;
 		linux,phandle = <498>;
 		phandle = <498>;
@@ -5561,6 +5571,8 @@
 		attr = <327807>;
 		scale_down = <2>;
 		scale_up = <8>;
+		fmt_cnt = <4>;
+		fmt = <15 16 17 18 19 20 22 23 24 25 30 31 32 33 34 35>;
 		samsung,power-domain = <13>;
 		linux,phandle = <499>;
 		phandle = <499>;
