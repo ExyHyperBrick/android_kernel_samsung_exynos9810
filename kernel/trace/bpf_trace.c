@@ -656,13 +656,21 @@ const struct bpf_func_proto bpf_snprintf_btf_proto = {
 
 BPF_CALL_3(bpf_d_path, struct path *, path, char *, buf, u32, sz)
 {
+	struct path copy;
 	long len;
 	char *p;
 
 	if (!sz)
 		return 0;
 
-	p = d_path(path, buf, sz);
+	/* The verifier treats path as trusted, but validate the pointer here
+	 * as a final guard against an invalid nested kernel pointer.
+	 */
+	len = probe_kernel_read(&copy, path, sizeof(copy));
+	if (len < 0)
+		return len;
+
+	p = d_path(&copy, buf, sz);
 	if (IS_ERR(p)) {
 		len = PTR_ERR(p);
 	} else {
