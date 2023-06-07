@@ -144,6 +144,21 @@ static void fuse_destroy_inode(struct inode *inode)
 	struct fuse_inode *fi = get_fuse_inode(inode);
 	BUG_ON(!list_empty(&fi->write_files));
 	BUG_ON(!list_empty(&fi->queued_writes));
+#ifdef CONFIG_FUSE_BPF
+	/*
+	 * Keep backing identity and the filter alive until the inode can no
+	 * longer be reached.  In particular, eviction is too early because
+	 * open files and RCU readers can still use the embedded fuse_inode.
+	 */
+	if (fi->bpf)
+		bpf_prog_put(fi->bpf);
+	fi->bpf = NULL;
+	iput(fi->backing_inode);
+	fi->backing_inode = NULL;
+	if (fi->backing_mnt)
+		mntput(fi->backing_mnt);
+	fi->backing_mnt = NULL;
+#endif
 	mutex_destroy(&fi->mutex);
 	kfree(fi->forget);
 	call_rcu(&inode->i_rcu, fuse_i_callback);
@@ -151,18 +166,6 @@ static void fuse_destroy_inode(struct inode *inode)
 
 static void fuse_evict_inode(struct inode *inode)
 {
-#ifdef CONFIG_FUSE_BPF
-	struct fuse_inode *fi = get_fuse_inode(inode);
-
-	iput(fi->backing_inode);
-	fi->backing_inode = NULL;
-	if (fi->backing_mnt)
-		mntput(fi->backing_mnt);
-	fi->backing_mnt = NULL;
-	if (fi->bpf)
-		bpf_prog_put(fi->bpf);
-	fi->bpf = NULL;
-#endif
 	truncate_inode_pages_final(&inode->i_data);
 	clear_inode(inode);
 	if (inode->i_sb->s_flags & MS_ACTIVE) {
