@@ -202,6 +202,9 @@ struct fuse_file {
 	/** Backing file used by FUSE-BPF operations */
 	struct file *backing_file;
 
+	/** Defers release filters away from request completion context */
+	struct work_struct release_work;
+
 	/** True when OPEN was completed by the backing filesystem */
 	bool is_backing:1;
 #endif
@@ -824,7 +827,6 @@ struct fuse_file *fuse_file_get(struct fuse_file *ff);
 void fuse_file_free(struct fuse_file *ff);
 #ifdef CONFIG_FUSE_BPF
 struct bpf_prog *fuse_get_bpf_prog(struct file *file);
-void fuse_file_release_backing(struct fuse_file *ff);
 void fuse_file_put_backing(struct fuse_file *ff);
 #endif
 void fuse_finish_open(struct inode *inode, struct file *file);
@@ -1218,14 +1220,11 @@ void *fuse_open_finalize(struct fuse_bpf_args *args,
 
 int fuse_release_initialize(struct fuse_bpf_args *args,
 			    struct fuse_release_in *in,
-			    struct inode *inode, struct file *file,
-			    int opcode);
+			    struct inode *inode, struct fuse_file *ff);
 int fuse_release_backing(struct fuse_bpf_args *args,
-			 struct inode *inode, struct file *file,
-			 int opcode);
+			 struct inode *inode, struct fuse_file *ff);
 void *fuse_release_finalize(struct fuse_bpf_args *args,
-			    struct inode *inode, struct file *file,
-			    int opcode);
+			    struct inode *inode, struct fuse_file *ff);
 
 /*
  * Run an operation through its FUSE-BPF prefilter, optional userspace

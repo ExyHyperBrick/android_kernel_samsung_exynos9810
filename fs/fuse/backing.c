@@ -759,59 +759,48 @@ out_error:
 
 int fuse_release_initialize(struct fuse_bpf_args *args,
 			    struct fuse_release_in *in,
-			    struct inode *inode, struct file *file,
-			    int opcode)
+			    struct inode *inode, struct fuse_file *ff)
 {
-	struct fuse_file *ff = file->private_data;
+	struct fuse_req *req;
+	u32 opcode;
 
-	if (!ff || !ff->is_backing)
-		return -EBADF;
+	if (!ff || !ff->reserved_req)
+		return -EINVAL;
+	req = ff->reserved_req;
+	opcode = req->in.h.opcode;
+	if (opcode != FUSE_RELEASE && opcode != FUSE_RELEASEDIR)
+		return -EINVAL;
 
-	memset(in, 0, sizeof(*in));
-	in->fh = ff->fh;
-	in->flags = file->f_flags;
-	if (ff->flock) {
-		in->release_flags |= FUSE_RELEASE_FLOCK_UNLOCK;
-		in->lock_owner = fuse_lock_owner_id(ff->fc,
-						   (fl_owner_t)file);
-	}
-
-	fuse_file_release_backing(ff);
+	/* The lower file is no longer needed after the last ff reference. */
+	fuse_file_put_backing(ff);
+	*in = req->misc.release.in;
 	*args = (struct fuse_bpf_args) {
-		.nodeid = get_node_id(inode),
+		.nodeid = ff->nodeid,
 		.opcode = opcode,
 		.in_numargs = 1,
-		.flags = FUSE_BPF_FORCE,
 		.in_args[0] = (struct fuse_bpf_in_arg) {
 			.size = sizeof(*in),
 			.value = in,
 		},
 	};
+	(void)inode;
 	return 0;
 }
 
 int fuse_release_backing(struct fuse_bpf_args *args,
-			 struct inode *inode, struct file *file,
-			 int opcode)
+			 struct inode *inode, struct fuse_file *ff)
 {
 	(void)args;
 	(void)inode;
-	(void)file;
-	(void)opcode;
+	(void)ff;
 	return 0;
 }
 
 void *fuse_release_finalize(struct fuse_bpf_args *args,
-			    struct inode *inode, struct file *file,
-			    int opcode)
+			    struct inode *inode, struct fuse_file *ff)
 {
-	struct fuse_file *ff = file->private_data;
-	int error = (s32)args->error_in;
-
-	file->private_data = NULL;
-	if (ff)
-		fuse_file_put_backing(ff);
+	(void)args;
 	(void)inode;
-	(void)opcode;
-	return error ? ERR_PTR(error) : NULL;
+	(void)ff;
+	return NULL;
 }

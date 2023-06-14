@@ -21,6 +21,10 @@
 
 static const struct file_operations fuse_direct_io_file_operations;
 
+#ifdef CONFIG_FUSE_BPF
+static void fuse_file_release_backing(struct work_struct *work);
+#endif
+
 static int fuse_send_open(struct fuse_conn *fc, u64 nodeid, struct file *file,
 			  int opcode, struct fuse_open_out *outargp)
 {
@@ -62,6 +66,9 @@ struct fuse_file *fuse_file_alloc(struct fuse_conn *fc)
 	atomic_set(&ff->count, 0);
 	RB_CLEAR_NODE(&ff->polled_node);
 	init_waitqueue_head(&ff->poll_wait);
+#ifdef CONFIG_FUSE_BPF
+	INIT_WORK(&ff->release_work, fuse_file_release_backing);
+#endif
 
 	spin_lock(&fc->lock);
 	ff->kh = ++fc->khctr;
@@ -71,24 +78,20 @@ struct fuse_file *fuse_file_alloc(struct fuse_conn *fc)
 }
 
 #ifdef CONFIG_FUSE_BPF
-void fuse_file_release_backing(struct fuse_file *ff)
+void fuse_file_put_backing(struct fuse_file *ff)
 {
-	struct file *file;
+	struct file *backing_file = ff->backing_file;
 
-	if (!ff)
-		return;
-
-	file = ff->backing_file;
 	ff->backing_file = NULL;
-	if (file && !IS_ERR(file))
-		fput(file);
+	if (backing_file)
+		fput(backing_file);
 }
 #endif
 
 void fuse_file_free(struct fuse_file *ff)
 {
 #ifdef CONFIG_FUSE_BPF
-	fuse_file_release_backing(ff);
+	fuse_file_put_backing(ff);
 #endif
 	fuse_request_free(ff->reserved_req);
 	kfree(ff);
@@ -105,6 +108,36 @@ static void fuse_release_end(struct fuse_conn *fc, struct fuse_req *req)
 	iput(req->misc.release.inode);
 }
 
+#ifdef CONFIG_FUSE_BPF
+static void fuse_file_release_backing(struct work_struct *work)
+{
+	struct fuse_file *ff = container_of(work, struct fuse_file,
+					    release_work);
+	struct fuse_req *req = ff->reserved_req;
+	struct inode *inode = req->misc.release.inode;
+	struct fuse_inode *fi = inode ? get_fuse_inode(inode) : NULL;
+
+	if (fi && fi->backing_inode) {
+		struct fuse_err_ret result;
+
+		result = fuse_bpf_backing(inode, struct fuse_release_in,
+					  fuse_release_initialize,
+					  fuse_release_backing,
+					  fuse_release_finalize,
+					  inode, ff);
+		(void)result;
+	}
+
+	__clear_bit(FR_BACKGROUND, &req->flags);
+	if (inode)
+		iput(inode);
+	fuse_put_request(ff->fc, req);
+	fuse_file_put_backing(ff);
+	kfree(ff);
+	module_put(THIS_MODULE);
+}
+#endif
+
 static void fuse_file_put(struct fuse_file *ff, bool sync)
 {
 	if (atomic_dec_and_test(&ff->count)) {
@@ -112,7 +145,15 @@ static void fuse_file_put(struct fuse_file *ff, bool sync)
 
 #ifdef CONFIG_FUSE_BPF
 		if (ff->is_backing) {
-			fuse_file_free(ff);
+			/*
+			 * Drop the lower open file at the final FUSE handle
+			 * reference.  Only release filtering stays deferred.
+			 */
+			fuse_file_put_backing(ff);
+			__module_get(THIS_MODULE);
+			if (WARN_ON(!queue_work(system_unbound_wq,
+						&ff->release_work)))
+				module_put(THIS_MODULE);
 			return;
 		}
 #endif
@@ -139,13 +180,6 @@ static void fuse_file_put(struct fuse_file *ff, bool sync)
 		kfree(ff);
 	}
 }
-
-#ifdef CONFIG_FUSE_BPF
-void fuse_file_put_backing(struct fuse_file *ff)
-{
-	fuse_file_put(ff, false);
-}
-#endif
 
 int fuse_do_open(struct fuse_conn *fc, u64 nodeid, struct file *file,
 		 bool isdir)
@@ -308,26 +342,6 @@ void fuse_release_common(struct file *file, int opcode)
 	ff = file->private_data;
 	if (unlikely(!ff))
 		return;
-
-#ifdef CONFIG_FUSE_BPF
-	if (ff->is_backing) {
-		struct fuse_err_ret result;
-
-		result = fuse_bpf_backing(file_inode(file),
-					  struct fuse_release_in,
-					  fuse_release_initialize,
-					  fuse_release_backing,
-					  fuse_release_finalize,
-					  file_inode(file), file, opcode);
-		if (file->private_data == ff) {
-			file->private_data = NULL;
-			fuse_file_put_backing(ff);
-		}
-		(void)result;
-		return;
-	}
-#endif
-
 	req = ff->reserved_req;
 	fuse_prepare_release(ff, file->f_flags, opcode);
 
