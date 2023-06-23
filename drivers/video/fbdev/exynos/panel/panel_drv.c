@@ -1794,7 +1794,7 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 					__func__, panel_state_names[panel->state.cur_state]);
 			ret = panel_display_on(panel);
 #ifdef CONFIG_PANEL_GREEN_SCREEN_WORKAROUND
-			if (!ret) {
+			if (!ret && panel->state.cur_state != PANEL_STATE_ALPM) {
 				fix_green_screen = 1;
 			}
 #endif
