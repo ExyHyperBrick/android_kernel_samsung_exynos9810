@@ -709,7 +709,7 @@ static int decon_debug_dump_show(struct seq_file *s, void *unused)
 		decon_info("%s: decon is not ON(%d)\n", __func__, decon->state);
 		return 0;
 	}
-	decon_dump(decon, REQ_DSI_DUMP);
+	decon_dump(decon);
 	return 0;
 }
 

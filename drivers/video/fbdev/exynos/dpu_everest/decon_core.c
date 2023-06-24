@@ -180,7 +180,7 @@ static void __decon_dump(bool en_dsc)
 	}
 }
 
-void decon_dump(struct decon_device *decon, int dsi_dump)
+void decon_dump(struct decon_device *decon)
 {
 	int acquired = console_trylock();
 
@@ -214,11 +214,9 @@ void decon_dump(struct decon_device *decon, int dsi_dump)
 		break;
 	}
 
-	if (dsi_dump == REQ_DSI_DUMP) {
-		if (decon->dt.out_type == DECON_OUT_DSI)
-			v4l2_subdev_call(decon->out_sd[0], core, ioctl,
-					DSIM_IOC_DUMP, NULL);
-	}
+	if (decon->dt.out_type == DECON_OUT_DSI)
+		v4l2_subdev_call(decon->out_sd[0], core, ioctl,
+				DSIM_IOC_DUMP, NULL);
 
 	decon_dump_using_dpp(decon);
 
@@ -865,7 +863,7 @@ static int _decon_disable(struct decon_device *decon, enum decon_state state)
 
 	ret = decon_reg_stop(decon->id, decon->dt.out_idx[0], &psr, true);
 	if (ret < 0)
-		decon_dump(decon, REQ_DSI_DUMP);
+		decon_dump(decon);
 
 	decon_reg_clear_int_all(decon->id);
 
@@ -1047,7 +1045,7 @@ static int decon_dp_disable(struct decon_device *decon)
 	decon_to_psr_info(decon, &psr);
 	ret = decon_reg_stop(decon->id, decon->dt.out_idx[0], &psr, true);
 	if (ret < 0)
-		decon_dump(decon, REQ_DSI_DUMP);
+		decon_dump(decon);
 
 	decon_reg_set_int(decon->id, &psr, 0);
 	decon_reg_clear_int_all(decon->id);
@@ -1922,7 +1920,7 @@ static int __decon_update_regs(struct decon_device *decon, struct decon_reg_data
 		}
 #endif
 		decon_up_list_saved();
-		decon_dump(decon, REQ_DSI_DUMP);
+		decon_dump(decon);
 #ifdef CONFIG_LOGGING_BIGDATA_BUG
 		log_decon_bigdata(decon);
 #endif
@@ -2294,7 +2292,7 @@ video_emul_check_done:
 #endif
 			decon_up_list_saved();
 			decon_dump_afbc_handle(decon, old_dma_bufs);
-			decon_dump(decon, REQ_DSI_DUMP);
+			decon_dump(decon);
 #ifdef CONFIG_LOGGING_BIGDATA_BUG
 			log_decon_bigdata(decon);
 #endif
@@ -3034,7 +3032,7 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 			break;
 		}
 		mutex_unlock(&decon->lock);
-		decon_dump(decon, REQ_DSI_DUMP);
+		decon_dump(decon);
 		break;
 
 	case S3CFB_POWER_MODE:
@@ -3909,7 +3907,7 @@ static int decon_itmon_notifier(struct notifier_block *nb,
 		decon_info("%s: port: %s, dest: %s, action: %lu\n", __func__,
 				itmon_data->port, itmon_data->dest, action);
 		out_sd_dump();
-		decon_dump(decon, IGN_DSI_DUMP);
+		decon_dump(decon);
 		decon->notified = true;
 		return NOTIFY_OK;
 	}

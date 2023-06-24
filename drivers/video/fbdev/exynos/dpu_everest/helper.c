@@ -701,7 +701,7 @@ int dpu_sysmmu_fault_handler(struct iommu_domain *domain,
 		}
 	}
 
-	decon_dump(decon, IGN_DSI_DUMP);
+	decon_dump(decon);
 
 	return 0;
 }

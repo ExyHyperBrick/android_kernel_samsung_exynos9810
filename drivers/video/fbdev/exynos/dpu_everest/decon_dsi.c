@@ -237,7 +237,7 @@ int decon_error_cb(struct decon_device *decon,
 	if (retry > DISP_ERROR_CB_RETRY_CNT) {
 		decon_err("DECON:ERR:%s:failed to recover(retry %d times)\n",
 				__func__, DISP_ERROR_CB_RETRY_CNT);
-		decon_dump(decon, REQ_DSI_DUMP);
+		decon_dump(decon);
 #ifdef CONFIG_LOGGING_BIGDATA_BUG
 		log_decon_bigdata(decon);
 #endif
@@ -1068,7 +1068,7 @@ int decon_enter_hiber(struct decon_device *decon)
 
 	ret = decon_reg_stop(decon->id, decon->dt.out_idx[0], &psr, true);
 	if (ret < 0)
-		decon_dump(decon, REQ_DSI_DUMP);
+		decon_dump(decon);
 
 	decon_reg_clear_int_all(decon->id);
 

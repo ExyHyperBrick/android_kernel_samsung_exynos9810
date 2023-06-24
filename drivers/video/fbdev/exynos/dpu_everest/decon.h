@@ -701,10 +701,6 @@ void decon_destroy_debugfs(struct decon_device *decon);
 #define decon_destroy_debugfs(..) do { } while(0)
 #endif
 
-
-#define REQ_DSI_DUMP	1
-#define IGN_DSI_DUMP	0
-
 /* HDR information of panel */
 enum decon_hdr_type {
 	HDR_NONE = 0,
@@ -1396,7 +1392,7 @@ u32 dpu_get_alpha_len(int format);
 void dpu_unify_rect(struct decon_rect *r1, struct decon_rect *r2,
 		struct decon_rect *dst);
 
-void decon_dump(struct decon_device *decon, int dsi_dump);
+void decon_dump(struct decon_device *decon);
 void decon_to_psr_info(struct decon_device *decon, struct decon_mode_info *psr);
 void decon_to_init_param(struct decon_device *decon, struct decon_param *p);
 void decon_create_timeline(struct decon_device *decon, char *name);
