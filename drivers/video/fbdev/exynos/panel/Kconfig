@@ -144,3 +144,7 @@ config NO_LCD
 	tristate "NO LCD feature"
 	default n
 
+config GREEN_SCREEN_WORKAROUND
+	depends on EXYNOS_DECON_LCD
+	tristate "green screen workaround for panel"
+	default y

@@ -1706,7 +1706,9 @@ static int panel_set_finger_layer(struct panel_device *panel, void *arg)
 static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
 	int ret = 0;
+#ifdef CONFIG_PANEL_GREEN_SCREEN_WORKAROUND
 	int fix_green_screen = 0;
+#endif
 	struct panel_device *panel = container_of(sd, struct panel_device, sd);
 
 	mutex_lock(&panel->io_lock);
@@ -1791,13 +1793,16 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 			panel_info("PANEL:INFO:%s:FRAME_DONE (panel_state:%s, display on)\n",
 					__func__, panel_state_names[panel->state.cur_state]);
 			ret = panel_display_on(panel);
+#ifdef CONFIG_PANEL_GREEN_SCREEN_WORKAROUND
 			if (!ret) {
 				fix_green_screen = 1;
 			}
+#endif
 		}
 		copr_update_start(&panel->copr, 3);
 
 #ifdef CONFIG_SUPPORT_DOZE
+#ifdef CONFIG_PANEL_GREEN_SCREEN_WORKAROUND
 		if (fix_green_screen) {
 			ret = panel_doze(panel, PANEL_IOC_DOZE);
 			if (ret) {
@@ -1814,6 +1819,7 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 				break;
 			}
 		}
+#endif
 #endif
 		break;
 	case PANEL_IOC_EVT_VSYNC:
