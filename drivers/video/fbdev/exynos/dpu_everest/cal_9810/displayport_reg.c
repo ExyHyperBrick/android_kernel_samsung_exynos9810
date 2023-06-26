@@ -887,12 +887,6 @@ int displayport_reg_dpcd_write(u32 address, u32 length, u8 *data)
 		retry_cnt--;
 	}
 
-#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
-	if (ret == 0)
-		secdp_bigdata_clr_error_cnt(ERR_AUX);
-	else if (displayport->ccic_hpd)
-		secdp_bigdata_inc_error_cnt(ERR_AUX);
-#endif
 	mutex_unlock(&displayport->aux_lock);
 
 	return ret;
@@ -922,12 +916,6 @@ int displayport_reg_dpcd_read(u32 address, u32 length, u8 *data)
 	if (ret == 0)
 		displayport_reg_aux_ch_received_buf(data, length);
 
-#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
-	if (ret == 0)
-		secdp_bigdata_clr_error_cnt(ERR_AUX);
-	else if (displayport->ccic_hpd)
-		secdp_bigdata_inc_error_cnt(ERR_AUX);
-#endif
 	mutex_unlock(&displayport->aux_lock);
 
 	return ret;

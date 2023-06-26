@@ -129,4 +129,3 @@ config SUPPORT_KERNEL_4_9
 endif
 
 source "drivers/video/fbdev/exynos/dpu_everest/panels/Kconfig"
-source "drivers/video/fbdev/exynos/dpu_everest/dp_logger/Kconfig"
