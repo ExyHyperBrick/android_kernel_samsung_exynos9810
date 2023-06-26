@@ -269,32 +269,6 @@ void decon_reg_set_scaled_image_size(u32 id,
 	decon_write_mask(id, SCALED_SIZE_CONTROL_0, val, mask);
 }
 
-void decon_reg_set_splitter(u32 id, u32 width, u32 height,
-	u32 split_idx, u32 overlap_w)
-{
-	u32 val, mask;
-
-	/* DUAL DSI can be used only for DECON0 */
-	if (id != 0)
-		return;
-
-	val = SPLITTER_HEIGHT_F(height) | SPLITTER_WIDTH_F(width * 2);
-	decon_write(id, SPLITTER_SIZE_CONTROL_0, val);
-
-	val = SPLITTER_SPLIT_IDX_F(split_idx) | SPLITTER_OVERLAP_F(overlap_w);
-	mask = SPLITTER_SPLIT_IDX_MASK | SPLITTER_OVERLAP_MASK;
-	decon_write_mask(id, SPLITTER_SPLIT_IDX_CONTROL, val, mask);
-}
-
-void decon_reg_get_splitter_size(u32 id, u32 *w, u32 *h)
-{
-	u32 val;
-
-	val = decon_read(id, SPLITTER_SIZE_CONTROL_0);
-	*w = SPLITTER_WIDTH_GET(val);
-	*h = SPLITTER_HEIGHT_GET(val);
-}
-
 void decon_reg_set_outfifo_size_ctl0(u32 id, u32 width, u32 height)
 {
 	u32 val;
@@ -358,40 +332,6 @@ void decon_reg_set_blender_bg_image_size(u32 id,
 	mask = BLENDER_BG_HEIGHT_MASK | BLENDER_BG_WIDTH_MASK;
 	decon_write_mask(id, BLENDER_BG_IMAGE_SIZE_0, val, mask);
 
-}
-
-void decon_reg_get_blender_bg_image_size(u32 id, u32 *p_width, u32 *p_height)
-{
-	u32 val;
-
-	val = decon_read(id, BLENDER_BG_IMAGE_SIZE_0);
-	*p_width = BLENDER_BG_WIDTH_GET(val);
-	*p_height = BLENDER_BG_HEIGHT_GET(val);
-}
-
-/*
- * argb_color : for RGB101010
- *
- */
-void decon_reg_set_blender_bg_image_color(u32 id, u32 argb_color,
-					u32 red, u32 green, u32 blue)
-{
-	u32 val, mask;
-	u32 bg_alpha = 0, bg_red = 0;
-	u32 bg_green = 0, bg_blue = 0;
-
-	bg_alpha = argb_color & 0xFF;
-	bg_red = red & 0x3FF;
-	bg_green = green & 0x3FF;
-	bg_blue = blue & 0x3FF;
-
-	val = BLENDER_BG_A_F(bg_alpha) | BLENDER_BG_R_F(bg_red);
-	mask = BLENDER_BG_A_MASK | BLENDER_BG_R_MASK;
-	decon_write_mask(id, BLENDER_BG_IMAGE_COLOR_0, val, mask);
-
-	val = BLENDER_BG_G_F(bg_green) | BLENDER_BG_B_F(bg_blue);
-	mask = BLENDER_BG_G_MASK | BLENDER_BG_B_MASK;
-	decon_write_mask(id, BLENDER_BG_IMAGE_COLOR_1, val, mask);
 }
 
 void decon_reg_set_data_path(u32 id, enum decon_data_path d_path,
@@ -520,14 +460,6 @@ void decon_reg_config_data_path_size(u32 id,
 	if (dsim_if0 && dsim_if1)
 		dual_dsi = 1;
 
-/* TBD */
-#if 0
-	/* 1. SPLITTER */
-	if (dual_dsi && !dual_dsc)
-		decon_reg_set_splitter(id, width*2, height, width, overlap_w);
-	else
-		decon_reg_set_splitter(id, width, height, width, 0);
-#endif
 	/* 2. OUTFIFO */
 	if (param->lcd_info->dsc_enabled) {
 		ds_en = dsc_get_dual_slice_mode(param->lcd_info);
@@ -548,11 +480,6 @@ void decon_reg_config_data_path_size(u32 id,
 	} else {
 		decon_reg_set_outfifo_size_ctl0(id, width, height);
 	}
-}
-
-void decon_reg_print_data_path_size(u32 id)
-{
-	/* TBD */
 }
 
 /*
@@ -711,44 +638,6 @@ int decon_reg_wait_for_update_timeout(u32 id, unsigned long timeout)
 	}
 
 	return 0;
-}
-
-/* wait until shadow update is finished */
-int decon_reg_wait_for_window_update_timeout(u32 id, u32 win_idx,
-		unsigned long timeout)
-{
-	unsigned long delay_time = 100;
-	unsigned long cnt = timeout / delay_time;
-
-	while ((decon_read(id, SHADOW_REG_UPDATE_REQ) &
-				SHADOW_REG_UPDATE_REQ_WIN(win_idx)) && --cnt)
-		udelay(delay_time);
-
-	if (!cnt) {
-		decon_err("decon%d timeout of updating\
-				decon window registers\n", id);
-		return -EBUSY;
-	}
-
-	return 0;
-}
-
-void decon_reg_set_hw_trig_sel(u32 id, enum decon_te_src te_src)
-{
-	u32 val, mask;
-
-	val = HW_TRIG_SEL(te_src);
-	mask = HW_TRIG_SEL_MASK;
-	decon_write_mask(id, HW_SW_TRIG_CONTROL, val, mask);
-}
-
-void decon_reg_set_hw_trig_skip(u32 id, u32 cnt)
-{
-	u32 val, mask;
-
-	val = HW_TRIG_SKIP(cnt);
-	mask = HW_TRIG_SKIP_MASK;
-	decon_write_mask(id, HW_SW_TRIG_CONTROL, val, mask);
 }
 
 void decon_reg_configure_trigger(u32 id, enum decon_trig_mode mode)
@@ -1026,21 +915,6 @@ void dsc_reg_set_pps_58_59_rc_range_param0(u32 dsc_id, u32 rc_range_param)
 	dsc_write_mask(dsc_id, DSC_PPS56_59, val, mask);
 }
 
-static inline u32 dsc_round_up(u32 x, u32 a)
-{
-	u32 remained = x % a;
-
-	if (!remained)
-		return x;
-
-	return x + a - remained;
-}
-
-static inline u32 ceil_div(u32 a, u32 b)
-{
-	return (a + (b - 1)) / b;
-}
-
 /* full size default value */
 u32 dsc_get_dual_slice_mode(struct decon_lcd *lcd_info)
 {
@@ -1316,56 +1190,6 @@ void dsc_calc_pps_info(struct decon_lcd *lcd_info, u32 dscc_en,
 	dsc_enc->rc_range_parameters = rc_range_parameters;
 
 	dsc_enc->width_per_enc = dsc_enc0_w;
-}
-
-u32 dsc_get_compressed_slice_width(u32 x_resol, u32 dscc_en, u32 ds_en)
-{
-	u32 slice_width;
-	u32 width_eff;
-	u32 slice_width_byte_unit, comp_slice_width_byte_unit;
-	u32 comp_slice_width_pixel_unit;
-	u32 overlap_w = 0;
-	u32 comp_slice_w = 0;
-	u32 i, j;
-
-	/* check if two encoders are used */
-	if (dscc_en)
-		width_eff = (x_resol >> 1) + overlap_w;
-	else
-		width_eff = x_resol + overlap_w;
-
-	/* check if dual slice is enabled */
-	if (ds_en)
-		slice_width = width_eff >> 1;
-	else
-		slice_width = width_eff;
-
-	/* 3bytes per pixel */
-	slice_width_byte_unit = slice_width * 3;
-	/* integer value, /3 for 1/3 compression */
-	comp_slice_width_byte_unit = slice_width_byte_unit / 3;
-	/* integer value, /3 for pixel unit */
-	comp_slice_width_pixel_unit = comp_slice_width_byte_unit / 3;
-
-	i = comp_slice_width_byte_unit % 3;
-	j = comp_slice_width_pixel_unit % 2;
-
-	if (i == 0 && j == 0) {
-		comp_slice_w = comp_slice_width_pixel_unit;
-	} else if (i == 0 && j != 0) {
-		comp_slice_w = comp_slice_width_pixel_unit + 1;
-	} else if (i != 0) {
-		while (1) {
-			comp_slice_width_pixel_unit++;
-			j = comp_slice_width_pixel_unit % 2;
-			if (j == 0)
-				break;
-		}
-		comp_slice_w = comp_slice_width_pixel_unit;
-	}
-
-	return comp_slice_w;
-
 }
 
 void dsc_reg_set_pps(u32 dsc_id, struct decon_dsc *dsc_enc)
@@ -1665,9 +1489,6 @@ int dsc_reg_init(u32 id, struct decon_param *p, u32 overlap_w, u32 swrst)
 	dsc_reg_set_encoder(id, p, &dsc_enc, 0);
 	decon_reg_config_data_path_size(id,
 		dsc_enc.width_per_enc, lcd_info->yres, overlap_w, &dsc_enc, p);
-
-	/* To check SFR size configurations */
-	decon_reg_print_data_path_size(id);
 
 	return 0;
 }
@@ -2285,27 +2106,6 @@ int decon_reg_get_interrupt_and_clear(u32 id, u32 *ext_irq)
 	}
 
 	return val;
-}
-
-/* OS Only */
-int decon_reg_is_win_enabled(u32 id, int win_idx)
-{
-	if (decon_read(id, DATA_PATH_CONTROL_0) & WIN_EN_F(win_idx))
-		return 1;
-
-	return 0;
-}
-
-u32 decon_reg_get_width(u32 id, int dsi_mode)
-{
-	/* TBD */
-	return 0;
-}
-
-u32 decon_reg_get_height(u32 id, int dsi_mode)
-{
-	/* TBD */
-	return 0;
 }
 
 void decon_reg_set_mres(u32 id, struct decon_param *p)

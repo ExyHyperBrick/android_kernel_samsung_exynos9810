@@ -387,11 +387,6 @@ void dsim_reg_pll_stable_time(u32 id)
 }
 
 /***************************** DPHY CAL  *******************************/
-void dsim_reg_dp_dn_swap(u32 id, u32 en)
-{
-	/* TBD */
-}
-
 #if defined(CONFIG_EXYNOS_DSIM_DITHER)
 void dsim_reg_set_dphy_dither_en(u32 id, u32 en)
 {
@@ -773,11 +768,6 @@ void dsim_reg_clear_int(u32 id, u32 int_src)
 	dsim_write(id, DSIM_INTSRC, int_src);
 }
 
-void dsim_reg_clear_int_all(u32 id)
-{
-	dsim_write(id, DSIM_INTSRC, 0xffffffff);
-}
-
 void dsim_reg_set_pll(u32 id, u32 en)
 {
 	u32 val = en ? ~0 : 0;
@@ -861,14 +851,6 @@ void dsim_reg_set_lpdr_timeout(u32 id)
 	u32 val = DSIM_TIMEOUT_LPDR_TOUT(DSIM_LP_RX_TIMEOUT);
 
 	dsim_write_mask(id, DSIM_TIMEOUT, val, DSIM_TIMEOUT_LPDR_TOUT_MASK);
-}
-
-void dsim_reg_set_packet_ctrl(u32 id)
-{
-	u32 val = DSIM_CMD_CONFIG_MULTI_PKT_CNT(DSIM_MULTI_PACKET_CNT);
-
-	dsim_write_mask(id, DSIM_CMD_CONFIG, val,
-				DSIM_CMD_CONFIG_MULTI_PKT_CNT_MASK);
 }
 
 void dsim_reg_disable_hsa(u32 id, u32 en)
@@ -1018,13 +1000,6 @@ void dsim_reg_set_pixel_format(u32 id, u32 pixformat)
 	u32 val = DSIM_CONFIG_PIXEL_FORMAT(pixformat);
 
 	dsim_write_mask(id, DSIM_CONFIG, val, DSIM_CONFIG_PIXEL_FORMAT_MASK);
-}
-
-void dsim_reg_set_cmd_transfer_mode(u32 id, u32 lp)
-{
-	u32 val = lp ? ~0 : 0;
-
-	dsim_write_mask(id, DSIM_ESCMODE, val, DSIM_ESCMODE_CMD_LPDT);
 }
 
 void dsim_reg_set_vc_id(u32 id, u32 vcid)
@@ -1210,12 +1185,6 @@ void dsim_reg_enable_packetgo(u32 id, u32 en)
 				DSIM_CMD_CONFIG_PKT_GO_EN);
 }
 
-void dsim_reg_set_packetgo_ready(u32 id)
-{
-	dsim_write_mask(id, DSIM_CMD_CONFIG, ~0,
-				DSIM_CMD_CONFIG_PKT_GO_RDY);
-}
-
 void dsim_reg_enable_multi_cmd_packet(u32 id, u32 en)
 {
 	u32 val = en ? ~0 : 0;
@@ -1259,20 +1228,6 @@ void dsim_reg_enable_word_clock(u32 id, u32 en)
 	u32 val = en ? ~0 : 0;
 
 	dsim_write_mask(id, DSIM_CLK_CTRL, val, DSIM_CLK_CTRL_WORDCLK_EN);
-}
-
-void dsim_reg_enable_loopback(u32 id, u32 en)
-{
-	u32 val = en ? ~0 : 0;
-
-	dsim_write_mask(id, DSIM_CSIS_LB, val, DSIM_CSIS_LB_CSIS_LB_EN);
-}
-
-void dsim_reg_set_loopback_id(u32 id, u32 lb_id)
-{
-	u32 val = DSIM_CSIS_LB_CSIS_PH(lb_id);
-
-	dsim_write_mask(id, DSIM_CSIS_LB, val, DSIM_CSIS_LB_CSIS_PH_MASK);
 }
 
 u32 dsim_reg_is_hs_clk_ready(u32 id)
@@ -1349,13 +1304,6 @@ u32 dsim_reg_is_writable_fifo_state(u32 id)
 u32 dsim_reg_header_fifo_is_empty(u32 id)
 {
 	return dsim_read_mask(id, DSIM_FIFOCTRL, DSIM_FIFOCTRL_EMPTY_PH_SFR);
-}
-
-void dsim_reg_force_dphy_stop_state(u32 id, u32 en)
-{
-	u32 val = en ? ~0 : 0;
-
-	dsim_write_mask(id, DSIM_ESCMODE, val, DSIM_ESCMODE_FORCE_STOP_STATE);
 }
 
 void dsim_reg_wr_tx_header(u32 id, u32 data_id, unsigned long data0,
@@ -1495,38 +1443,6 @@ static void dsim_reg_enable_bist(u32 id, u32 en)
 	u32 val = en ? ~0 : 0;
 
 	dsim_write_mask(id, DSIM_BIST_CTRL0, val, DSIM_BIST_CTRL0_BIST_EN);
-}
-
-void dsim_reg_set_bist_pattern_prbs7_seed(u32 id, u32 seed)
-{
-	u32 val = DSIM_BIST_CTRL1_BIST_PTRN_PRBS7_SEED(seed);
-
-	dsim_write_mask(id, DSIM_BIST_CTRL1, val,
-			DSIM_BIST_CTRL1_BIST_PTRN_PRBS7_SEED_MASK);
-}
-
-void dsim_reg_set_bist_pattern_user_r(u32 id, u32 r)
-{
-	u32 val = DSIM_BIST_CTRL1_BIST_PTRN_USER_R(r);
-
-	dsim_write_mask(id, DSIM_BIST_CTRL1, val,
-			DSIM_BIST_CTRL1_BIST_PTRN_USER_R_MASK);
-}
-
-void dsim_reg_set_bist_pattern_user_g(u32 id, u32 g)
-{
-	u32 val = DSIM_BIST_CTRL1_BIST_PTRN_USER_G(g);
-
-	dsim_write_mask(id, DSIM_BIST_CTRL1, val,
-			DSIM_BIST_CTRL1_BIST_PTRN_USER_G_MASK);
-}
-
-void dsim_reg_set_bist_pattern_user_b(u32 id, u32 b)
-{
-	u32 val = DSIM_BIST_CTRL1_BIST_PTRN_USER_B(b);
-
-	dsim_write_mask(id, DSIM_BIST_CTRL1, val,
-			DSIM_BIST_CTRL1_BIST_PTRN_USER_B_MASK);
 }
 
 void dsim_set_bist(u32 id, u32 en)

@@ -66,18 +66,6 @@ void wb_reg_set_clock_gate_en_all(u32 id, u32 en)
 	dpp_write_mask(id, DPU_WB_ENABLE, val, WB_ALL_CLOCK_GATE_EN_MASK);
 }
 
-void wb_reg_set_sfr_update_force(u32 id)
-{
-	dpp_write_mask(id, DPU_WB_ENABLE, ~0, WB_SFR_UPDATE_FORCE);
-}
-
-/* Setting value : 0=Qch-enable, 1=Qch-disable */
-void wb_reg_set_qch(u32 id, u32 en)
-{
-	u32 val = en ? 0 : ~0;
-	dpp_write_mask(id, DPU_WB_ENABLE, val, WB_QCHANNEL_EN);
-}
-
 /* rgb_type : {601, 709} x {narrow, wide} */
 void wb_reg_set_rgb_type(u32 id, u32 rgb_type)
 {
@@ -117,37 +105,6 @@ void wb_reg_set_dst_size(u32 id, u32 w, u32 h)
 	u32 val;
 	val = (WB_DST_HEIGHT(h) | WB_DST_WIDTH(w));
 	dpp_write(id, DPU_WB_DST_SIZE, val);
-}
-
-void wb_reg_set_usb_tv_wb_size(u32 id, u32 byte_cnt)
-{
-	u32 val, mask;
-
-	val = WB_FRAME_BYTE_CNT(byte_cnt);
-	mask = WB_FRAME_BYTE_CNT_MASK;
-	dpp_write_mask(id, DPU_WB_USB_TV_WB_SIZE, val, mask);
-}
-
-void wb_reg_set_usb_tv_wb_en(u32 id, u32 en)
-{
-	u32 val, mask;
-
-	val = WB_USB_WB_EN(en);
-	mask = WB_USB_WB_EN_MASK;
-	dpp_write_mask(id, DPU_WB_USB_TV_WB_CON, val, mask);
-}
-
-/*
-* [opt]
-* 0= 543210, 1= 345012, 2= 210543, 3= 012345
-*/
-void wb_reg_set_usb_tv_wb_swap(u32 id, u32 opt)
-{
-	u32 val, mask;
-
-	val = WB_SWAP_OPTION(opt);
-	mask = WB_SWAP_OPTION_MASK;
-	dpp_write_mask(id, DPU_WB_USB_TV_WB_CON, val, mask);
 }
 
 void wb_reg_set_dynamic_gating_en_all(u32 id, u32 en)
@@ -194,35 +151,6 @@ void dma_reg_set_common_debug(u32 id)
 	dma_com_write(id, DPU_DMA_DEBUG_CONTROL, val);
 }
 
-/* Setting value : 0=Qch-enable, 1=Qch-disable */
-void dma_reg_set_qch(u32 id, u32 en)
-{
-	u32 val =  0;
-
-	val = en ? 0 : ~0;
-	dma_com_write_mask(id, DPU_DMA_QCH_EN, val, DMA_QCH_EN);
-}
-
-/* [ch] 0~2, 3=all */
-void dma_reg_set_swrst(u32 id, u32 ch)
-{
-	u32 mask;
-
-	if (ch == 3)
-		mask = DMA_ALL_SWRST;
-	else
-		mask = DMA_CH_SWRST(ch);
-	dma_com_write_mask(id, DPU_DMA_SWRST, ~0, mask);
-}
-
-void dma_reg_set_glb_clock_gate_en_all(u32 id, u32 en)
-{
-	u32 val =  0;
-
-	val = en ? ~0 : 0;
-	dma_com_write_mask(id, DPU_DMA_GLB_CGEN, val, DMA_ALL_CGEN_MASK);
-}
-
 /* pat_id: [0,1] */
 void dma_reg_set_test_pattern(u32 id, u32 pat_id, u32 *pat_dat)
 {
@@ -237,23 +165,6 @@ void dma_reg_set_test_pattern(u32 id, u32 pat_id, u32 *pat_dat)
 		dma_com_write(id, DPU_DMA_TEST_PATTERN1_2, pat_dat[6]);
 		dma_com_write(id, DPU_DMA_TEST_PATTERN1_3, pat_dat[7]);
 	}
-}
-
-int dma_reg_wait_op_status(u32 id)
-{
-	u32 cfg = 0;
-	unsigned long cnt = 100000;
-
-	do {
-		cfg = dma_read(id, IDMA_ENABLE);
-		if (!(cfg & (IDMA_OP_STATUS)))
-			return 0;
-		udelay(10);
-	} while (--cnt);
-
-	dpp_err("[dma] timeout op_status to idle\n");
-
-	return -EBUSY;
 }
 
 u32 dma_reg_get_op_status(u32 id, unsigned long attr)
@@ -304,11 +215,6 @@ void dma_reg_set_clock_gate_en_all(u32 id, u32 en)
 	dma_write_mask(id, IDMA_ENABLE, val, IDMA_ALL_CLOCK_GATE_EN_MASK);
 }
 
-void dma_reg_set_sfr_update_force(u32 id)
-{
-	dma_write_mask(id, IDMA_ENABLE, ~0, IDMA_SFR_UPDATE_FORCE);
-}
-
 u32 dma_reg_get_irq_status(u32 id, unsigned long attr)
 {
 	u32 val, mask;
@@ -341,77 +247,6 @@ void dma_reg_clear_irq_all(u32 id, unsigned long attr)
 	dma_write_mask(id, IDMA_IRQ, val, val);
 }
 
-void dma_reg_set_irq_mo_conflict(u32 id, u32 en)
-{
-	u32 val = 0;
-
-	val = en ? ~0 : 0;
-	dma_write_mask(id, IDMA_IRQ, val, IDMA_MO_CONFLICT_MASK);
-}
-
-void dma_reg_set_irq_mask_afbc_timeout(u32 id, u32 en)
-{
-	u32 val = 0;
-
-	val = en ? ~0 : 0;
-	dma_write_mask(id, IDMA_IRQ, val, IDMA_AFBC_TIMEOUT_MASK);
-}
-
-void dma_reg_set_irq_mask_recovery_start(u32 id, u32 en)
-{
-	u32 val = 0;
-
-	val = en ? ~0 : 0;
-	dma_write_mask(id, IDMA_IRQ, val, IDMA_RECOVERY_START_MASK);
-}
-
-void dma_reg_set_irq_mask_config_err(u32 id, u32 en)
-{
-	u32 val =  0;
-
-	val = en ? ~0 : 0;
-	dma_write_mask(id, IDMA_IRQ, val, IDMA_CONFIG_ERROR_MASK);
-}
-
-void dma_reg_set_irq_mask_local_hw_reset_done(u32 id, u32 en)
-{
-	u32 val = 0;
-
-	val = en ? ~0 : 0;
-	dma_write_mask(id, IDMA_IRQ, val, IDMA_LOCAL_HW_RESET_DONE_MASK);
-}
-
-void dma_reg_set_irq_mask_read_slave_err(u32 id, u32 en)
-{
-	u32 val = 0;
-
-	val = en ? ~0 : 0;
-	dma_write_mask(id, IDMA_IRQ, val, IDMA_READ_SLAVE_ERROR_MASK);
-}
-
-void dma_reg_set_irq_mask_deadlock(u32 id, u32 en)
-{
-	u32 val = 0;
-
-	val = en ? ~0 : 0;
-	dma_write_mask(id, IDMA_IRQ, val, IDMA_IRQ_DEADLOCK_MASK);
-}
-
-void dma_reg_set_irq_mask_framedone(u32 id, u32 en)
-{
-	u32 val = 0;
-
-	val = en ? ~0 : 0;
-	dma_write_mask(id, IDMA_IRQ, val, IDMA_IRQ_FRAMEDONE_MASK);
-}
-
-/* for ODMA SLICE_DONE */
-void dma_reg_set_irq_mask_slice_done_all(u32 id, u32 en)
-{
-	u32 val = en ? ~0 : 0;
-	dma_write_mask(id, ODMA_IRQ, val, ODMA_ALL_SLICE_DONE_MASK);
-}
-
 void dma_reg_set_irq_mask_all(u32 id, u32 en)
 {
 	u32 val = 0;
@@ -429,29 +264,6 @@ void dma_reg_set_irq_enable(u32 id)
 {
 	dma_write_mask(id, IDMA_IRQ, ~0, IDMA_IRQ_ENABLE);
 }
-
-void dma_reg_set_in_vr_mode(u32 id, u32 en)
-{
-	u32 val;
-
-	val = en ? ~0 : 0;
-	dma_write_mask(id, IDMA_IN_CON, val, IDMA_VR_MODE_EN);
-}
-
-#if 0 /* not used */
-void dma_reg_set_in_ic_max(u32 id, u32 ic_num, unsigned long attr)
-{
-	u32 val, mask;
-
-	val = IDMA_IN_IC_MAX(ic_num);
-	mask = IDMA_IN_IC_MAX_MASK;
-
-	if (test_bit(DPP_ATTR_ODMA, &attr))
-		dma_write_mask(id, ODMA_OUT_CON0, val, mask);
-	else
-		dma_write_mask(id, IDMA_IN_CON, val, mask);
-}
-#endif
 
 void dma_reg_set_img_format(u32 id, u32 fmt, unsigned long attr)
 {
@@ -489,31 +301,6 @@ void dma_reg_set_afbc_en(u32 id, u32 en, unsigned long attr)
 		return;
 	dma_write_mask(id, IDMA_IN_CON, val, IDMA_AFBC_EN);
 }
-
-#if 0 /* not used */
-void dma_reg_set_afbc_timeout_en(u32 id, u32 en, unsigned long attr)
-{
-	u32 val = 0;
-
-	val = en ? ~0 : 0;
-
-	if (!test_bit(DPP_ATTR_AFBC, &attr))
-		return;
-	dma_write_mask(id, IDMA_IN_CON, val, IDMA_AFBC_TO_EN);
-}
-
-void dma_reg_set_in_chroma_stride_sel(u32 id, u32 en, unsigned long attr)
-{
-	u32 val, mask;
-
-	val = en ? ~0 : 0;
-	mask = IDMA_IN_CHROMINANCE_STRIDE_SEL;
-	if (test_bit(DPP_ATTR_ODMA, &attr))
-		dma_write_mask(id, ODMA_OUT_CON0, val, mask);
-	else
-		dma_write_mask(id, IDMA_IN_CON, val, mask);
-}
-#endif
 
 void dma_reg_set_block_en(u32 id, u32 en, unsigned long attr)
 {
@@ -576,19 +363,6 @@ void dma_reg_set_img_size(u32 id, u32 w, u32 h, unsigned long attr)
 	}
 }
 
-#if 0
-void dma_reg_set_chroma_stride(u32 id, u32 stride, unsigned long attr)
-{
-	u32 val, mask;
-
-	if (test_bit(DPP_ATTR_ODMA, &attr))
-		return;
-	val = IDMA_CHROMA_STRIDE(stride);
-	mask = IDMA_CHROMA_STRIDE_MASK;
-	dma_write_mask(id, IDMA_CHROMINANCE_STRIDE, val, mask);
-}
-#endif
-
 void dma_reg_set_block_offset(u32 id, u32 x, u32 y, unsigned long attr)
 {
 	u32 val;
@@ -607,24 +381,6 @@ void dma_reg_set_block_size(u32 id, u32 w, u32 h, unsigned long attr)
 		return;
 	val = (IDMA_BLK_HEIGHT(h) | IDMA_BLK_WIDTH(w));
 	dma_write(id, IDMA_BLOCK_SIZE, val);
-}
-
-void dma_reg_set_perf_degradation_cfg(u32 id, u32 time, u32 ic_num)
-{
-	u32 val, mask;
-
-	val = (DPU_DMA_DEGRADATION_TIME(time) | DPU_DMA_IN_IC_MAX_DEG(ic_num));
-	mask = (DPU_DMA_DEGRADATION_TIME_MASK | DPU_DMA_IN_IC_MAX_DEG_MASK);
-	dma_com_write_mask(id, DPU_DMA_PERFORMANCE_CON0, val, mask);
-}
-
-void dma_reg_set_perf_degradation_en(u32 id, u32 en)
-{
-	u32 val = 0;
-
-	val = en ? ~0 : 0;
-	dma_com_write_mask(id, DPU_DMA_PERFORMANCE_CON0,
-			val, DPU_DMA_DEGRADATION_EN);
 }
 
 void dma_reg_set_in_qos_lut(u32 id, u32 lut_id, u32 qos_t, unsigned long attr)
@@ -656,81 +412,11 @@ void dma_reg_set_in_base_addr(u32 id, u32 addr_y, u32 addr_c, unsigned long attr
 	}
 }
 
-#if 0
-/* (ODMA only) for SLICE_BYTE(n) */
-void dma_reg_set_slice_byte_cnt(u32 id, u32 s_id, u32 b_cnt, unsigned long attr)
-{
-	if (!test_bit(DPP_ATTR_ODMA, &attr))
-		return;
-	dma_write(id, ODMA_SLICE_BYTE_CNT(s_id), b_cnt);
-}
-
-/* (ODMA only) b_cnt[8] : 0=slice0_cnt, ..., 6=slice6_cnt, 7=frame_cnt */
-void dma_reg_set_slice_byte_cnt_all(u32 id, u32 b_cnt[8], unsigned long attr)
-{
-	u32 i;
-
-	if (!test_bit(DPP_ATTR_ODMA, &attr))
-		return;
-	for (i = 0; i < 8; i++)
-		dma_write(id, ODMA_SLICE_BYTE_CNT(i), b_cnt[i]);
-}
-
-/* ODMA only */
-void dma_reg_set_usb_wb_path_sel(u32 id, u32 p_sel, unsigned long attr)
-{
-	u32 val;
-
-	if (!test_bit(DPP_ATTR_ODMA, &attr))
-		return;
-
-	if (p_sel == USB_WB_PATH_OTF)
-		val = ~0;
-	else
-		val = 0;
-	dma_write_mask(id, ODMA_USB_TV_WB_CON, val, ODMA_USB_WB_PATH_SEL);
-}
-
-/* ODMA only */
-void dma_reg_set_usb_wb_en(u32 id, u32 en, unsigned long attr)
-{
-	u32 val = en ? ~0 : 0;
-	if (!test_bit(DPP_ATTR_ODMA, &attr))
-		return;
-	dma_write_mask(id, ODMA_USB_TV_WB_CON, val, ODMA_USB_WB_EN);
-}
-#endif
-
 void dma_reg_set_in_2b_base_addr(u32 id, u32 addr_y, u32 addr_c)
 {
 	dma_write(id, IDMA_IN_BASE_ADDR_Y2, addr_y);
 	dma_write(id, IDMA_IN_BASE_ADDR_C2, addr_c);
 }
-
-#if 0 /* not used */
-void dma_reg_set_deadlock_num(u32 id, u32 dl_num, unsigned long attr)
-{
-	u32 val, mask;
-
-	val = IDMA_DEADLOCK_VAL(dl_num);
-	mask = IDMA_DEADLOCK_VAL_MASK;
-	if (test_bit(DPP_ATTR_ODMA, &attr))
-		dma_write_mask(id, ODMA_DEADLOCK_NUM, val, mask);
-	else
-		dma_write_mask(id, IDMA_DEADLOCK_NUM, val, mask);
-}
-
-void dma_reg_set_deadlock_en(u32 id, u32 en, unsigned long attr)
-{
-	u32 val = 0;
-
-	val = en ? ~0 : 0;
-	if (test_bit(DPP_ATTR_ODMA, &attr))
-		dma_write_mask(id, ODMA_DEADLOCK_NUM, val, IDMA_DEADLOCK_EN);
-	else
-		dma_write_mask(id, IDMA_DEADLOCK_NUM, val, IDMA_DEADLOCK_EN);
-}
-#endif
 
 void dma_reg_set_dynamic_gating_en_all(u32 id, u32 en, unsigned long attr)
 {
@@ -761,38 +447,6 @@ void dma_reg_set_recovery_en(u32 id, u32 en)
 
 	val = en ? ~0 : 0;
 	dma_write_mask(id, IDMA_RECOVERY_CTRL, val, IDMA_RECOVERY_EN);
-}
-
-#if 0
-u32 dma_reg_get_cfg_err_state(u32 id, unsigned long attr)
-{
-	u32 val;
-
-	if (test_bit(DPP_ATTR_ODMA, &attr)) {
-		val = dma_read(id, ODMA_CFG_ERR_STATE);
-		return ODMA_CFG_ERR_GET(val);
-	} else {
-		val = dma_read(id, IDMA_CFG_ERR_STATE);
-		return IDMA_CFG_ERR_GET(val);
-	}
-}
-#endif
-
-int dpp_reg_wait_op_status(u32 id)
-{
-	u32 cfg = 0;
-	unsigned long cnt = 100000;
-
-	do {
-		cfg = dpp_read(id, DPP_ENABLE);
-		if (!(cfg & (DPP_OP_STATUS)))
-			return 0;
-		udelay(10);
-	} while (--cnt);
-
-	dpp_err("[dpp] timeout op_status to idle\n");
-
-	return -EBUSY;
 }
 
 u32 dpp_reg_get_op_status(u32 id, unsigned long attr)
@@ -844,39 +498,9 @@ void dpp_reg_set_clock_gate_en_all(u32 id, u32 en)
 	dpp_write_mask(id, DPP_ENABLE, val, DPP_ALL_CLOCK_GATE_EN_MASK);
 }
 
-void dpp_reg_set_sfr_update_force(u32 id)
-{
-	dpp_write_mask(id, DPP_ENABLE, ~0, DPP_SFR_UPDATE_FORCE);
-}
-
-/* Setting value : 0=Qch-enable, 1=Qch-disable */
-void dpp_reg_set_qchannel_en(u32 id, u32 en)
-{
-	u32 val = 0;
-
-	val = en ? 0 : ~0;
-	dpp_write_mask(id, DPP_ENABLE, val, DPP_QCHANNEL_EN);
-}
-
 void dpp_reg_set_irq_clear_all(u32 id)
 {
 	dpp_write_mask(id, DPP_IRQ, DPP_ALL_IRQ_CLEAR, DPP_ALL_IRQ_CLEAR);
-}
-
-void dpp_reg_set_irq_mask_config_err(u32 id, u32 en)
-{
-	u32 val = 0;
-
-	val = en ? ~0 : 0;
-	dpp_write_mask(id, DPP_IRQ, val, DPP_CONFIG_ERROR_MASK);
-}
-
-void dpp_reg_set_irq_mask_framedone(u32 id, u32 en)
-{
-	u32 val = 0;
-
-	val = en ? ~0 : 0;
-	dpp_write_mask(id, DPP_IRQ, val, DPP_IRQ_FRAMEDONE_MASK);
 }
 
 void dpp_reg_set_irq_mask_all(u32 id, u32 en)
@@ -1121,12 +745,6 @@ void dpp_reg_set_v_coef(u32 id, u32 v_ratio)
 	}
 }
 
-int dpp_reg_set_rotation(u32 id, struct dpp_params_info *p)
-{
-	/* Not support */
-	return 0;
-}
-
 void dpp_reg_set_scale_ratio(u32 id, struct dpp_params_info *p)
 {
 	dpp_reg_set_h_ratio(id, p->h_ratio);
@@ -1170,56 +788,6 @@ void dpp_reg_set_cv_pos(u32 id, u32 i_part, u32 f_part)
 	dpp_write(id, DPP_CVPOSITION, val);
 }
 
-void dpp_reg_set_scale_start_position(u32 id, u32 yh, u32 yv, u32 ch, u32 cv)
-{
-	dpp_reg_set_yh_pos(id, DPP_POS_I_GET(yh), DPP_POS_F_GET(yh));
-	dpp_reg_set_yv_pos(id, DPP_POS_I_GET(yv), DPP_POS_F_GET(yv));
-	dpp_reg_set_ch_pos(id, DPP_POS_I_GET(ch), DPP_POS_F_GET(ch));
-	dpp_reg_set_cv_pos(id, DPP_POS_I_GET(cv), DPP_POS_F_GET(cv));
-}
-
-/*
- * This function calculates initial phase for scaling.
- * range = (-1, 4)
- *
- * <EQUATION for RGB>
- *        (S - D) / (2*D)
- *
- * [fmt_id]
- *  0 = RGB
- *  1 = YUV420 : x2 for both chroma_width and chroma_height (to 444)
- *
- * [return]
- *  calculated_phase (12.20 format)
- *   yc_phase[0] : YH
- *   yc_phase[1] : YV
- *   yc_phase[2] : CH
- *   yc_phase[3] : CV
- */
-void dpp_calc_recommend_initial_phase(u32 fmt_id,
-		u32 sw, u32 sh, u32 dw, u32 dh, u32 yc_phase[4])
-{
-	switch (fmt_id) {
-	/* RGB */
-	case 0:
-		yc_phase[0] = (((s64)sw - (s64)dw) * 0x100000) / (2 * dw);
-		yc_phase[1] = (((s64)sh - (s64)dh) * 0x100000) / (2 * dh);
-		yc_phase[2] = (((s64)sw - (s64)dw) * 0x100000) / (2 * dw);
-		yc_phase[3] = (((s64)sh - (s64)dh) * 0x100000) / (2 * dh);
-		break;
-	/* 420 */
-	case 1:
-		yc_phase[0] = (((s64)sw - (s64)dw) * 0x100000) / (2 * dw);
-		yc_phase[1] = (((s64)sh - (s64)dh) * 0x100000) / (2 * dh);
-		yc_phase[2] = (((s64)sw - (s64)(2*dw)) * 0x100000) / (4 * dw);
-		yc_phase[3] = (((s64)sh - (s64)(2*dh)) * 0x100000) / (4 * dh);
-		break;
-	/* unknown format */
-	default:
-		break;
-	}
-}
-
 void dpp_reg_set_dynamic_gating_en_all(u32 id, u32 en)
 {
 	u32 val = 0;
@@ -1242,42 +810,6 @@ void dpp_reg_set_linecnt_en(u32 id, u32 en)
 
 	val = en ? ~0 : 0;
 	dpp_write_mask(id, DPP_LINECNT_CON, val, DPP_LC_ENABLE_MASK);
-}
-
-void dpp_reg_set_linecnt_counter(u32 id, u32 cnt)
-{
-	u32 val;
-
-	val = DPP_LC_COUNTER(cnt);
-	dpp_write_mask(id, DPP_LINECNT_VAL, val, DPP_LC_COUNTER_MASK);
-}
-
-u32 dpp_reg_get_linecnt_counter(u32 id)
-{
-	u32 val = 0;
-
-	val = dpp_read(id, DPP_LINECNT_VAL);
-	return DPP_LC_COUNTER_GET(val);
-}
-
-u32 dpp_reg_get_cfg_err_state(u32 id)
-{
-	u32 val = 0;
-
-	val = dpp_read(id, DPP_CFG_ERR_STATE);
-	return DPP_CFG_ERR_GET(val);
-}
-
-bool dpp_reg_check_cfg_err(u32 id, enum dpp_cfg_err err_id)
-{
-	u32 val = 0;
-
-	val = dpp_read(id, DPP_CFG_ERR_STATE);
-
-	if (DPP_CFG_ERR_GET(val) & err_id)
-		return 1;
-	else
-		return 0;
 }
 
 /* [mode] 0=runtime changed, 1=captured */
@@ -1513,17 +1045,6 @@ void dpp_reg_set_block_area(u32 id, struct dpp_params_info *p, unsigned long att
 	dpp_dbg("block x : %d, y : %d, w : %d, h : %d\n",
 			p->block.x, p->block.y, p->block.w, p->block.h);
 }
-
-#if 0
-void dpp_reg_set_plane_alpha(u32 id, u32 plane_alpha, unsigned long attr)
-{
-	if (plane_alpha > 0xFF)
-		dpp_info("%d is too big value\n", plane_alpha);
-	dma_reg_set_out_frame_alpha(id, plane_alpha, attr);
-	if (test_bit(DPP_ATTR_ODMA, &attr))
-		wb_reg_set_out_frame_alpha(id, plane_alpha);
-}
-#endif
 
 void dpp_reg_set_plane_alpha_fixed(u32 id, unsigned long attr)
 {
