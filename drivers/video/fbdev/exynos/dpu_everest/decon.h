@@ -1001,6 +1001,8 @@ struct decon_device {
 	struct decon_systrace_data systrace;
 
 	bool mres_enabled;
+
+	struct dsc_slice *dsw_info;
 };
 
 static inline struct decon_device *get_decon_drvdata(u32 id)

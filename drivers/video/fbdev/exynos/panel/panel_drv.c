@@ -1473,6 +1473,7 @@ static int panel_set_mres(struct panel_device *panel, int *mres_idx)
 	struct panel_state *state;
 	struct decon_lcd *lcd_info;
 	struct lcd_mres_info *dt_lcd_mres;
+	struct dsc_slice *dsc_slice_info;
 
 	if (unlikely(!panel)) {
 		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
@@ -1483,6 +1484,7 @@ static int panel_set_mres(struct panel_device *panel, int *mres_idx)
 	state = &panel->state;
 	lcd_info = &panel->lcd_info;
 	dt_lcd_mres = &lcd_info->dt_lcd_mres;
+	dsc_slice_info = &lcd_info->dt_dsc_slice;
 	if (dt_lcd_mres->mres_en == 0) {
 		panel_err("PANEL:ERR:%s:multi-resolution unsupported!!\n",
 			__func__);
@@ -1502,11 +1504,17 @@ static int panel_set_mres(struct panel_device *panel, int *mres_idx)
 	lcd_info->yres = dt_lcd_mres->res_info[actual_mode].height;
 	lcd_info->dsc_enabled = dt_lcd_mres->res_info[actual_mode].dsc_en;
 	lcd_info->dsc_slice_h = dt_lcd_mres->res_info[actual_mode].dsc_height;
+	lcd_info->dsc_dec_sw = dsc_slice_info->dsc_dec_sw[actual_mode];
+	lcd_info->dsc_enc_sw = dsc_slice_info->dsc_enc_sw[actual_mode];
 
 	if (lcd_info->dsc_enabled)
 		panel_info("PANEL:INFO:%s: dsu mode:%d, resol:%dx%d, dsc:%s, slice_h:%d\n",
 			__func__, lcd_info->mres_mode, lcd_info->xres, lcd_info->yres,
 			lcd_info->dsc_enabled ? "on" : "off", lcd_info->dsc_slice_h);
+	else
+		panel_info("PANEL:INFO:%s: dsu mode:%d, resol:%dx%d, dsc:%s, partial WxH:%dx%d\n",
+			__func__, lcd_info->mres_mode, lcd_info->xres, lcd_info->yres,
+			lcd_info->dsc_enabled ? "on" : "off", lcd_info->partial_width[actual_mode], lcd_info->partial_height[actual_mode]);
 
 	panel->panel_data.props.mres_updated = true;
 	ret = panel_do_seqtbl_by_index(panel, PANEL_DSU_SEQ);

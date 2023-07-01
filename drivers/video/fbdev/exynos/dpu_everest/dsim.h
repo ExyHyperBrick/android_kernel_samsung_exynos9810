@@ -226,6 +226,8 @@ struct dsim_device {
 	struct disp_error_cb_info error_cb_info;
 	struct disp_check_cb_info check_cb_info;
 #endif
+
+	struct dsc_slice dsw_info;
 };
 
 struct dsim_lcd_driver {

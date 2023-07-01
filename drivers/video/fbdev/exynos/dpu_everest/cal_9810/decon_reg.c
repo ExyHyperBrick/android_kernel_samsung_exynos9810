@@ -419,7 +419,7 @@ void decon_reg_set_data_path_size(u32 id, u32 width, u32 height, bool is_dsc,
 	u32 outfifo_w;
 
 	if (is_dsc)
-		outfifo_w = width / 3 / dsc_cnt;
+		outfifo_w = slice_w;
 	else
 		outfifo_w = width;
 
@@ -428,7 +428,7 @@ void decon_reg_set_data_path_size(u32 id, u32 width, u32 height, bool is_dsc,
 	if (dsc_cnt == 2)
 		decon_reg_set_outfifo_size_ctl1(id, outfifo_w, 0);
 	if (is_dsc)
-		decon_reg_set_outfifo_size_ctl2(id, slice_w / 3, slice_h);
+		decon_reg_set_outfifo_size_ctl2(id, slice_w, slice_h);
 
 	/*
 	 * SCALED size is updated LCD size if partial update is operating,
@@ -452,7 +452,7 @@ void decon_reg_config_data_path_size(u32 id,
 	u32 dsim_if0 = 1;
 	u32 dsim_if1 = 0;
 	u32 width_f;
-	u32 sw, ds_en;
+	u32 sw;
 
 	dual_dsc = decon_reg_get_data_path_cfg(id, PATH_CON_ID_DUAL_DSC);
 	dsim_if0 = decon_reg_get_data_path_cfg(id, PATH_CON_ID_DSIM_IF0);
@@ -462,10 +462,8 @@ void decon_reg_config_data_path_size(u32 id,
 
 	/* 2. OUTFIFO */
 	if (param->lcd_info->dsc_enabled) {
-		ds_en = dsc_get_dual_slice_mode(param->lcd_info);
-		/* only 8bpp case : check ceil */
-		sw = CEIL(p->slice_width / 6) * 2;
-		width_f = (ds_en) ? sw * 2 : sw;
+		width_f = p->width_per_enc;
+		sw = param->lcd_info->dsc_enc_sw;
 		/* DSC 1EA */
 		if (param->lcd_info->dsc_cnt == 1) {
 			decon_reg_set_outfifo_size_ctl0(id, width_f, height);
@@ -1706,17 +1704,15 @@ void decon_reg_set_partial_update(u32 id, enum decon_dsi_mode dsi_mode,
 		struct decon_lcd *lcd_info, bool in_slice[],
 		u32 partial_w, u32 partial_h)
 {
-	u32 slice_w;
 	u32 dual_slice_en[2] = {1, 1};
 	u32 slice_mode_ch[2] = {0, 0};
 
 	/* Here, lcd_info contains the size to be updated */
 	decon_reg_set_blender_bg_size(id, dsi_mode, partial_w, partial_h);
 
-	slice_w = lcd_info->xres / lcd_info->dsc_slice_num;
 	decon_reg_set_data_path_size(id, partial_w, partial_h,
-			lcd_info->dsc_enabled, lcd_info->dsc_cnt, slice_w,
-			lcd_info->dsc_slice_h);
+			lcd_info->dsc_enabled, lcd_info->dsc_cnt,
+			lcd_info->dsc_enc_sw, lcd_info->dsc_slice_h);
 
 	if (lcd_info->dsc_enabled) {
 		/* get correct DSC configuration */

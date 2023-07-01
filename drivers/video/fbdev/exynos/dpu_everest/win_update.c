@@ -397,6 +397,8 @@ void dpu_set_mres_config(struct decon_device *decon, struct decon_reg_data *regs
 	idx = regs->mres_idx;
 	dsim->lcd_info.dsc_enabled = mres_info->res_info[idx].dsc_en;
 	dsim->lcd_info.dsc_slice_h = mres_info->res_info[idx].dsc_height;
+	dsim->lcd_info.dsc_dec_sw = dsim->dsw_info.dsc_dec_sw[idx];
+	dsim->lcd_info.dsc_enc_sw = dsim->dsw_info.dsc_enc_sw[idx];
 
 	/* transfer LCD resolution change commands to panel */
 	dsim->panel_ops->mres(dsim, regs->mres_idx);
@@ -482,7 +484,7 @@ static void win_update_find_included_slice(struct decon_lcd *lcd,
 
 	slice_left = 0;
 	slice_right = 0;
-	slice_width = lcd->xres / lcd->dsc_slice_num;
+	slice_width = lcd->dsc_dec_sw;
 
 	for (i = 0; i < lcd->dsc_slice_num; ++i) {
 		slice_left = slice_width * i;
