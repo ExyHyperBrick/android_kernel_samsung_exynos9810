@@ -19,9 +19,7 @@ struct panel_device;
 #undef DEBUG_PAC
 #undef CONFIG_PANEL_BL_USE_BRT_CACHE
 
-#ifndef CONFIG_EXYNOS_DECON_LCD_S6E3HF4
 #define CONFIG_LCD_EXTEND_HBM
-#endif
 
 #ifdef CONFIG_PANEL_BACKLIGHT_PAC_3_0
 #define BRT_SCALE	(100)

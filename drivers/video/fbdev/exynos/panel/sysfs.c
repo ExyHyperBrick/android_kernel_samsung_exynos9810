@@ -2252,11 +2252,6 @@ void ccb_set_mode(struct panel_device *panel, u8 ccb, int stepping)
 	dsim_write_hl_data(dsim, SEQ_TEST_KEY_ON_F0, ARRAY_SIZE(SEQ_TEST_KEY_ON_F0));
 	switch (dsim->priv.panel_type) {
 
-	case LCD_TYPE_S6E3HF4_WQHD:
-		ccb_cmd[1] = ccb;
-		ccb_cmd[2] = 0x2A;
-		dsim_write_hl_data(dsim, ccb_cmd, ARRAY_SIZE(ccb_cmd));
-		break;
 	case LCD_TYPE_S6E3HA3_WQHD:
 		if ((ccb & 0x0F) == 0x00) {		// off
 			if (stepping) {

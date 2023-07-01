@@ -24,12 +24,8 @@
 #if defined(CONFIG_EXYNOS_COMMON_PANEL)
 #include "disp_err.h"
 #endif
-#if defined(CONFIG_EXYNOS_DECON_LCD_S6E3HA2K)
-#include "./panels/s6e3ha2k_param.h"
-#elif defined(CONFIG_EXYNOS_DECON_LCD_EMUL_DISP)
+#if defined(CONFIG_EXYNOS_DECON_LCD_EMUL_DISP)
 #include "./panels/emul_disp_param.h"
-#elif defined(CONFIG_EXYNOS_DECON_LCD_S6E3HA6)
-#include "./panels/s6e3ha6_param.h"
 #endif
 
 extern int dsim_log_level;
@@ -78,10 +74,7 @@ extern int dsim_log_level;
 	(((q)->panel_ops->op) ? ((q)->panel_ops->op(args)) : 0)
 
 extern struct dsim_device *dsim_drvdata[MAX_DSIM_CNT];
-extern struct dsim_lcd_driver s6e3ha2k_mipi_lcd_driver;
 extern struct dsim_lcd_driver emul_disp_mipi_lcd_driver;
-extern struct dsim_lcd_driver s6e3hf4_mipi_lcd_driver;
-extern struct dsim_lcd_driver s6e3ha6_mipi_lcd_driver;
 extern struct dsim_lcd_driver s6e3ha8_mipi_lcd_driver;
 #if defined(CONFIG_EXYNOS_COMMON_PANEL)
 extern struct dsim_lcd_driver common_mipi_lcd_driver;

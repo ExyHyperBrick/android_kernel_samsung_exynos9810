@@ -1244,7 +1244,6 @@ void dsc_reg_set_pps(u32 dsc_id, struct decon_dsc *dsc_enc)
  * : not 'fix' type
  *   - PPS04 ~ PPS35
  *   - PPS58 ~ PPS59
- *   <PPS Table e.g.> SEQ_PPS_SLICE4[] @ s6e3hf4_param.h
  */
 void dsc_get_decoder_pps_info(struct decon_dsc *dsc_dec,
 	const unsigned char pps_t[90])
@@ -1397,7 +1396,6 @@ void dsc_reg_set_partial_update(u32 dsc_id, u32 dual_slice_en,
 /*
  * This table is only used to check DSC setting value when debugging
  * Copy or Replace table's data from current using LCD information
- * ( e.g. : SEQ_PPS_SLICE4 @ s6e3hf4_param.h )
  */
 static const unsigned char DDI_PPS_INFO[] = {
 	0x11, 0x00, 0x00, 0x89, 0x30,
