@@ -606,7 +606,7 @@ err:
 }
 
 /* ---------- FB_BLANK INTERFACE ----------- */
-static int _decon_enable(struct decon_device *decon,
+int _decon_enable(struct decon_device *decon,
 		enum decon_state state)
 {
 	struct decon_mode_info psr;
@@ -629,7 +629,9 @@ static int _decon_enable(struct decon_device *decon,
 	pm_stay_awake(decon->dev);
 	dev_warn(decon->dev, "pm_stay_awake");
 
+#if defined(CONFIG_EXYNOS_BTS)
 	decon->bts.ops->bts_acquire_bw(decon);
+#endif
 
 	if (decon->dt.psr_mode != DECON_VIDEO_MODE) {
 		if (decon->res.pinctrl && decon->res.hw_te_on) {
@@ -644,7 +646,6 @@ static int _decon_enable(struct decon_device *decon,
 	if (ret < 0) {
 		decon_err("%s decon-%d failed to set subdev %s state\n",
 				__func__, decon->id, decon_state_names[state]);
-		goto err;
 	}
 
 	decon_to_init_param(decon, &p);
@@ -652,29 +653,41 @@ static int _decon_enable(struct decon_device *decon,
 
 	decon_to_psr_info(decon, &psr);
 
-	if (decon->dt.out_type == DECON_OUT_DSI && decon->state == DECON_STATE_OFF) {
-		/*
-		 * After turned on LCD, previous update region must be set as FULL size.
-		 * DECON, DSIM and Panel are initialized as FULL size during UNBLANK
-		 */
-		DPU_FULL_RECT(&decon->win_up.prev_up_region, decon->lcd_info);
+	if ((decon->dt.out_type == DECON_OUT_DSI) &&
+			(state != DECON_STATE_DOZE)) {
+		if (psr.trig_mode == DECON_HW_TRIG) {
+			decon_set_black_window(decon);
+			/*
+			 * Blender configuration must be set before DECON start.
+			 * If DECON goes to start without window and
+			 * blender configuration,
+			 * DECON will go into abnormal state.
+			 * DECON2(for DISPLAYPORT) start in winconfig
+			 */
+			decon_reg_start(decon->id, &psr);
+		}
 	}
+
+	/*
+	 * After turned on LCD, previous update region must be set as FULL size.
+	 * DECON, DSIM and Panel are initialized as FULL size during UNBLANK
+	 */
+	DPU_FULL_RECT(&decon->win_up.prev_up_region, decon->lcd_info);
 
 	if (!decon->id && !decon->eint_status) {
 		enable_irq(decon->res.irq);
 		decon->eint_status = 1;
 	}
 
-	decon_reg_set_int(decon->id, &psr, 1);
 	decon->state = state;
+	decon_reg_set_int(decon->id, &psr, 1);
 
-err:
 	return ret;
 }
 
 static int decon_enable(struct decon_device *decon)
 {
-	int ret = 0;
+	int ret = 0, retry = 3;
 	enum decon_state prev_state = decon->state;
 	enum decon_state next_state = DECON_STATE_ON;
 
@@ -684,16 +697,28 @@ static int decon_enable(struct decon_device *decon)
 				__func__, decon_state_names[decon->state]);
 		goto out;
 	}
-	kthread_flush_worker(&decon->up.worker);
 
+retry_enable:
 	DPU_EVENT_LOG(DPU_EVT_UNBLANK, &decon->sd, ktime_set(0, 0));
 	decon_info("decon-%d %s +\n", decon->id, __func__);
+#if defined(CONFIG_SEC_DISPLAYPORT_LOGGER)
 	if (decon->dt.out_type == DECON_OUT_DP)
 		dp_logger_print("decon enable\n");
+#endif
 	ret = _decon_enable(decon, next_state);
 	if (ret < 0) {
 		decon_err("decon-%d failed to set %s (ret %d)\n",
 				decon->id, decon_state_names[next_state], ret);
+		if (prev_state == DECON_STATE_OFF ||
+			prev_state == DECON_STATE_DOZE_SUSPEND)
+			_decon_disable(decon, prev_state);
+
+		if (--retry >= 0 && ret == -EAGAIN) {
+			decon_err("decon-%d retry set %s (remained cnt:%d)\n",
+					decon->id, decon_state_names[next_state], retry);
+			goto retry_enable;
+		}
+
 		goto out;
 	}
 	decon_info("decon-%d %s - (state:%s -> %s)\n", decon->id, __func__,
@@ -822,7 +847,7 @@ static int out_sd_dump(void)
 }
 #endif
 
-static int _decon_disable(struct decon_device *decon, enum decon_state state)
+int _decon_disable(struct decon_device *decon, enum decon_state state)
 {
 	struct decon_mode_info psr;
 	int ret = 0;

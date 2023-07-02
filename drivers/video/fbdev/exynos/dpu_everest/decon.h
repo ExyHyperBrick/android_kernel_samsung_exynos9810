@@ -1448,6 +1448,8 @@ int decon_set_cursor_win_config(struct decon_device *decon, int x, int y);
 int dpu_sysmmu_fault_handler(struct iommu_domain *domain,
 	struct device *dev, unsigned long iova, int flags, void *token);
 
+int _decon_disable(struct decon_device *decon, enum decon_state state);
+
 /* IOCTL commands */
 #define S3CFB_SET_VSYNC_INT		_IOW('F', 206, __u32)
 #define S3CFB_DECON_SELF_REFRESH	_IOW('F', 207, __u32)
