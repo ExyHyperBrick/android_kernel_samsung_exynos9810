@@ -531,9 +531,13 @@ void decon_reg_set_interface(u32 id, struct decon_mode_info *psr)
 		}
 
 		decon_write_mask(0, DSIM_CONNECTION_CONTROL, val, mask);
+#if defined(CONFIG_EXYNOS_DISPLAYPORT)
 	} else if (psr->out_type == DECON_OUT_DP)
 		decon_write_mask(0, DP_CONNECTION_CONTROL, 2,
 						DP_CONNECTION_SEL_DP0_MASK);
+#else
+	}
+#endif
 }
 
 void decon_reg_set_start_crc(u32 id, u32 en)
@@ -1625,8 +1629,10 @@ int decon_reg_init(u32 id, u32 dsi_idx, struct decon_param *p)
 
 	decon_reg_set_clkgate_mode(id, 0);
 
+#if defined(CONFIG_EXYNOS_DISPLAYPORT)
 	if (psr->out_type == DECON_OUT_DP)
 		decon_reg_set_te_qactive_pll_mode(id, 1);
+#endif
 
 	if (id == 0)
 		decon_reg_set_sram_share(id, DECON_FIFO_04K);
@@ -1667,8 +1673,10 @@ int decon_reg_start(u32 id, struct decon_mode_info *psr)
 {
 	int ret = 0;
 
+#if defined(CONFIG_EXYNOS_DISPLAYPORT)
 	if (psr->out_type == DECON_OUT_DP)
 		displayport_reg_lh_p_ch_power(1);
+#endif
 
 	decon_reg_direct_on_off(id, 1);
 	decon_reg_update_req_global(id);
@@ -1795,6 +1803,7 @@ int decon_reg_stop(u32 id, u32 dsi_idx, struct decon_mode_info *psr, bool rst)
 {
 	int ret = 0;
 
+#if defined(CONFIG_EXYNOS_DISPLAYPORT)
 	if (psr->out_type == DECON_OUT_DP) {
 		ret = decon_reg_stop_inst(id, dsi_idx, psr);
 		if (ret < 0)
@@ -1811,6 +1820,17 @@ int decon_reg_stop(u32 id, u32 dsi_idx, struct decon_mode_info *psr, bool rst)
 				decon_err("%s, failed to instant_stop\n", __func__);
 		}
 	}
+#else
+	/* call perframe stop */
+	ret = decon_reg_stop_perframe(id, dsi_idx, psr);
+	if (ret < 0) {
+		decon_err("%s, failed to perframe_stop\n", __func__);
+		/* if fails, call decon instant off */
+		ret = decon_reg_stop_inst(id, dsi_idx, psr);
+		if (ret < 0)
+			decon_err("%s, failed to instant_stop\n", __func__);
+	}
+#endif
 
 	/* assert reset when stopped normally or requested */
 	if (!ret && rst)
