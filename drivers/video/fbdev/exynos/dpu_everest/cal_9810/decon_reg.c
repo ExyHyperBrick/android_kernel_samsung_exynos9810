@@ -2143,3 +2143,15 @@ void decon_reg_set_mres(u32 id, struct decon_param *p)
 		decon_reg_config_data_path_size(id, lcd_info->xres,
 				lcd_info->yres, overlap_w, NULL, p);
 }
+
+/* Lhotse (9810) chip dependent HW limitation
+ *	: returns 0 if no error
+ *	: otherwise returns -EPERM for HW-wise not permitted
+ */
+int decon_check_global_limitation(struct decon_device *decon,
+		struct decon_win_config *config)
+{
+	int ret = 0;
+
+	return ret;
+}
