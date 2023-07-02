@@ -2066,7 +2066,7 @@ void decon_reg_set_window_control(u32 id, int win_idx,
 	}
 
 	decon_reg_config_win_channel(id, win_idx, regs->type);
-	decon_reg_win_enable_and_update(id, win_idx, win_en);
+	decon_reg_set_win_enable(id, win_idx, win_en);
 
 	decon_dbg("%s: regs->type(%d)\n", __func__, regs->type);
 }
