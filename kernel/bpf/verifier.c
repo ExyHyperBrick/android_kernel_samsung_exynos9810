@@ -3003,8 +3003,12 @@ continue_func:
 					"verifier bug. subprog has tail_call and async cb\n");
 				return -EFAULT;
 			}
-			/* Async callbacks don't increase BPF program stack size. */
-			continue;
+			/* Async callbacks don't increase BPF program stack size
+			 * unless they are called directly.
+			 */
+			if (insn[i].code != (BPF_JMP | BPF_CALL) ||
+			    insn[i].src_reg != BPF_PSEUDO_CALL)
+				continue;
 		}
 		i = next_insn;
 		frame++;
