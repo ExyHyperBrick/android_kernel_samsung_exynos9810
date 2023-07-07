@@ -2585,6 +2585,36 @@ static int fuse_file_lock(struct file *file, int cmd, struct file_lock *fl)
 	return err;
 }
 
+#ifdef CONFIG_FUSE_BPF
+static int fuse_backing_file_flock(struct file *file, int cmd,
+				   struct file_lock *fl)
+{
+	struct file *backing_file;
+	struct file_lock lower;
+	int ret;
+
+	ret = fuse_backing_lock_target(file, &backing_file);
+	if (ret)
+		return ret;
+	if (!fl || fl->fl_file != file || !(fl->fl_flags & FL_FLOCK) ||
+	    (fl->fl_flags & FL_POSIX) || fl->fl_ops || fl->fl_lmops)
+		return -EOPNOTSUPP;
+	if (cmd != F_SETLK && cmd != F_SETLKW)
+		return -EINVAL;
+	if ((cmd == F_SETLKW) != !!(fl->fl_flags & FL_SLEEP))
+		return -EINVAL;
+	if (backing_file->f_op->flock)
+		return -EOPNOTSUPP;
+
+	locks_init_lock(&lower);
+	locks_copy_lock(&lower, fl);
+	lower.fl_file = backing_file;
+	lower.fl_owner = backing_file;
+	ret = locks_lock_file_wait(backing_file, &lower);
+	return ret;
+}
+#endif
+
 static int fuse_file_flock(struct file *file, int cmd, struct file_lock *fl)
 {
 	struct inode *inode = file_inode(file);
@@ -2593,7 +2623,7 @@ static int fuse_file_flock(struct file *file, int cmd, struct file_lock *fl)
 
 #ifdef CONFIG_FUSE_BPF
 	if (fuse_file_has_backing(file))
-		return -ENOLCK;
+		return fuse_backing_file_flock(file, cmd, fl);
 #endif
 
 	if (fc->no_flock) {
