@@ -494,6 +494,8 @@ static int cls_bpf_change(struct net *net, struct sk_buff *in_skb,
 
 	ret = cls_bpf_offload(tp, prog, oldprog);
 	if (ret) {
+		if (tb[TCA_BPF_CLASSID])
+			tcf_unbind_filter(tp, &prog->res);
 		__cls_bpf_delete_prog(prog);
 		return ret;
 	}
