@@ -206,11 +206,6 @@ int decon_set_cursor_win_config(struct decon_device *decon, int x, int y)
 
 	DPU_EVENT_LOG_CURSOR(&decon->sd, regs);
 
-	/* set decon registers for each window */
-	decon_reg_set_window_control(decon->id, regs->cursor_win,
-				&regs->win_regs[regs->cursor_win],
-				regs->win_regs[regs->cursor_win].winmap_state);
-
 	err_cnt = decon_set_cursor_dpp_config(decon, regs);
 	if (err_cnt) {
 		decon_err("decon%d: cursor win(%d) during dpp_config(err_cnt:%d)\n",
@@ -221,7 +216,12 @@ int decon_set_cursor_win_config(struct decon_device *decon, int x, int y)
 		goto end;
 	}
 
-	decon_reg_update_req_window(decon->id, regs->cursor_win);
+	/* set decon registers for each window */
+	decon_reg_set_window_control(decon->id, regs->cursor_win,
+				&regs->win_regs[regs->cursor_win],
+				regs->win_regs[regs->cursor_win].winmap_state);
+
+	decon_reg_all_win_shadow_update_req(decon->id);
 
 	if (psr.trig_mode == DECON_HW_TRIG)
 		decon_reg_set_trigger(decon->id, &psr, DECON_TRIG_ENABLE);
