@@ -2980,7 +2980,7 @@ continue_func:
 	else
 		subprog_end = subprog[idx + 1].start;
 	for (; i < subprog_end; i++) {
-		int next_insn;
+		int next_insn, sidx;
 
 		if (!bpf_pseudo_func(insn + i) &&
 		    (insn[i].code != (BPF_JMP | BPF_CALL) ||
@@ -2991,14 +2991,14 @@ continue_func:
 		ret_prog[frame] = idx;
 		/* find the callee */
 		next_insn = i + insn[i].imm + 1;
-		idx = find_subprog(env, next_insn);
-		if (idx < 0) {
+		sidx = find_subprog(env, next_insn);
+		if (sidx < 0) {
 			WARN_ONCE(1, "verifier bug. No program starts at insn %d\n",
 				  next_insn);
 			return -EFAULT;
 		}
-		if (subprog[idx].is_async_cb) {
-			if (subprog[idx].has_tail_call) {
+		if (subprog[sidx].is_async_cb) {
+			if (subprog[sidx].has_tail_call) {
 				verbose(env,
 					"verifier bug. subprog has tail_call and async cb\n");
 				return -EFAULT;
@@ -3011,6 +3011,7 @@ continue_func:
 				continue;
 		}
 		i = next_insn;
+		idx = sidx;
 		frame++;
 		if (frame >= MAX_CALL_FRAMES) {
 			verbose(env, "the call stack of %d frames is too deep !\n",
