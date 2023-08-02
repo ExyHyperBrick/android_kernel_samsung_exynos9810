@@ -1317,6 +1317,12 @@ int fuse_lookup_backing(struct fuse_bpf_args *args, struct inode *dir,
 		goto out_parent;
 	}
 
+	ret = follow_down(&child_path);
+	if (ret) {
+		args->error_in = ret;
+		goto out_child;
+	}
+
 	ret = fuse_lookup_refresh_attr(get_fuse_conn(dir),
 				       &child_path, out);
 	if (ret) {
