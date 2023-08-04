@@ -552,7 +552,7 @@ static void sk_psock_destroy_deferred(struct work_struct *gc)
 	struct sk_psock *psock = container_of(gc, struct sk_psock, gc);
 
 	/* No sk_callback_lock since already detached. */
-	if (psock->parser.enabled)
+	if (sk_psock_test_state(psock, SK_PSOCK_RX_STRP_ENABLED))
 		strp_done(&psock->parser.strp);
 
 	cancel_work_sync(&psock->work);
@@ -804,9 +804,14 @@ int sk_psock_init_strp(struct sock *sk, struct sk_psock *psock)
 		.read_sock_done	= sk_psock_strp_read_done,
 		.parse_msg	= sk_psock_strp_parse,
 	};
+	int ret;
 
 	psock->parser.enabled = false;
-	return strp_init(&psock->parser.strp, sk, &cb);
+	ret = strp_init(&psock->parser.strp, sk, &cb);
+	if (!ret)
+		sk_psock_set_state(psock, SK_PSOCK_RX_STRP_ENABLED);
+
+	return ret;
 }
 
 void sk_psock_start_strp(struct sock *sk, struct sk_psock *psock)
