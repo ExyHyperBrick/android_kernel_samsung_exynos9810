@@ -19,6 +19,8 @@ struct bpf_stab {
 	raw_spinlock_t lock;
 };
 
+static struct sk_psock_progs *sock_map_progs(struct bpf_map *map);
+
 #define SOCK_CREATE_FLAG_MASK				\
 	(BPF_F_NUMA_NODE | BPF_F_RDONLY | BPF_F_WRONLY)
 
@@ -117,9 +119,9 @@ static void sock_map_del_link(struct sock *sk,
 	list_for_each_entry_safe(link, tmp, &psock->link, list) {
 		if (link->link_raw == link_raw) {
 			struct bpf_map *map = link->map;
-			struct bpf_stab *stab = container_of(map, struct bpf_stab,
-							     map);
-			if (psock->parser.enabled && stab->progs.skb_parser)
+			struct sk_psock_progs *progs = sock_map_progs(map);
+
+			if (psock->parser.enabled && progs->skb_parser)
 				strp_stop = true;
 			list_del(&link->list);
 			sk_psock_free_link(link);
