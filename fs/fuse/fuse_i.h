@@ -190,6 +190,22 @@ static inline void fuse_replace_dentry_bpf(struct fuse_dentry *fd,
 	if (old_prog)
 		bpf_prog_put(old_prog);
 }
+
+/* Transfer the dentry's owned program reference to a new owner. */
+static inline struct bpf_prog *
+fuse_take_dentry_bpf(struct fuse_dentry *fd)
+{
+	struct bpf_prog *prog;
+
+	if (!fd)
+		return NULL;
+
+	spin_lock(&fd->backing_lock);
+	prog = fd->bpf;
+	fd->bpf = NULL;
+	spin_unlock(&fd->backing_lock);
+	return prog;
+}
 #endif
 
 /** FUSE inode */
