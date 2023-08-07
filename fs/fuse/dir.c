@@ -341,6 +341,7 @@ static void fuse_dentry_release(struct dentry *dentry)
 	struct path path = { };
 
 	fuse_replace_backing_path(fd, &path);
+	fuse_replace_dentry_bpf(fd, NULL);
 #endif
 	kfree_rcu(fd, rcu);
 }

@@ -76,6 +76,9 @@ struct fuse_dentry {
 #ifdef CONFIG_FUSE_BPF
 	spinlock_t backing_lock;
 	struct path backing_path;
+
+	/* Filter selected by the most recent negative lookup. */
+	struct bpf_prog *bpf;
 #endif
 };
 
@@ -162,6 +165,30 @@ static inline void fuse_replace_backing_path(struct fuse_dentry *fd,
 	spin_unlock(&fd->backing_lock);
 
 	fuse_put_backing_path(&old_path);
+}
+
+/*
+ * Move one owned BPF program reference into the dentry and release the
+ * previous reference outside the dentry lock.
+ */
+static inline void fuse_replace_dentry_bpf(struct fuse_dentry *fd,
+					   struct bpf_prog *new_prog)
+{
+	struct bpf_prog *old_prog;
+
+	if (!fd) {
+		if (new_prog)
+			bpf_prog_put(new_prog);
+		return;
+	}
+
+	spin_lock(&fd->backing_lock);
+	old_prog = fd->bpf;
+	fd->bpf = new_prog;
+	spin_unlock(&fd->backing_lock);
+
+	if (old_prog)
+		bpf_prog_put(old_prog);
 }
 #endif
 

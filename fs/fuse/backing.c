@@ -1441,6 +1441,20 @@ int fuse_handle_bpf_prog(struct fuse_entry_bpf *entry,
 	return 0;
 }
 
+static int fuse_store_dentry_bpf(struct fuse_entry_bpf *entry,
+				 struct inode *parent,
+				 struct fuse_dentry *fd)
+{
+	struct bpf_prog *prog = NULL;
+	int ret;
+
+	ret = fuse_handle_bpf_prog(entry, parent, &prog);
+	if (ret)
+		return ret;
+	fuse_replace_dentry_bpf(fd, prog);
+	return 0;
+}
+
 static void fuse_bpf_copy_alias_path(struct dentry *from,
 				     struct dentry *to)
 {
@@ -1482,19 +1496,24 @@ void *fuse_lookup_finalize(struct fuse_bpf_args *args,
 		result = ERR_PTR(-EIO);
 		goto out_files;
 	}
-	ret = (s32)args->error_in;
-	if (ret) {
-		if (ret == -ENOENT) {
-			fuse_invalidate_entry_cache(entry);
-			result = NULL;
-		} else {
-			result = ERR_PTR(ret < 0 ? ret : -EIO);
-		}
-		goto out_files;
-	}
 	entry_data = get_fuse_dentry(entry);
 	if (!entry_data) {
 		result = ERR_PTR(-EIO);
+		goto out_files;
+	}
+	ret = (s32)args->error_in;
+	if (ret) {
+		if (ret == -ENOENT) {
+			ret = fuse_store_dentry_bpf(bpf_entry, dir, entry_data);
+			if (ret)
+				result = ERR_PTR(ret);
+			else {
+				fuse_invalidate_entry_cache(entry);
+				result = NULL;
+			}
+		} else {
+			result = ERR_PTR(ret < 0 ? ret : -EIO);
+		}
 		goto out_files;
 	}
 
@@ -1533,8 +1552,13 @@ void *fuse_lookup_finalize(struct fuse_bpf_args *args,
 
 	if (!backing_inode) {
 		if (!out->nodeid) {
-			fuse_invalidate_entry_cache(entry);
-			result = NULL;
+			ret = fuse_store_dentry_bpf(bpf_entry, dir, entry_data);
+			if (ret)
+				result = ERR_PTR(ret);
+			else {
+				fuse_invalidate_entry_cache(entry);
+				result = NULL;
+			}
 			goto out_inode;
 		}
 		if (out->nodeid == FUSE_ROOT_ID ||
@@ -1570,6 +1594,7 @@ void *fuse_lookup_finalize(struct fuse_bpf_args *args,
 		result = ERR_PTR(ret);
 		goto out_inode;
 	}
+	fuse_replace_dentry_bpf(entry_data, NULL);
 
 	alias = d_splice_alias(inode, entry);
 	if (IS_ERR(alias)) {
