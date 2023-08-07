@@ -1567,7 +1567,6 @@ void *fuse_lookup_finalize(struct fuse_bpf_args *args,
 	ret = fuse_handle_bpf_prog(bpf_entry, dir,
 				   &get_fuse_inode(inode)->bpf);
 	if (ret) {
-		iput(inode);
 		result = ERR_PTR(ret);
 		goto out_inode;
 	}
@@ -1577,6 +1576,7 @@ void *fuse_lookup_finalize(struct fuse_bpf_args *args,
 		result = alias;
 		goto out_inode;
 	}
+	inode = NULL;
 	if (alias)
 		fuse_bpf_copy_alias_path(entry, alias);
 	fuse_change_entry_timeout(alias ? alias : entry, out);
@@ -1584,6 +1584,8 @@ void *fuse_lookup_finalize(struct fuse_bpf_args *args,
 	(void)flags;
 
 out_inode:
+	if (inode)
+		iput(inode);
 	if (backing_mnt)
 		mntput(backing_mnt);
 	if (backing_inode)
