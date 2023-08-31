@@ -387,6 +387,16 @@ config MALI_HW_ERRATA_1485982_USE_CLOCK_ALTERNATIVE
 
 endif
 
+config MALI_TRACE_POWER_GPU_WORK_PERIOD
+	bool "Enable per-application GPU metrics tracepoints"
+	depends on MALI_MIDGARD && !MALI_CSF_SUPPORT
+	default y
+	help
+	  This option enables per-application GPU work-period tracepoints for
+	  Android's GPU work accounting.
+
+	  If unsure, say Y.
+
 config MALI_ARBITRATION
 	bool "Enable Virtualization reference code"
 	depends on MALI_MIDGARD

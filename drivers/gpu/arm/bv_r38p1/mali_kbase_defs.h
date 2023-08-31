@@ -162,6 +162,44 @@ struct kbase_as;
 struct kbase_mmu_setup;
 struct kbase_kinstr_jm;
 
+#if IS_ENABLED(CONFIG_MALI_TRACE_POWER_GPU_WORK_PERIOD)
+/**
+ * struct kbase_gpu_metrics - Per-device GPU work-period accounting state
+ * @active_list: Applications active in the current or previous work period
+ * @inactive_list: Applications with no activity in the previous work period
+ */
+struct kbase_gpu_metrics {
+	struct list_head active_list;
+	struct list_head inactive_list;
+};
+
+/**
+ * struct kbase_gpu_metrics_ctx - Per-application GPU work-period state
+ * @link: Link in the device active or inactive list
+ * @first_active_start_time: First activity start in the current work period
+ * @last_active_start_time: Most recent activity start
+ * @last_active_end_time: Most recent activity end
+ * @total_active: Non-overlapping active time in the current work period
+ * @prev_wp_active_end_time: Activity end in the previous work period
+ * @aid: Android application UID
+ * @kctx_count: Number of Kbase contexts owned by this application
+ * @active_cnt: Number of this application's jobs currently executing
+ * @flags: Internal work-period state flags
+ */
+struct kbase_gpu_metrics_ctx {
+	struct list_head link;
+	u64 first_active_start_time;
+	u64 last_active_start_time;
+	u64 last_active_end_time;
+	u64 total_active;
+	u64 prev_wp_active_end_time;
+	u32 aid;
+	u32 kctx_count;
+	u8 active_cnt;
+	u8 flags;
+};
+#endif
+
 /**
  * struct kbase_io_access - holds information about 1 register access
  *
@@ -1190,6 +1228,11 @@ struct kbase_device {
 #else
 	struct kbasep_js_device_data js_data;
 
+#if IS_ENABLED(CONFIG_MALI_TRACE_POWER_GPU_WORK_PERIOD)
+	/* Per-application GPU work-period accounting. */
+	struct kbase_gpu_metrics gpu_metrics;
+#endif
+
 	/* See KBASE_JS_*_PRIORITY_MODE for details. */
 	u32 js_ctx_scheduling_mode;
 
@@ -1727,6 +1770,13 @@ struct kbase_sub_alloc {
  */
 struct kbase_context {
 	struct file *filp;
+#if IS_ENABLED(CONFIG_MALI_TRACE_POWER_GPU_WORK_PERIOD)
+	/*
+	 * Shared accounting state for all contexts owned by this application.
+	 */
+	struct kbase_gpu_metrics_ctx *gpu_metrics_ctx;
+#endif
+
 	struct kbase_device *kbdev;
 	struct list_head kctx_list_link;
 	struct kbase_mmu_table mmu;

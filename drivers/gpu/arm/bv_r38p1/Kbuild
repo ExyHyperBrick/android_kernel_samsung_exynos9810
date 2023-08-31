@@ -202,6 +202,10 @@ mali_kbase-$(CONFIG_SYNC_FILE) += \
     mali_kbase_sync_file.o \
     mali_kbase_sync_common.o
 
+mali_kbase-$(CONFIG_MALI_TRACE_POWER_GPU_WORK_PERIOD) += \
+    mali_power_gpu_work_period_trace.o \
+    mali_kbase_gpu_metrics.o
+
 ifeq ($(CONFIG_MALI_CSF_SUPPORT),y)
     mali_kbase-y += \
         mali_kbase_hwcnt_backend_csf.o \

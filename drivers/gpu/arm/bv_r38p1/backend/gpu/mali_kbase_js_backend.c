@@ -28,6 +28,9 @@
 #include <mali_kbase_reset_gpu.h>
 #include <backend/gpu/mali_kbase_jm_internal.h>
 #include <backend/gpu/mali_kbase_js_internal.h>
+#if IS_ENABLED(CONFIG_MALI_TRACE_POWER_GPU_WORK_PERIOD)
+#include <mali_kbase_gpu_metrics.h>
+#endif
 
 #if !MALI_USE_CSF
 /*
@@ -309,6 +312,39 @@ void kbase_backend_ctx_count_changed(struct kbase_device *kbdev)
 
 		KBASE_KTRACE_ADD_JM(kbdev, JS_POLICY_TIMER_START, NULL, NULL, 0u, 0u);
 	}
+
+#if IS_ENABLED(CONFIG_MALI_TRACE_POWER_GPU_WORK_PERIOD)
+	if (unlikely(backend->suspend_timer)) {
+		js_devdata->gpu_metrics_timer_needed = false;
+		hrtimer_cancel(&js_devdata->gpu_metrics_timer);
+		js_devdata->gpu_metrics_timer_running = false;
+
+		spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
+		kbase_gpu_metrics_emit_tracepoint(
+			kbdev, ktime_get_raw_ns());
+		spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
+		return;
+	}
+
+	if (!atomic_read(&js_devdata->nr_contexts_runnable)) {
+		js_devdata->gpu_metrics_timer_needed = false;
+		return;
+	}
+
+	if (!js_devdata->gpu_metrics_timer_needed) {
+		spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
+		js_devdata->gpu_metrics_timer_needed = true;
+		if (!js_devdata->gpu_metrics_timer_running) {
+			hrtimer_start(
+				&js_devdata->gpu_metrics_timer,
+				HR_TIMER_DELAY_NSEC(
+					kbase_gpu_metrics_get_emit_interval()),
+				HRTIMER_MODE_REL);
+			js_devdata->gpu_metrics_timer_running = true;
+		}
+		spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
+	}
+#endif
 #else /* !MALI_USE_CSF */
 	CSTD_UNUSED(kbdev);
 #endif /* !MALI_USE_CSF */

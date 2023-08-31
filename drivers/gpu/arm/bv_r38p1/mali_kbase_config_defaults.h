@@ -257,5 +257,10 @@ enum {
  */
 #define DEFAULT_IR_THRESHOLD (192)
 
+#if IS_ENABLED(CONFIG_MALI_TRACE_POWER_GPU_WORK_PERIOD)
+/* Default interval at which GPU metrics tracepoints are emitted. */
+#define DEFAULT_GPU_METRICS_TP_EMIT_INTERVAL_NS (500000000u)
+#endif
+
 #endif /* _KBASE_CONFIG_DEFAULTS_H_ */
 

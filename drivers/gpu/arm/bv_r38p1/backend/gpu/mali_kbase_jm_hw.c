@@ -390,6 +390,13 @@ static void kbasep_trace_tl_event_lpu_softstop(struct kbase_device *kbdev,
 		&kbdev->gpu_props.props.raw_props.js_features[js]);
 }
 
+#if IS_ENABLED(CONFIG_MALI_TRACE_POWER_GPU_WORK_PERIOD)
+static inline ktime_t gpu_metrics_next_timestamp(ktime_t timestamp)
+{
+	return ktime_add(timestamp, ns_to_ktime(1));
+}
+#endif
+
 void kbase_job_done(struct kbase_device *kbdev, u32 done)
 {
 	int i;
@@ -584,6 +591,11 @@ void kbase_job_done(struct kbase_device *kbdev, u32 done)
 							BASE_JD_EVENT_DONE,
 							0,
 							&end_timestamp);
+#if IS_ENABLED(CONFIG_MALI_TRACE_POWER_GPU_WORK_PERIOD)
+					end_timestamp =
+						gpu_metrics_next_timestamp(
+							end_timestamp);
+#endif
 				}
 				nr_done--;
 			}

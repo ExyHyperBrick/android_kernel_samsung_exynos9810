@@ -46,6 +46,9 @@
 #include <backend/gpu/mali_kbase_pm_internal.h>
 #include <mali_kbase_dummy_job_wa.h>
 #include <backend/gpu/mali_kbase_clk_rate_trace_mgr.h>
+#if IS_ENABLED(CONFIG_MALI_TRACE_POWER_GPU_WORK_PERIOD)
+#include <mali_kbase_gpu_metrics.h>
+#endif
 
 /**
  * kbase_backend_late_init - Perform any backend-specific initialization.
@@ -218,6 +221,10 @@ static const struct kbase_device_init dev_init[] = {
 #else
 	{ assign_irqs, NULL, "IRQ search failed" },
 	{ registers_map, registers_unmap, "Register map failed" },
+#endif
+#if IS_ENABLED(CONFIG_MALI_TRACE_POWER_GPU_WORK_PERIOD)
+	{ kbase_gpu_metrics_init, kbase_gpu_metrics_term,
+	  "GPU metrics initialization failed" },
 #endif
 	{ kbase_device_io_history_init, kbase_device_io_history_term,
 	  "Register access history initialization failed" },

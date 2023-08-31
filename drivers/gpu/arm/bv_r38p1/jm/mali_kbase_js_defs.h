@@ -339,6 +339,22 @@ struct kbasep_js_device_data {
 	 * * the kbasep_js_kctx_info::runpool substructure
 	 */
 	struct mutex runpool_mutex;
+
+#if IS_ENABLED(CONFIG_MALI_TRACE_POWER_GPU_WORK_PERIOD)
+	/**
+	 * @gpu_metrics_timer: Bounds reported work periods to the configured
+	 * emission interval.
+	 */
+	struct hrtimer gpu_metrics_timer;
+
+	/**
+	 * @gpu_metrics_timer_needed: Whether runnable contexts need emission.
+	 */
+	bool gpu_metrics_timer_needed;
+
+	/** @gpu_metrics_timer_running: Whether the timer is active. */
+	bool gpu_metrics_timer_running;
+#endif
 };
 
 /**
