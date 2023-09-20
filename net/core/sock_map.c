@@ -598,6 +598,8 @@ BPF_CALL_4(bpf_msg_redirect_map, struct sk_msg *, msg,
 	msg->sk_redir = __sock_map_lookup_elem(map, key);
 	if (!msg->sk_redir)
 		return SK_DROP;
+	if (!(flags & BPF_F_INGRESS) && !sk_is_tcp(msg->sk_redir))
+		return SK_DROP;
 	return SK_PASS;
 }
 
@@ -1159,6 +1161,8 @@ BPF_CALL_4(bpf_msg_redirect_hash, struct sk_msg *, msg,
 	msg->flags = flags;
 	msg->sk_redir = __sock_hash_lookup_elem(map, key);
 	if (!msg->sk_redir)
+		return SK_DROP;
+	if (!(flags & BPF_F_INGRESS) && !sk_is_tcp(msg->sk_redir))
 		return SK_DROP;
 	return SK_PASS;
 }
