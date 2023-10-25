@@ -204,9 +204,6 @@ struct fuse_file {
 
 	/** Defers release filters away from request completion context */
 	struct work_struct release_work;
-
-	/** True when OPEN was completed by the backing filesystem */
-	bool is_backing:1;
 #endif
 
 	/** RB node to be linked on fuse_conn->polled_files */

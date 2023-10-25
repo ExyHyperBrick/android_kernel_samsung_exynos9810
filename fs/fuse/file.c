@@ -144,7 +144,7 @@ static void fuse_file_put(struct fuse_file *ff, bool sync)
 		struct fuse_req *req = ff->reserved_req;
 
 #ifdef CONFIG_FUSE_BPF
-		if (ff->is_backing) {
+		if (ff->backing_file) {
 			/*
 			 * Drop the lower open file at the final FUSE handle
 			 * reference.  Only release filtering stays deferred.
@@ -280,6 +280,9 @@ int fuse_open_common(struct inode *inode, struct file *file, bool isdir)
 		return err;
 
 #ifdef CONFIG_FUSE_BPF
+	if ((file->f_flags & O_TRUNC) && !get_node_id(inode) &&
+	    get_fuse_inode(inode)->backing_inode)
+		return -EOPNOTSUPP;
 	{
 		struct fuse_err_ret result;
 
@@ -389,7 +392,7 @@ void fuse_sync_release(struct fuse_file *ff, int flags)
 {
 	WARN_ON(atomic_read(&ff->count) > 1);
 #ifdef CONFIG_FUSE_BPF
-	if (ff->is_backing) {
+	if (ff->backing_file) {
 		fuse_file_free(ff);
 		return;
 	}

@@ -714,7 +714,6 @@ int fuse_open_backing(struct fuse_bpf_args *args,
 	}
 
 	ff->backing_file = backing_file;
-	ff->is_backing = true;
 	ff->fh = 0;
 	ff->nodeid = get_node_id(inode);
 	ff->open_flags = FOPEN_KEEP_CACHE;
