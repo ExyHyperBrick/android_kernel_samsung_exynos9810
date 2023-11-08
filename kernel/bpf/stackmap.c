@@ -358,6 +358,7 @@ static long __bpf_get_stack(struct pt_regs *regs, struct task_struct *task,
 {
 	u32 init_nr, trace_nr, copy_len, elem_size, num_elem;
 	bool user_build_id = flags & BPF_F_USER_BUILD_ID;
+	bool crosstask = task && task != current;
 	u32 skip = flags & BPF_F_SKIP_FIELD_MASK;
 	bool user = flags & BPF_F_USER_STACK;
 	struct perf_callchain_entry *trace;
@@ -377,6 +378,10 @@ static long __bpf_get_stack(struct pt_regs *regs, struct task_struct *task,
 		goto clear;
 	if (task && user && !user_mode(regs))
 		goto err_fault;
+	if (crosstask && user) {
+		err = -EOPNOTSUPP;
+		goto clear;
+	}
 
 	num_elem = size / elem_size;
 	if (sysctl_perf_event_max_stack < num_elem)
@@ -388,7 +393,7 @@ static long __bpf_get_stack(struct pt_regs *regs, struct task_struct *task,
 	else
 		trace = get_perf_callchain(regs, init_nr, kernel, user,
 					   sysctl_perf_event_max_stack,
-					   false, false);
+					   crosstask, false);
 	if (unlikely(!trace))
 		goto err_fault;
 
