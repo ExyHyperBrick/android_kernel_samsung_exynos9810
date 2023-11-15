@@ -1049,6 +1049,16 @@ static int fuse_readpages(struct file *file, struct address_space *mapping,
 	int err;
 	int nr_alloc = min_t(unsigned, nr_pages, FUSE_MAX_PAGES_PER_REQ);
 
+#ifdef CONFIG_FUSE_BPF
+	/*
+	 * Lower-only files have no daemon handle.  Leave the pages on the
+	 * list so 4.9 read_pages() drops their references after this
+	 * successful no-op instead of issuing an invalid FUSE_READ request.
+	 */
+	if (!get_node_id(inode))
+		return 0;
+#endif
+
 	err = -EIO;
 	if (fuse_is_bad(inode))
 		goto out;
