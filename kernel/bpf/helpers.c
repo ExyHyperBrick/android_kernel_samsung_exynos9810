@@ -676,7 +676,7 @@ static inline void __bpf_spin_unlock(struct bpf_spin_lock *lock)
 #endif
 
 static DEFINE_PER_CPU(unsigned long, irqsave_flags);
-notrace BPF_CALL_1(bpf_spin_lock, struct bpf_spin_lock *, lock)
+NOTRACE_BPF_CALL_1(bpf_spin_lock, struct bpf_spin_lock *, lock)
 {
 	unsigned long flags;
 	local_irq_save(flags);
@@ -692,7 +692,7 @@ const struct bpf_func_proto bpf_spin_lock_proto = {
 	.arg1_type	= ARG_PTR_TO_SPIN_LOCK,
 };
 
-notrace BPF_CALL_1(bpf_spin_unlock, struct bpf_spin_lock *, lock)
+NOTRACE_BPF_CALL_1(bpf_spin_unlock, struct bpf_spin_lock *, lock)
 {
 	unsigned long flags;
 	flags = __this_cpu_read(irqsave_flags);
