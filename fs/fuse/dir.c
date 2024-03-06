@@ -2718,9 +2718,13 @@ static int fuse_permission(struct inode *inode, int mask)
 	return err;
 }
 
-int fuse_parse_dirfile(char *buf, size_t nbytes, struct file *file,
-			 struct dir_context *ctx)
+static int fuse_parse_dirfile_common(char *buf, size_t nbytes,
+				     struct file *file,
+				     struct dir_context *ctx,
+				     bool lower, loff_t next_offset)
 {
+	char *start = buf;
+
 	while (nbytes >= FUSE_NAME_OFFSET) {
 		struct fuse_dirent *dirent = (struct fuse_dirent *) buf;
 		size_t reclen = FUSE_DIRENT_SIZE(dirent);
@@ -2731,16 +2735,28 @@ int fuse_parse_dirfile(char *buf, size_t nbytes, struct file *file,
 		if (memchr(dirent->name, '/', dirent->namelen) != NULL)
 			return -EIO;
 
+		if (lower)
+			ctx->pos = dirent->off;
 		if (!dir_emit(ctx, dirent->name, dirent->namelen,
 			       dirent->ino, dirent->type))
-			break;
+			return lower && buf == start ? -EINVAL : 0;
 
 		buf += reclen;
 		nbytes -= reclen;
-		ctx->pos = dirent->off;
+		if (!lower)
+			ctx->pos = dirent->off;
 	}
 
+	if (lower && !nbytes)
+		ctx->pos = next_offset;
+	(void)file;
 	return 0;
+}
+
+int fuse_parse_dirfile(char *buf, size_t nbytes, struct file *file,
+			 struct dir_context *ctx)
+{
+	return fuse_parse_dirfile_common(buf, nbytes, file, ctx, false, 0);
 }
 
 static int fuse_direntplus_link(struct file *file,
@@ -3069,7 +3085,8 @@ static int fuse_bpf_readdir(struct file *file, struct dir_context *ctx)
 		goto out_rewind;
 	}
 
-	ret = fuse_parse_dirfile(io.page, io.bytes, file, ctx);
+	ret = fuse_parse_dirfile_common(io.page, io.bytes, file, ctx, true,
+					io.lower_end);
 	if (ret)
 		goto out_rewind;
 	ff->backing_file->f_pos = ctx->pos;
