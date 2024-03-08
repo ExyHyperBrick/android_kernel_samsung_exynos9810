@@ -817,10 +817,10 @@ bpf_ctx_narrow_load_shift(u32 off, u32 size, u32 size_default)
 #define bpf_classic_proglen(fprog) (fprog->len * sizeof(fprog->filter[0]))
 
 #ifdef CONFIG_ARCH_HAS_SET_MEMORY
-static inline void bpf_prog_lock_ro(struct bpf_prog *fp)
+static inline int __must_check bpf_prog_lock_ro(struct bpf_prog *fp)
 {
 	fp->undo_set_mem = 1;
-	set_memory_ro((unsigned long)fp, fp->pages);
+	return set_memory_ro((unsigned long)fp, fp->pages);
 }
 
 static inline void bpf_prog_unlock_ro(struct bpf_prog *fp)
@@ -839,8 +839,9 @@ static inline void bpf_jit_binary_unlock_ro(struct bpf_binary_header *hdr)
 	set_memory_rw((unsigned long)hdr, hdr->pages);
 }
 #else
-static inline void bpf_prog_lock_ro(struct bpf_prog *fp)
+static inline int __must_check bpf_prog_lock_ro(struct bpf_prog *fp)
 {
+	return 0;
 }
 
 static inline void bpf_prog_unlock_ro(struct bpf_prog *fp)
