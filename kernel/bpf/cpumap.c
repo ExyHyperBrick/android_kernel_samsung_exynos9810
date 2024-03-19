@@ -315,7 +315,7 @@ static int cpu_map_kthread_run(void *data)
 			else
 				__set_current_state(TASK_RUNNING);
 		} else {
-			cond_resched();
+			cond_resched_rcu_qs();
 		}
 
 		local_bh_disable();
