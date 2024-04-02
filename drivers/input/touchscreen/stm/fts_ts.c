@@ -1648,7 +1648,6 @@ static unsigned char fts_event_handler_type_b(struct fts_ts_info *info,
 					info->touch_mode = FTS_TM_NORMAL;
 
 				tm = info->touch_mode;
-				input_report_switch(info->input_dev, SW_GLOVE, tm);
 #endif
 			} else if (status == STATUS_EVENT_RAW_DATA_READY) {
 				unsigned char regAdd[4] = {0xB0, 0x01, 0x29, 0x01};
@@ -2372,9 +2371,6 @@ static int fts_probe(struct i2c_client *client, const struct i2c_device_id *idp)
 		goto err_fts_init;
 	}
 
-#ifdef CONFIG_GLOVE_TOUCH
-	input_set_capability(info->input_dev, EV_SW, SW_GLOVE);
-#endif
 	set_bit(EV_SYN, info->input_dev->evbit);
 	set_bit(EV_KEY, info->input_dev->evbit);
 	set_bit(EV_ABS, info->input_dev->evbit);
@@ -2931,7 +2927,6 @@ void fts_release_all_finger(struct fts_ts_info *info)
 	input_report_key(info->input_dev, BTN_TOOL_FINGER, 0);
 
 #ifdef CONFIG_GLOVE_TOUCH
-	input_report_switch(info->input_dev, SW_GLOVE, false);
 	info->touch_mode = FTS_TM_NORMAL;
 #endif
 	input_report_key(info->input_dev, KEY_BLACK_UI_GESTURE, 0);

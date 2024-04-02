@@ -1296,10 +1296,8 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 
 						if ((ts->coord[t_id].ttype == SEC_TS_TOUCHTYPE_GLOVE) && !ts->touchkey_glove_mode_status) {
 							ts->touchkey_glove_mode_status = true;
-							input_report_switch(ts->input_dev, SW_GLOVE, 1);
 						} else if ((ts->coord[t_id].ttype != SEC_TS_TOUCHTYPE_GLOVE) && ts->touchkey_glove_mode_status) {
 							ts->touchkey_glove_mode_status = false;
-							input_report_switch(ts->input_dev, SW_GLOVE, 0);
 						}
 
 						input_mt_slot(ts->input_dev, t_id);
@@ -2221,8 +2219,6 @@ static void sec_ts_set_input_prop(struct sec_ts_data *ts, struct input_dev *dev,
 	set_bit(propbit, dev->propbit);
 	set_bit(KEY_HOMEPAGE, dev->keybit);
 
-	input_set_capability(dev, EV_SW, SW_GLOVE);
-
 	input_set_abs_params(dev, ABS_MT_POSITION_X, 0, ts->plat_data->max_x, 0, 0);
 	input_set_abs_params(dev, ABS_MT_POSITION_Y, 0, ts->plat_data->max_y, 0, 0);
 	input_set_abs_params(dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
@@ -2697,7 +2693,6 @@ void sec_ts_unlocked_release_all_finger(struct sec_ts_data *ts)
 
 	input_report_key(ts->input_dev, BTN_TOUCH, false);
 	input_report_key(ts->input_dev, BTN_TOOL_FINGER, false);
-	input_report_switch(ts->input_dev, SW_GLOVE, false);
 	ts->touchkey_glove_mode_status = false;
 	ts->touch_count = 0;
 	ts->check_multi = 0;
@@ -2761,7 +2756,6 @@ void sec_ts_locked_release_all_finger(struct sec_ts_data *ts)
 
 	input_report_key(ts->input_dev, BTN_TOUCH, false);
 	input_report_key(ts->input_dev, BTN_TOOL_FINGER, false);
-	input_report_switch(ts->input_dev, SW_GLOVE, false);
 	ts->touchkey_glove_mode_status = false;
 	ts->touch_count = 0;
 	ts->check_multi = 0;
