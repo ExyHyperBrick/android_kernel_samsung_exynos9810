@@ -4154,12 +4154,18 @@ skip_type_check:
 
 static bool may_update_sockmap(struct bpf_verifier_env *env, int func_id)
 {
-	if (func_id != BPF_FUNC_map_update_elem)
+	if (func_id != BPF_FUNC_map_update_elem &&
+	    func_id != BPF_FUNC_map_delete_elem)
 		return false;
 
 	switch (env->prog->type) {
 	case BPF_PROG_TYPE_TRACING:
 		return env->prog->expected_attach_type == BPF_TRACE_ITER;
+	case BPF_PROG_TYPE_SOCK_OPS:
+		/* Map update is allowed only through dedicated helpers with
+		 * event type checks.
+		 */
+		return func_id == BPF_FUNC_map_delete_elem;
 	case BPF_PROG_TYPE_SOCKET_FILTER:
 	case BPF_PROG_TYPE_SCHED_CLS:
 	case BPF_PROG_TYPE_SCHED_ACT:
@@ -4229,7 +4235,6 @@ static int check_map_func_compatibility(struct bpf_verifier_env *env,
 	case BPF_MAP_TYPE_SOCKMAP:
 		if (func_id != BPF_FUNC_sk_redirect_map &&
 		    func_id != BPF_FUNC_sock_map_update &&
-		    func_id != BPF_FUNC_map_delete_elem &&
 		    func_id != BPF_FUNC_msg_redirect_map &&
 		    !may_update_sockmap(env, func_id))
 			goto error;
@@ -4242,7 +4247,6 @@ static int check_map_func_compatibility(struct bpf_verifier_env *env,
 	case BPF_MAP_TYPE_SOCKHASH:
 		if (func_id != BPF_FUNC_sk_redirect_hash &&
 		    func_id != BPF_FUNC_sock_hash_update &&
-		    func_id != BPF_FUNC_map_delete_elem &&
 		    func_id != BPF_FUNC_msg_redirect_hash &&
 		    !may_update_sockmap(env, func_id))
 			goto error;
