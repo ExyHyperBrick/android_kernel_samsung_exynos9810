@@ -5139,8 +5139,8 @@ static void btf_type_show(const struct btf *btf, u32 type_id, void *obj,
 	btf_type_ops(t)->show(btf, t, type_id, obj, 0, show);
 }
 
-static void btf_seq_show(struct btf_show *show, const char *fmt,
-			 va_list args)
+__printf(2, 0)
+static void btf_seq_show(struct btf_show *show, const char *fmt, va_list args)
 {
 	seq_vprintf((struct seq_file *)show->target, fmt, args);
 }
@@ -5173,6 +5173,7 @@ struct btf_show_snprintf {
 	int len;		/* length we would have written */
 };
 
+__printf(2, 0)
 static void btf_snprintf_show(struct btf_show *show, const char *fmt,
 			      va_list args)
 {
