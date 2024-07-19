@@ -2181,6 +2181,8 @@ static int bpf_skb_proto_4_to_6(struct sk_buff *skb)
 		/* Header must be checked, and gso_segs recomputed. */
 		skb_shinfo(skb)->gso_type |= SKB_GSO_DODGY;
 		skb_shinfo(skb)->gso_segs = 0;
+		if (skb_shinfo(skb)->frag_list)
+			return skb_linearize(skb);
 	}
 
 	skb->protocol = htons(ETH_P_IPV6);
