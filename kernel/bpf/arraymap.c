@@ -82,6 +82,10 @@ int array_map_alloc_check(union bpf_attr *attr)
 		 */
 		return -E2BIG;
 
+	/* percpu map value size is bound by PCPU_MIN_UNIT_SIZE */
+	if (percpu && attr->value_size > PCPU_MIN_UNIT_SIZE)
+		return -E2BIG;
+
 	return 0;
 }
 
