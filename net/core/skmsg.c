@@ -776,9 +776,9 @@ static void sk_psock_data_ready(struct sock *sk)
 	rcu_read_lock();
 	psock = sk_psock(sk);
 	if (likely(psock)) {
-		write_lock_bh(&sk->sk_callback_lock);
+		read_lock_bh(&sk->sk_callback_lock);
 		strp_data_ready(&psock->parser.strp);
-		write_unlock_bh(&sk->sk_callback_lock);
+		read_unlock_bh(&sk->sk_callback_lock);
 	}
 	rcu_read_unlock();
 }
