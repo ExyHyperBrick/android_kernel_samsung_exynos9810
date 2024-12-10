@@ -70,8 +70,11 @@ int __tcp_bpf_recvmsg(struct sock *sk, struct sk_psock *psock,
 			copied += copy;
 			sge->offset += copy;
 			sge->length -= copy;
-			if (!msg_rx->skb)
+			if (!msg_rx->skb) {
 				sk_mem_uncharge(sk, copy);
+				atomic_sub(copy, &sk->sk_rmem_alloc);
+			}
+			msg_rx->sg.size -= copy;
 			if (!sge->length) {
 				i++;
 				if (i == MAX_SKB_FRAGS)
@@ -166,6 +169,7 @@ static int bpf_tcp_ingress(struct sock *sk, struct sk_psock *psock,
 		}
 
 		sk_mem_charge(sk, size);
+		atomic_add(size, &sk->sk_rmem_alloc);
 		sk_msg_xfer(tmp, msg, i, size);
 		copied += size;
 		if (sge->length)
