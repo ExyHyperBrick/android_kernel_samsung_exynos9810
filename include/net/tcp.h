@@ -373,6 +373,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb);
 void tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 			 const struct tcphdr *th);
 void tcp_rcv_space_adjust(struct sock *sk);
+void tcp_cleanup_rbuf(struct sock *sk, int copied);
 int tcp_twsk_unique(struct sock *sk, struct sock *sktw, void *twp);
 void tcp_twsk_destructor(struct sock *sk);
 ssize_t tcp_splice_read(struct socket *sk, loff_t *ppos,
@@ -647,6 +648,9 @@ void tcp_get_info(struct sock *, struct tcp_info *);
 /* Read 'sendfile()'-style from a TCP socket */
 int tcp_read_sock(struct sock *sk, read_descriptor_t *desc,
 		  sk_read_actor_t recv_actor);
+int tcp_read_sock_noack(struct sock *sk, read_descriptor_t *desc,
+			sk_read_actor_t recv_actor, bool noack,
+			u32 *copied_seq);
 
 void tcp_initialize_rcv_mss(struct sock *sk);
 
@@ -2118,6 +2122,12 @@ struct sk_psock;
 
 int tcp_bpf_update_proto(struct sock *sk, struct sk_psock *psock,
 			 bool restore);
+#ifdef CONFIG_BPF_STREAM_PARSER
+struct strparser;
+int tcp_bpf_strp_read_sock(struct strparser *strp,
+			   read_descriptor_t *desc,
+			   sk_read_actor_t recv_actor);
+#endif
 
 void tcp_eat_skb(struct sock *sk, struct sk_buff *skb);
 int tcp_bpf_sendmsg_redir(struct sock *sk, bool ingress,

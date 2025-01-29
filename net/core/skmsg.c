@@ -485,6 +485,10 @@ static int __sk_psock_skb_ingress(struct sk_psock *psock,
 		return num_sge;
 	}
 
+#if IS_ENABLED(CONFIG_BPF_STREAM_PARSER)
+	psock->ingress_bytes += len;
+#endif
+
 	/* This will transition ownership of the data from the socket where
 	 * the BPF program was run initiating the redirect to the socket
 	 * we will eventually receive this data on. The data will be released
@@ -1093,6 +1097,11 @@ int sk_psock_init_strp(struct sock *sk, struct sk_psock *psock)
 	ret = strp_init(&psock->strp, sk, &cb);
 	if (!ret)
 		sk_psock_set_state(psock, SK_PSOCK_RX_STRP_ENABLED);
+
+	if (sk_is_tcp(sk)) {
+		psock->strp.cb.read_sock = tcp_bpf_strp_read_sock;
+		psock->copied_seq = tcp_sk(sk)->copied_seq;
+	}
 
 	return ret;
 }
