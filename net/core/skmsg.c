@@ -964,7 +964,7 @@ static int sk_psock_strp_parse(struct strparser *strp, struct sk_buff *skb)
 }
 
 /* Called with socket lock held. */
-static void sk_psock_data_ready(struct sock *sk)
+static void sk_psock_strp_data_ready(struct sock *sk)
 {
 	struct sk_psock *psock;
 
@@ -1095,9 +1095,10 @@ int sk_psock_init_strp(struct sock *sk, struct sk_psock *psock)
 	int ret;
 
 	ret = strp_init(&psock->strp, sk, &cb);
-	if (!ret)
-		sk_psock_set_state(psock, SK_PSOCK_RX_STRP_ENABLED);
+	if (ret)
+		return ret;
 
+	sk_psock_set_state(psock, SK_PSOCK_RX_STRP_ENABLED);
 	if (sk_is_tcp(sk)) {
 		psock->strp.cb.read_sock = tcp_bpf_strp_read_sock;
 		psock->copied_seq = tcp_sk(sk)->copied_seq;
@@ -1112,7 +1113,7 @@ void sk_psock_start_strp(struct sock *sk, struct sk_psock *psock)
 		return;
 
 	psock->saved_data_ready = sk->sk_data_ready;
-	sk->sk_data_ready = sk_psock_data_ready;
+	sk->sk_data_ready = sk_psock_strp_data_ready;
 	sk->sk_write_space = sk_psock_write_space;
 }
 

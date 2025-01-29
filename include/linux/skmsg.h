@@ -249,6 +249,12 @@ static inline void sk_msg_page_add(struct sk_msg *msg, struct page *page,
 	sk_msg_iter_next(msg, end);
 }
 
+static inline bool sk_is_tcp(const struct sock *sk)
+{
+	return sk->sk_type == SOCK_STREAM &&
+	       sk->sk_protocol == IPPROTO_TCP;
+}
+
 static inline struct sk_psock *sk_psock(const struct sock *sk)
 {
 	return __rcu_dereference_sk_user_data_with_flags(sk,
