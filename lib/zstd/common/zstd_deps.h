@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0+ OR BSD-3-Clause */
 /*
- * Copyright (c) Facebook, Inc.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  *
  * This source code is licensed under both the BSD-style license (found in the
@@ -117,8 +117,8 @@ static uint64_t ZSTD_div64(uint64_t dividend, uint32_t divisor) {
 #define ZSTD_DEPS_STDINT
 
 /*
- * The Linux Kernel doesn't provide intptr_t, only uintptr_t, which
- * is an unsigned long.
+ * Linux 4.9 doesn't provide intptr_t, only uintptr_t, which is an
+ * unsigned long on the architectures supported by this tree.
  */
 typedef long intptr_t;
 
