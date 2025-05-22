@@ -255,4 +255,6 @@ void dma_buf_vunmap(struct dma_buf *, void *vaddr);
 void dma_buf_set_privflag(struct dma_buf *);
 bool dma_buf_get_privflag(struct dma_buf *, bool clear);
 struct dma_buf *get_dma_buf_file(struct file *);
+struct dma_buf *dma_buf_iter_begin(void);
+struct dma_buf *dma_buf_iter_next(struct dma_buf *dmabuf);
 #endif /* __DMA_BUF_H__ */
