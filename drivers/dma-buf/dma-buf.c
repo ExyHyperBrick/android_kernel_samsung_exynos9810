@@ -39,12 +39,25 @@
 
 static inline int is_dma_buf_file(struct file *);
 
-struct dma_buf_list {
-	struct list_head head;
-	struct mutex lock;
-};
+static DEFINE_MUTEX(dmabuf_list_mutex);
+static LIST_HEAD(dmabuf_list);
 
-static struct dma_buf_list db_list;
+static void __dma_buf_list_add(struct dma_buf *dmabuf)
+{
+	mutex_lock(&dmabuf_list_mutex);
+	list_add(&dmabuf->list_node, &dmabuf_list);
+	mutex_unlock(&dmabuf_list_mutex);
+}
+
+static void __dma_buf_list_del(struct dma_buf *dmabuf)
+{
+	if (!dmabuf)
+		return;
+
+	mutex_lock(&dmabuf_list_mutex);
+	list_del(&dmabuf->list_node);
+	mutex_unlock(&dmabuf_list_mutex);
+}
 
 static int dma_buf_release(struct inode *inode, struct file *file)
 {
@@ -69,9 +82,7 @@ static int dma_buf_release(struct inode *inode, struct file *file)
 
 	dmabuf->ops->release(dmabuf);
 
-	mutex_lock(&db_list.lock);
-	list_del(&dmabuf->list_node);
-	mutex_unlock(&db_list.lock);
+	__dma_buf_list_del(dmabuf);
 
 	if (dmabuf->resv == (struct reservation_object *)&dmabuf[1])
 		reservation_object_fini(dmabuf->resv);
@@ -415,9 +426,7 @@ struct dma_buf *dma_buf_export(const struct dma_buf_export_info *exp_info)
 	mutex_init(&dmabuf->lock);
 	INIT_LIST_HEAD(&dmabuf->attachments);
 
-	mutex_lock(&db_list.lock);
-	list_add(&dmabuf->list_node, &db_list.head);
-	mutex_unlock(&db_list.lock);
+	__dma_buf_list_add(dmabuf);
 
 	return dmabuf;
 
@@ -920,7 +929,7 @@ static int dma_buf_debug_show(struct seq_file *s, void *unused)
 	int count = 0, attach_count;
 	size_t size = 0;
 
-	ret = mutex_lock_interruptible(&db_list.lock);
+	ret = mutex_lock_interruptible(&dmabuf_list_mutex);
 
 	if (ret)
 		return ret;
@@ -928,7 +937,7 @@ static int dma_buf_debug_show(struct seq_file *s, void *unused)
 	seq_puts(s, "\nDma-buf Objects:\n");
 	seq_puts(s, "size\tflags\tmode\tcount\texp_name\n");
 
-	list_for_each_entry(buf_obj, &db_list.head, list_node) {
+	list_for_each_entry(buf_obj, &dmabuf_list, list_node) {
 		ret = mutex_lock_interruptible(&buf_obj->lock);
 
 		if (ret) {
@@ -963,7 +972,7 @@ static int dma_buf_debug_show(struct seq_file *s, void *unused)
 
 	seq_printf(s, "\nTotal %d objects, %zu bytes\n", count, size);
 
-	mutex_unlock(&db_list.lock);
+	mutex_unlock(&dmabuf_list_mutex);
 	return 0;
 }
 
@@ -1021,8 +1030,6 @@ static inline void dma_buf_uninit_debugfs(void)
 
 static int __init dma_buf_init(void)
 {
-	mutex_init(&db_list.lock);
-	INIT_LIST_HEAD(&db_list.head);
 	dma_buf_init_debugfs();
 	return 0;
 }
