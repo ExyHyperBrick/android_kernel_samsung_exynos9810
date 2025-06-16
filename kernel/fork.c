@@ -202,10 +202,10 @@ static unsigned long *alloc_thread_stack_node(struct task_struct *tsk, int node)
 	local_irq_enable();
 
 	stack = __vmalloc_node_range(THREAD_SIZE, THREAD_SIZE,
-			VMALLOC_START, VMALLOC_END,
-			THREADINFO_GFP | __GFP_HIGHMEM,
-			PAGE_KERNEL,
-			0, node, __builtin_return_address(0));
+				     VMALLOC_START, VMALLOC_END,
+				     THREADINFO_GFP,
+				     PAGE_KERNEL,
+				     0, node, __builtin_return_address(0));
 
 	/*
 	 * We can't call find_vm_area() in interrupt context, and
