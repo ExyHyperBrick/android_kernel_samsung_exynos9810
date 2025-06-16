@@ -3130,10 +3130,9 @@ static int init_blkz_info(struct f2fs_sb_info *sbi, int devi)
 
 #define F2FS_REPORT_NR_ZONES   4096
 
-	zones = f2fs_kzalloc(sbi,
-			     array_size(F2FS_REPORT_NR_ZONES,
-					sizeof(struct blk_zone)),
-			     GFP_KERNEL);
+	zones = kzalloc(array_size(F2FS_REPORT_NR_ZONES,
+				   sizeof(struct blk_zone)),
+			GFP_KERNEL);
 	if (!zones)
 		return -ENOMEM;
 
@@ -3283,10 +3282,9 @@ static int f2fs_scan_devices(struct f2fs_sb_info *sbi)
 	 * Initialize multiple devices information, or single
 	 * zoned block device information.
 	 */
-	sbi->devs = f2fs_kzalloc(sbi,
-				 array_size(max_devices,
-					    sizeof(struct f2fs_dev_info)),
-				 GFP_KERNEL);
+	sbi->devs = kzalloc(array_size(max_devices,
+				       sizeof(struct f2fs_dev_info)),
+			    GFP_KERNEL);
 	if (!sbi->devs)
 		return -ENOMEM;
 

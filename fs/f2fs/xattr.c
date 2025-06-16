@@ -30,7 +30,7 @@ static void *xattr_alloc(struct f2fs_sb_info *sbi, int size, bool *is_inline)
 		return kmem_cache_zalloc(sbi->inline_xattr_slab, GFP_NOFS);
 	}
 	*is_inline = false;
-	return f2fs_kzalloc(sbi, size, GFP_NOFS);
+	return kzalloc(size, GFP_NOFS);
 }
 
 static void xattr_free(struct f2fs_sb_info *sbi, void *xattr_addr,
@@ -396,8 +396,8 @@ static int read_all_xattrs(struct inode *inode, struct page *ipage,
 	void *txattr_addr;
 	int err;
 
-	txattr_addr = f2fs_kzalloc(F2FS_I_SB(inode),
-			inline_size + size + XATTR_PADDING_SIZE, GFP_NOFS);
+	txattr_addr = kzalloc(inline_size + size + XATTR_PADDING_SIZE,
+							GFP_F2FS_ZERO);
 	if (!txattr_addr)
 		return -ENOMEM;
 

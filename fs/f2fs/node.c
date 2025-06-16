@@ -3156,8 +3156,7 @@ int f2fs_build_node_manager(struct f2fs_sb_info *sbi)
 {
 	int err;
 
-	sbi->nm_info = f2fs_kzalloc(sbi, sizeof(struct f2fs_nm_info),
-							GFP_KERNEL);
+	sbi->nm_info = kzalloc(sizeof(struct f2fs_nm_info), GFP_KERNEL);
 	if (!sbi->nm_info)
 		return -ENOMEM;
 
