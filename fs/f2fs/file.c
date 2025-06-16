@@ -1293,15 +1293,13 @@ static int __exchange_data_block(struct inode *src_inode,
 	while (len) {
 		olen = min((pgoff_t)4 * ADDRS_PER_BLOCK(src_inode), len);
 
-		src_blkaddr = f2fs_kvzalloc(F2FS_I_SB(src_inode),
-					array_size(olen, sizeof(block_t)),
-					GFP_NOFS);
+		src_blkaddr = kvzalloc(array_size(olen, sizeof(block_t)),
+				       GFP_NOFS);
 		if (!src_blkaddr)
 			return -ENOMEM;
 
-		do_replace = f2fs_kvzalloc(F2FS_I_SB(src_inode),
-					array_size(olen, sizeof(int)),
-					GFP_NOFS);
+		do_replace = kvzalloc(array_size(olen, sizeof(int)),
+				      GFP_NOFS);
 		if (!do_replace) {
 			kvfree(src_blkaddr);
 			return -ENOMEM;

@@ -43,7 +43,6 @@
 
 enum {
 	FAULT_KMALLOC,
-	FAULT_KVMALLOC,
 	FAULT_PAGE_ALLOC,
 	FAULT_PAGE_GET,
 	FAULT_ALLOC_BIO,
@@ -3001,23 +3000,6 @@ static inline void *f2fs_kzalloc(struct f2fs_sb_info *sbi,
 					size_t size, gfp_t flags)
 {
 	return f2fs_kmalloc(sbi, size, flags | __GFP_ZERO);
-}
-
-static inline void *f2fs_kvmalloc(struct f2fs_sb_info *sbi,
-					size_t size, gfp_t flags)
-{
-	if (time_to_inject(sbi, FAULT_KVMALLOC)) {
-		f2fs_show_injection_info(sbi, FAULT_KVMALLOC);
-		return NULL;
-	}
-
-	return kvmalloc(size, flags);
-}
-
-static inline void *f2fs_kvzalloc(struct f2fs_sb_info *sbi,
-					size_t size, gfp_t flags)
-{
-	return f2fs_kvmalloc(sbi, size, flags | __GFP_ZERO);
 }
 
 static inline int get_extra_isize(struct inode *inode)
