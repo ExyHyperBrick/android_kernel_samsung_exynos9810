@@ -81,6 +81,19 @@ extern void *__vmalloc_node_range(unsigned long size, unsigned long align,
 			pgprot_t prot, unsigned long vm_flags, int node,
 			const void *caller);
 
+#ifndef CONFIG_MMU
+
+extern void *__vmalloc_node_flags(unsigned long size, int node, gfp_t flags);
+static inline void *__vmalloc_node_flags_caller(unsigned long size, int node,
+						gfp_t flags, void *caller)
+{
+	return __vmalloc_node_flags(size, node, flags);
+}
+#else
+extern void *__vmalloc_node_flags_caller(unsigned long size,
+					 int node, gfp_t flags, void *caller);
+#endif
+
 extern void vfree(const void *addr);
 
 extern void *vmap(struct page **pages, unsigned int count,

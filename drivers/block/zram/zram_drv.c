@@ -590,7 +590,7 @@ static void zram_page_end_io(struct bio *bio)
 {
 	struct page *page = bio->bi_io_vec[0].bv_page;
 
-	page_endio(page, op_is_write(bio_op(bio)), bio->bi_error);
+	page_endio(page, op_is_write(bio_op(bio)), bio->bi_status);
 	bio_put(bio);
 }
 
@@ -607,7 +607,7 @@ static int read_from_bdev_async(struct zram *zram, struct bio_vec *bvec,
 		return -ENOMEM;
 
 	bio->bi_iter.bi_sector = entry * (PAGE_SIZE >> 9);
-	bio->bi_bdev = zram->bdev;
+	bio_set_dev(bio, zram->bdev);
 	if (!bio_add_page(bio, bvec->bv_page, bvec->bv_len, bvec->bv_offset)) {
 		bio_put(bio);
 		return -EIO;
@@ -732,7 +732,7 @@ static ssize_t writeback_store(struct device *dev,
 
 		bio.bi_max_vecs = 1;
 		bio.bi_io_vec = &bvec;
-		bio.bi_bdev = zram->bdev;
+		bio.bi_disk = zram->disk;
 
 		bio.bi_iter.bi_sector = blk_idx * (PAGE_SIZE >> 9);
 		bio_set_op_attrs(&bio, REQ_OP_WRITE, REQ_SYNC);
