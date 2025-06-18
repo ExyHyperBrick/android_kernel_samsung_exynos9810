@@ -662,6 +662,11 @@ struct decon_reg_data {
 	int mres_idx;
 };
 
+struct decon_win_config_extra {
+	int remained_frames;
+	u32 reserved[7];
+};
+
 #ifdef CONFIG_SUPPORT_DSU
 struct decon_win_config_data_old {
 	int	retire_fence;
@@ -680,6 +685,7 @@ struct decon_win_config_data {
 #else
 	struct decon_win_config config[MAX_DECON_WIN + 1];
 #endif
+	struct decon_win_config_extra extra;
 };
 
 enum hwc_ver {
@@ -1023,6 +1029,7 @@ struct decon_update_regs {
 	struct task_struct *thread;
 	struct kthread_worker worker;
 	struct kthread_work work;
+	atomic_t remaining_frame;
 };
 
 struct decon_vsync {
@@ -1179,6 +1186,7 @@ struct decon_device {
 #ifdef CONFIG_LOGGING_BIGDATA_BUG
 	int eint_pend;
 #endif
+	int	update_regs_list_cnt;
 
 	u32 prev_protection_bitmask;
 	unsigned long prev_aclk_khz;
