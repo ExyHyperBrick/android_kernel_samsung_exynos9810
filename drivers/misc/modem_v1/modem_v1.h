@@ -74,6 +74,8 @@ enum legacy_ipc_map {
 	MAX_SIPC_MAP,
 };
 
+#define LEGACY_IPC_RAW ((enum legacy_ipc_map)IPC_RAW)
+
 #define MAX_SIPC5_DEVICES	(IPC_RAW + 1)	/* FMT, RAW */
 
 #define MAX_SIPC_CHANNELS	256	/* 2 ^ 8		*/
