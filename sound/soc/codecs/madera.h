@@ -76,35 +76,29 @@
 #define MADERA_MIXER_VOL_WIDTH		7
 
 #define MADERA_DOM_GRP_FX		0
-#define MADERA_DOM_GRP_ASRC1_RATE_1	1
-#define MADERA_DOM_GRP_ASRC1_RATE_2	2
-#define MADERA_DOM_GRP_ASRC2_RATE_1	3
-#define MADERA_DOM_GRP_ASRC2_RATE_2	4
-#define MADERA_DOM_GRP_ISRC1_DEC	5
-#define MADERA_DOM_GRP_ISRC1_INT	6
-#define MADERA_DOM_GRP_ISRC2_DEC	7
-#define MADERA_DOM_GRP_ISRC2_INT	8
-#define MADERA_DOM_GRP_ISRC3_DEC	9
-#define MADERA_DOM_GRP_ISRC3_INT	10
-#define MADERA_DOM_GRP_ISRC4_DEC	11
-#define MADERA_DOM_GRP_ISRC4_INT	12
-#define MADERA_DOM_GRP_OUT		13
-#define MADERA_DOM_GRP_SPD		14
-#define MADERA_DOM_GRP_DSP1		15
-#define MADERA_DOM_GRP_DSP2		16
-#define MADERA_DOM_GRP_DSP3		17
-#define MADERA_DOM_GRP_DSP4		18
-#define MADERA_DOM_GRP_DSP5		19
-#define MADERA_DOM_GRP_DSP6		20
-#define MADERA_DOM_GRP_DSP7		21
-#define MADERA_DOM_GRP_AIF1		22
-#define MADERA_DOM_GRP_AIF2		23
-#define MADERA_DOM_GRP_AIF3		24
-#define MADERA_DOM_GRP_AIF4		25
-#define MADERA_DOM_GRP_SLIMBUS		26
-#define MADERA_DOM_GRP_PWM		27
-#define MADERA_DOM_GRP_DFC		28
-#define MADERA_N_DOM_GRPS		29
+#define MADERA_DOM_GRP_ASRC1		1
+#define MADERA_DOM_GRP_ASRC2		2
+#define MADERA_DOM_GRP_ISRC1		3
+#define MADERA_DOM_GRP_ISRC2		4
+#define MADERA_DOM_GRP_ISRC3		5
+#define MADERA_DOM_GRP_ISRC4		6
+#define MADERA_DOM_GRP_OUT		7
+#define MADERA_DOM_GRP_SPD		8
+#define MADERA_DOM_GRP_DSP1		9
+#define MADERA_DOM_GRP_DSP2		10
+#define MADERA_DOM_GRP_DSP3		11
+#define MADERA_DOM_GRP_DSP4		12
+#define MADERA_DOM_GRP_DSP5		13
+#define MADERA_DOM_GRP_DSP6		14
+#define MADERA_DOM_GRP_DSP7		15
+#define MADERA_DOM_GRP_AIF1		16
+#define MADERA_DOM_GRP_AIF2		17
+#define MADERA_DOM_GRP_AIF3		18
+#define MADERA_DOM_GRP_AIF4		19
+#define MADERA_DOM_GRP_SLIMBUS		20
+#define MADERA_DOM_GRP_PWM		21
+#define MADERA_DOM_GRP_DFC		22
+#define MADERA_N_DOM_GRPS		23
 
 #define MADERA_MAX_DAI			11
 #define MADERA_MAX_ADSP			7
@@ -385,6 +379,8 @@ extern const struct snd_kcontrol_new madera_drc_activity_output_mux[];
 extern const struct snd_kcontrol_new madera_adsp_rate_controls[];
 
 const char *madera_sample_rate_val_to_name(unsigned int rate_val);
+int madera_sample_rate_val_to_rate(struct madera *madera,
+				   unsigned int rate_val);
 
 int madera_dfc_put(struct snd_kcontrol *kcontrol,
 		   struct snd_ctl_elem_value *ucontrol);
@@ -395,6 +391,8 @@ int madera_in_rate_put(struct snd_kcontrol *kcontrol,
 		       struct snd_ctl_elem_value *ucontrol);
 
 int madera_out1_demux_put(struct snd_kcontrol *kcontrol,
+			  struct snd_ctl_elem_value *ucontrol);
+int madera_out1_demux_get(struct snd_kcontrol *kcontrol,
 			  struct snd_ctl_elem_value *ucontrol);
 
 int madera_dre_put(struct snd_kcontrol *kcontrol,
