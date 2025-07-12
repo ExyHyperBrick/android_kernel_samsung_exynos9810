@@ -606,20 +606,6 @@ end:
 }
 EXPORT_SYMBOL_GPL(madera_out1_demux_put);
 
-int madera_out1_demux_get(struct snd_kcontrol *kcontrol,
-			  struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_codec *codec = snd_soc_dapm_kcontrol_codec(kcontrol);
-	unsigned int val;
-
-	val = snd_soc_read(codec, MADERA_OUTPUT_ENABLES_1);
-	val &= MADERA_EP_SEL_MASK;
-	val >>= MADERA_EP_SEL_SHIFT;
-	ucontrol->value.enumerated.item[0] = val;
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(madera_out1_demux_get);
 
 static int madera_inmux_put(struct snd_kcontrol *kcontrol,
 			    struct snd_ctl_elem_value *ucontrol)
@@ -837,28 +823,40 @@ static bool madera_can_change_grp_rate(const struct madera_priv *priv,
 		count = priv->domain_group_ref[MADERA_DOM_GRP_FX];
 		break;
 	case MADERA_ASRC1_RATE1:
+		count = priv->domain_group_ref[MADERA_DOM_GRP_ASRC1_RATE_1];
+		break;
 	case MADERA_ASRC1_RATE2:
-		count = priv->domain_group_ref[MADERA_DOM_GRP_ASRC1];
+		count = priv->domain_group_ref[MADERA_DOM_GRP_ASRC1_RATE_2];
 		break;
 	case MADERA_ASRC2_RATE1:
+		count = priv->domain_group_ref[MADERA_DOM_GRP_ASRC2_RATE_1];
+		break;
 	case MADERA_ASRC2_RATE2:
-		count = priv->domain_group_ref[MADERA_DOM_GRP_ASRC2];
+		count = priv->domain_group_ref[MADERA_DOM_GRP_ASRC2_RATE_2];
 		break;
 	case MADERA_ISRC_1_CTRL_1:
+		count = priv->domain_group_ref[MADERA_DOM_GRP_ISRC1_INT];
+		break;
 	case MADERA_ISRC_1_CTRL_2:
-		count = priv->domain_group_ref[MADERA_DOM_GRP_ISRC1];
+		count = priv->domain_group_ref[MADERA_DOM_GRP_ISRC1_DEC];
 		break;
 	case MADERA_ISRC_2_CTRL_1:
+		count = priv->domain_group_ref[MADERA_DOM_GRP_ISRC2_INT];
+		break;
 	case MADERA_ISRC_2_CTRL_2:
-		count = priv->domain_group_ref[MADERA_DOM_GRP_ISRC2];
+		count = priv->domain_group_ref[MADERA_DOM_GRP_ISRC2_DEC];
 		break;
 	case MADERA_ISRC_3_CTRL_1:
+		count = priv->domain_group_ref[MADERA_DOM_GRP_ISRC3_INT];
+		break;
 	case MADERA_ISRC_3_CTRL_2:
-		count = priv->domain_group_ref[MADERA_DOM_GRP_ISRC3];
+		count = priv->domain_group_ref[MADERA_DOM_GRP_ISRC3_DEC];
 		break;
 	case MADERA_ISRC_4_CTRL_1:
+		count = priv->domain_group_ref[MADERA_DOM_GRP_ISRC4_INT];
+		break;
 	case MADERA_ISRC_4_CTRL_2:
-		count = priv->domain_group_ref[MADERA_DOM_GRP_ISRC4];
+		count = priv->domain_group_ref[MADERA_DOM_GRP_ISRC4_DEC];
 		break;
 	case MADERA_OUTPUT_RATE_1:
 		count = priv->domain_group_ref[MADERA_DOM_GRP_OUT];
@@ -1173,12 +1171,6 @@ static void madera_configure_input_mode(struct madera *madera)
 	int max_analogue_inputs, max_dmic_sup, i;
 
 	switch (madera->type) {
-/* TODO
-	case CS47L15:
-		max_analogue_inputs = 1;
-		max_dmic_sup = 2;
-		break;
-*/
 	case CS47L35:
 		max_analogue_inputs = 2;
 		max_dmic_sup = 2;
@@ -2627,16 +2619,6 @@ int madera_dre_put(struct snd_kcontrol *kcontrol,
 }
 EXPORT_SYMBOL_GPL(madera_dre_put);
 
-static void madera_sleep(unsigned int delay)
-{
-	if (delay < 20) {
-		delay *= 1000;
-		usleep_range(delay, delay + 500);
-	} else {
-		msleep(delay);
-	}
-}
-
 int madera_out_ev(struct snd_soc_dapm_widget *w,
 		  struct snd_kcontrol *kcontrol, int event)
 {
@@ -2684,7 +2666,7 @@ int madera_out_ev(struct snd_soc_dapm_widget *w,
 		case MADERA_OUT3R_ENA_SHIFT:
 			priv->out_up_pending--;
 			if (!priv->out_up_pending) {
-				madera_sleep(priv->out_up_delay);
+				msleep(priv->out_up_delay);
 				priv->out_up_delay = 0;
 			}
 			break;
@@ -2720,7 +2702,7 @@ int madera_out_ev(struct snd_soc_dapm_widget *w,
 		case MADERA_OUT3R_ENA_SHIFT:
 			priv->out_down_pending--;
 			if (!priv->out_down_pending) {
-				madera_sleep(priv->out_down_delay);
+				msleep(priv->out_down_delay);
 				priv->out_down_delay = 0;
 			}
 			break;
@@ -3242,40 +3224,6 @@ static const unsigned int madera_sr_vals[] = {
 	512000,
 };
 
-int madera_sample_rate_val_to_rate(struct madera *madera, unsigned int rate_val)
-{
-	unsigned int reg;
-	unsigned int val;
-	int ret;
-
-	switch (rate_val) {
-	case 0x0:
-		reg = MADERA_SAMPLE_RATE_1;
-		break;
-	case 0x1:
-		reg = MADERA_SAMPLE_RATE_2;
-		break;
-	case 0x2:
-		reg = MADERA_SAMPLE_RATE_3;
-		break;
-	case 0x8:
-		reg = MADERA_ASYNC_SAMPLE_RATE_1;
-		break;
-	case 0x9:
-		reg = MADERA_ASYNC_SAMPLE_RATE_2;
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	ret = regmap_read(madera->regmap, reg, &val);
-	if (ret)
-		return ret;
-
-	return madera_sr_vals[val];
-}
-EXPORT_SYMBOL_GPL(madera_sample_rate_val_to_rate);
-
 #define MADERA_192K_48K_RATE_MASK	0x0F003E
 #define MADERA_192K_44K1_RATE_MASK	0x003E00
 #define MADERA_192K_RATE_MASK		(MADERA_192K_48K_RATE_MASK | \
@@ -3514,7 +3462,7 @@ static int madera_hw_params(struct snd_pcm_substream *substream,
 			madera->pdata.codec.max_channels_clocked[dai->id - 1];
 	int tdm_width = priv->tdm_width[dai->id - 1];
 	int tdm_slots = priv->tdm_slots[dai->id - 1];
-	int bclk, lrclk, dataw, slotw, frame, bclk_target, num_rates;
+	int bclk, lrclk, wl, frame, bclk_target, num_rates;
 	bool reconfig;
 	unsigned int aif_tx_state = 0, aif_rx_state = 0;
 
@@ -3526,17 +3474,17 @@ static int madera_hw_params(struct snd_pcm_substream *substream,
 		num_rates = ARRAY_SIZE(madera_48k_bclk_rates);
 	}
 
-	dataw = snd_pcm_format_width(params_format(params));
-	slotw = snd_pcm_format_physical_width(params_format(params));
+	wl = snd_pcm_format_width(params_format(params));
 
 	if (tdm_slots) {
 		madera_aif_dbg(dai, "Configuring for %d %d bit TDM slots\n",
 				tdm_slots, tdm_width);
-		slotw = tdm_width;
+		bclk_target = tdm_slots * tdm_width * params_rate(params);
 		channels = tdm_slots;
+	} else {
+		bclk_target = snd_soc_params_to_bclk(params);
+		tdm_width = wl;
 	}
-
-	bclk_target = slotw * channels * params_rate(params);
 
 	if (chan_limit && chan_limit < channels) {
 		madera_aif_dbg(dai, "Limiting to %d channels\n", chan_limit);
@@ -3572,7 +3520,7 @@ static int madera_hw_params(struct snd_pcm_substream *substream,
 	madera_aif_info(dai, "BCLK %dHz LRCLK %dHz\n",
 			rates[bclk], rates[bclk] / lrclk);
 
-	frame = dataw << MADERA_AIF1TX_WL_SHIFT | slotw;
+	frame = wl << MADERA_AIF1TX_WL_SHIFT | tdm_width;
 
 	reconfig = madera_aif_cfg_changed(codec, base, bclk, lrclk, frame);
 
@@ -4970,16 +4918,16 @@ int madera_fllhj_set_refclk(struct madera_fll *fll, int source,
 {
 	int ret = 0;
 
+	if (fll->ref_src == source && fll->ref_freq == fin &&
+	    fll->fout == fout)
+		return 0;
+
 	/* To remain consistent with previous FLLs, we expect fout to be
 	 * provided in the form of the required sysclk rate, which is
 	 * 2x the calculated fll out.
 	 */
 	if (fout)
 		fout /= 2;
-
-	if (fll->ref_src == source && fll->ref_freq == fin &&
-	    fll->fout == fout)
-		return 0;
 
 	if (fin && fout && madera_fllhj_validate(fll, fin, fout))
 		return -EINVAL;
