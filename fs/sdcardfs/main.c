@@ -467,7 +467,7 @@ static int __init init_sdcardfs_fs(void)
 {
 	int err;
 
-	pr_info("Registering sdcardfs " SDCARDFS_VERSION "\n");
+	pr_info("Registering sdcardfs\n");
 
 	err = sdcardfs_init_inode_cache();
 	if (err)
