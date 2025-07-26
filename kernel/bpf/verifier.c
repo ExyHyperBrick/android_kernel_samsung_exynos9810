@@ -11314,8 +11314,11 @@ skip_full_check:
 	env->verification_time = ktime_get_ns() - start_time;
 	print_verification_stats(env);
 
-	if (log->level && bpf_verifier_log_full(log))
-		ret = -ENOSPC;
+	/*
+	 * ANDROID: NetBpfLoad always requests verifier output. Do not turn a
+	 * successful verification into -ENOSPC just because the diagnostic
+	 * log buffer filled. Newer kernels use rotating verifier logs instead.
+	 */
 
 	if (log->level && !log->ubuf) {
 		ret = -EFAULT;
