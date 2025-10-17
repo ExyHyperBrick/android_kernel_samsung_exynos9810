@@ -32,7 +32,7 @@
 #include <linux/string.h>
 #include <linux/timer.h>
 #include <linux/if_arp.h>
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 
 #include <bcmutils.h>
 #include <bcmstdlib_s.h>

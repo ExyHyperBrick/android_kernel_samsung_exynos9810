@@ -29,7 +29,7 @@
 #include <linux/kdebug.h>
 
 #include <asm/cacheflush.h>
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 
 /* Compute the address of the breakpoint instruction and return it.
  *

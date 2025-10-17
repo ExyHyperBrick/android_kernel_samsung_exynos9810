@@ -81,7 +81,7 @@
 #include <net/rose.h>
 #include <net/6lowpan.h>
 
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 
 // ------------- START of KNOX_VPN ------------------//
 #include <linux/types.h>

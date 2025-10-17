@@ -58,7 +58,7 @@
 #include <net/compat.h>
 #include <net/seg6.h>
 
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 
 struct ip6_ra_chain *ip6_ra_chain;
 DEFINE_RWLOCK(ip6_ra_lock);

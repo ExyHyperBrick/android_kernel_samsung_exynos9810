@@ -20,7 +20,7 @@
 #include <linux/extable.h>
 #include <linux/sched.h>
 
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 #include <asm/siginfo.h>
 #include <asm/signal.h>
 

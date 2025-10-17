@@ -47,7 +47,7 @@
 #endif
 
 #include <linux/errqueue.h>
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 
 /*
  *	SOL_IP control messages.

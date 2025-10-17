@@ -4,7 +4,7 @@
 
 #include <linux/module.h>
 #include <linux/extable.h>
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 
 void sort_extable(struct exception_table_entry *start,
 		  struct exception_table_entry *finish)

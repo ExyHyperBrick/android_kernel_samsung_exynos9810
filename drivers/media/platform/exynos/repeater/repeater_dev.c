@@ -9,7 +9,7 @@
  * published by the Free Software Foundation.
  */
 
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 #include <linux/of.h>
 #include <linux/slab.h>
 #include <linux/ion.h>

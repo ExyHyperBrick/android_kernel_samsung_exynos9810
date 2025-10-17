@@ -44,7 +44,7 @@
 #include <linux/spinlock.h>
 #include <linux/ethtool.h>
 #include <linux/proc_fs.h>
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 #include <asm/unaligned.h>
 #include <linux/fs.h>
 #include <linux/namei.h>

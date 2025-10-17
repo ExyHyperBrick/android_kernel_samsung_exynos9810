@@ -36,7 +36,7 @@
 #include <linux/mutex.h>
 
 #include <asm/irq.h>
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 
 #define BT43XX_LINE 1
 /*

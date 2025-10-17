@@ -18,7 +18,7 @@
 #include <linux/unicode.h>
 #include <linux/fscrypt.h>
 
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 
 #include "internal.h"
 

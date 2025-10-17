@@ -9,7 +9,7 @@
  * published by the Free Software Foundation.
  */
 
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 #include <linux/delay.h>
 
 #include "tsmux_dev.h"
