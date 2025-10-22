@@ -6,6 +6,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/i2c.h>
+#include <linux/version.h>
 #include <linux/delay.h>
 #include <linux/input.h>
 #include <linux/gpio.h>
@@ -131,39 +132,35 @@ struct sx9320_p {
 	char hall_ic[6];
 };
 
-static int sx9320_check_hallic_state(char *file_path, char hall_ic_status[])
+static int sx9320_check_hallic_state(char *file_path, unsigned char hall_ic_status[])
 {
 	int iRet = 0;
 	mm_segment_t old_fs;
 	struct file *filep;
-	char hall_sysfs[5];
+	u8 hall_sysfs[5];
 
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
 
-	filep = filp_open(file_path, O_RDONLY, 0440);
+	filep = filp_open(file_path, O_RDONLY, 0666);
 	if (IS_ERR(filep)) {
 		iRet = PTR_ERR(filep);
-		pr_err("[SX9320]: %s - file open fail %d\n", __func__, iRet);
 		set_fs(old_fs);
-		return iRet;
+		goto exit;
 	}
 
 	iRet = filep->f_op->read(filep, hall_sysfs,
 		sizeof(hall_sysfs), &filep->f_pos);
 
-	if (iRet <= 0) {
-		pr_err("[SX9320]: %s - file read fail %d\n", __func__, iRet);
-		filp_close(filep, current->files);
-		set_fs(old_fs);
-		return -EIO;
-	} else {
+	if (iRet != sizeof(hall_sysfs))
+		iRet = -EIO;
+	else
 		strncpy(hall_ic_status, hall_sysfs, sizeof(hall_sysfs));
-	}
 
 	filp_close(filep, current->files);
 	set_fs(old_fs);
 
+exit:
 	return iRet;
 }
 
