@@ -1334,7 +1334,10 @@ static void exynos_pcie_assert_phy_reset(struct pcie_port *pp)
 	int ret;
 
 	ret = exynos_pcie_phy_clock_enable(&exynos_pcie->pp, PCIE_ENABLE_CLOCK);
-	dev_err(pp->dev, "phy clk enable, ret value = %d\n", ret);
+	if (ret)
+		dev_err(pp->dev, "phy clk enable failed, ret=%d\n", ret);
+	else
+		dev_dbg(pp->dev, "phy clk enable OK\n");
 
 	if (exynos_pcie->phy_ops.phy_config != NULL)
 		exynos_pcie->phy_ops.phy_config(exynos_pcie->phy_base,
@@ -2249,7 +2252,10 @@ static void exynos_pcie_resumed_phydown(struct pcie_port *pp)
 
 	/* phy all power down on wifi off during suspend/resume */
 	ret = exynos_pcie_clock_enable(pp, PCIE_ENABLE_CLOCK);
-	dev_err(pp->dev, "pcie clk enable, ret value = %d\n", ret);
+	if (ret)
+		dev_err(pp->dev, "pcie clk enable failed, ret=%d\n", ret);
+	else
+		dev_dbg(pp->dev, "pcie clk enable OK\n");
 
 	exynos_pcie_enable_interrupts(pp);
 	regmap_update_bits(exynos_pcie->pmureg,
@@ -2368,7 +2374,10 @@ int exynos_pcie_poweron(int ch_num)
 
 	if (exynos_pcie->state == STATE_LINK_DOWN) {
 		ret = exynos_pcie_clock_enable(pp, PCIE_ENABLE_CLOCK);
-		dev_err(pp->dev, "pcie clk enable, ret value = %d\n", ret);
+		if (ret)
+			dev_err(pp->dev, "pcie clk enable failed, ret=%d\n", ret);
+		else
+			dev_dbg(pp->dev, "pcie clk enable OK\n");
 
 		/* Release wakeup maks */
 		regmap_update_bits(exynos_pcie->pmureg,
