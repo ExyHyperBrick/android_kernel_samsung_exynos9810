@@ -492,15 +492,6 @@ enum bpf_func_id {
 	BPF_FUNC_set_hash_invalid,
 
 	/**
-	 * u64 bpf_bpf_get_socket_cookie(skb)
-	 *     Get the cookie for the socket stored inside sk_buff.
-	 *     @skb: pointer to skb
-	 *     Return: 8 Bytes non-decreasing number on success or 0 if the socket
-	 *     field is missing inside sk_buff
-	 */
-	BPF_FUNC_get_socket_cookie,
-
-	/**
 	 * bpf_get_numa_node_id()
 	 * Returns the id of the current NUMA node.
 	 */
