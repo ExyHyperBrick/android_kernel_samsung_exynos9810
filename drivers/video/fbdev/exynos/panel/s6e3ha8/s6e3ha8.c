@@ -1389,6 +1389,12 @@ static int getidx_lpm_table(struct maptbl *tbl)
 #endif
 	props->cur_alpm_mode = props->alpm_mode;
 
+	/* never feed negative row into maptbl_index during races */
+	if (row < 0) {
+		panel_warn("%s: row<0 (%d), forcing row=0 (alpm_mode=%d)\n",
+		           __func__, row, props->alpm_mode);
+		row = 0;
+	}
 	return maptbl_index(tbl, layer, row, 0);
 }
 
