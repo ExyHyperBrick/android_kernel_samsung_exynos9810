@@ -9798,6 +9798,29 @@ wl_cfg80211_cleanup_connection(struct net_device *net, bool user_enforced)
 #endif /* WL_NAN */
 }
 
+/* Forward declaration kept; used elsewhere for event→userspace mapping */
+static void wl_map_brcm_specifc_country_code(char *country_code);
+
+/* "Setter"-only normalizer:
+ * Map literal "00" and default/unknown buckets (AA/ZZ/X* /QM–QZ) to firmware's world-safe "XZ".
+ */
+static inline void wl_norm_cc_for_set(char *cc)
+{
+	char c0, c1;
+	if (!cc) return;
+	c0 = cc[0]; c1 = cc[1];
+	if (c0 >= 'a' && c0 <= 'z') c0 -= ('a' - 'A');
+	if (c1 >= 'a' && c1 <= 'z') c1 -= ('a' - 'A');
+	/* Treat 00, AA, ZZ, XA–XZ, QM–QZ as XZ (firmware accepts XZ, rejects "00") */
+	if ((c0 == '0' && c1 == '0') ||
+	    (c0 == 'A' && c1 == 'A') || (c0 == 'Z' && c1 == 'Z') ||
+	    (c0 == 'X' && (c1 >= 'A' && c1 <= 'Z')) ||
+	    (c0 == 'Q' && (c1 >= 'M' && c1 <= 'Z'))) {
+		c0 = 'X'; c1 = 'Z';
+	}
+	cc[0] = c0; cc[1] = c1; cc[2] = '\0';
+}
+
 s32
 wl_cfg80211_set_country_code(struct net_device *net, char *country_code,
 	bool notify, bool user_enforced, int revinfo)
@@ -9806,6 +9829,7 @@ wl_cfg80211_set_country_code(struct net_device *net, char *country_code,
 	struct wireless_dev *wdev = ndev_to_wdev(net);
 	struct wiphy *wiphy = wdev->wiphy;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+	char norm_cc[WLC_CNTRY_BUF_SZ] = { 0 };
 	BCM_REFERENCE(cfg);
 
 	if (revinfo < 0) {
@@ -9821,13 +9845,19 @@ wl_cfg80211_set_country_code(struct net_device *net, char *country_code,
 
 	wl_cfg80211_cleanup_connection(net, user_enforced);
 
-	/* Store before applying - so that if event comes earlier that is handled properly */
-	if (strlcpy(cfg->country, country_code, WL_CCODE_LEN) >= WLC_CNTRY_BUF_SZ) {
-		WL_ERR(("country code copy failed :%d\n", ret));
-		goto exit;
-	}
+	/* Copy exactly 2 letters, then NUL */
+	norm_cc[0] = country_code ? country_code[0] : '0';
+	norm_cc[1] = country_code ? country_code[1] : '0';
+	norm_cc[2] = '\0';
 
-	ret = wldev_set_country(net, country_code,
+	/* Map 00/AA/ZZ/X* /QM–QZ -> XZ before programming firmware */
+	wl_norm_cc_for_set(norm_cc);
+
+	cfg->country[0] = norm_cc[0];
+	cfg->country[1] = norm_cc[1];
+	cfg->country[2] = '\0';
+
+	ret = wldev_set_country(net, norm_cc,
 		notify, revinfo);
 	if (ret < 0) {
 		WL_ERR(("set country Failed :%d\n", ret));
@@ -9840,7 +9870,7 @@ wl_cfg80211_set_country_code(struct net_device *net, char *country_code,
 	 * list
 	 */
 	if (!IS_REGDOM_SELF_MANAGED(wiphy)) {
-		regulatory_hint(wiphy, country_code);
+		regulatory_hint(wiphy, norm_cc);
 	}
 
 exit:
@@ -13741,6 +13771,12 @@ wl_map_brcm_specifc_country_code(char *country_code)
 			(country_code[1] <= 'Z')) || ((country_code[0] == 'Q') &&
 			(country_code[1] >= 'M') && (country_code[1] <= 'Z'))) {
 		WL_DBG(("locale mapped to world domain\n"));
+		country_code[0] = '0';
+		country_code[1] = '0';
+	}
+	/* Explicitly treat SY as world */
+	if (country_code[0] == 'S' && country_code[1] == 'Y') {
+		WL_DBG(("mapping SY -> 00 (world)\n"));
 		country_code[0] = '0';
 		country_code[1] = '0';
 	}

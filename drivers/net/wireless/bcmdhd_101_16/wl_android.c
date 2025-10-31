@@ -10163,6 +10163,28 @@ wl_android_get_ap_bw(struct net_device *dev, char *command, int total_len)
 }
 #endif /* SUPPORT_AP_BWCTRL */
 
+/* Uppercase cc[0..1] w/o ctype.h and map AA/ZZ/X* /QM–QZ and SY → "00" */
+static inline void
+wl_normalize_cc(char *cc)
+{
+	char c0, c1;
+	if (!cc) return;
+
+	c0 = cc[0]; c1 = cc[1];
+	if (c0 >= 'a' && c0 <= 'z') c0 -= ('a' - 'A');
+	if (c1 >= 'a' && c1 <= 'z') c1 -= ('a' - 'A');
+	cc[0] = c0; cc[1] = c1;
+
+	if ((c0=='A' && c1=='A') ||                  /* AA */
+		(c0=='Z' && c1=='Z') ||                  /* ZZ */
+		(c0=='X' && c1>='A' && c1<='Z') ||       /* XA–XZ */
+		(c0=='Q' && c1>='M' && c1<='Z') ||       /* QM–QZ */
+		(c0=='S' && c1=='Y')) {                  /* SY */
+		cc[0] = '0'; cc[1] = '0';
+	}
+	cc[2] = '\0';
+}
+
 static int
 wl_android_priv_cmd_log_enable_check(char* cmd)
 {
@@ -12027,6 +12049,7 @@ wl_handle_private_cmd(struct net_device *net, char *command, u32 cmd_len)
 		}
 #endif /* DHD_BLOB_EXISTENCE_CHECK */
 
+		wl_normalize_cc(country_code);
 		bytes_written = wl_cfg80211_set_country_code(net, country_code,
 				true, true, revinfo);
 #ifdef CUSTOMER_HW4_PRIVATE_CMD
