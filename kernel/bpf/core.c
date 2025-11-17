@@ -1485,9 +1485,7 @@ static int bpf_check_tail_call(const struct bpf_prog *fp)
 struct bpf_prog *bpf_prog_select_runtime(struct bpf_prog *fp, int *err)
 {
 #ifndef CONFIG_BPF_JIT_ALWAYS_ON
-	u32 stack_depth = max_t(u32, fp->aux->stack_depth, 1);
-
-	fp->bpf_func = interpreters[(round_up(stack_depth, 32) / 32) - 1];
+	fp->bpf_func = interpreters[round_down(fp->aux->stack_depth, 32) / 32];
 #else
 	fp->bpf_func = (void *) __bpf_prog_ret0_warn;
 #endif
