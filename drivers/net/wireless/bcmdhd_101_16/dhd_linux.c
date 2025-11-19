@@ -7485,7 +7485,6 @@ dhd_allocate_if(dhd_pub_t *dhdpub, int ifidx, const char *name,
 		strlcpy(ifp->net->name, name, IFNAMSIZ);
 	}
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 9))
 	/* as priv_destructor calls free_netdev, no need to set need_free_netdev */
 	ifp->net->needs_free_netdev = 0;
 #ifdef WL_CFG80211
@@ -7496,16 +7495,6 @@ dhd_allocate_if(dhd_pub_t *dhdpub, int ifidx, const char *name,
 #else
 	ifp->net->priv_destructor = free_netdev;
 #endif /* WL_CFG80211 */
-#else /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 9) */
-#ifdef WL_CFG80211
-	if (ifidx == 0)
-		ifp->net->destructor = free_netdev;
-	else
-		ifp->net->destructor = dhd_netdev_free;
-#else
-	ifp->net->destructor = free_netdev;
-#endif /* WL_CFG80211 */
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 9) */
 	strlcpy(ifp->name, ifp->net->name, sizeof(ifp->name));
 	dhdinfo->iflist[ifidx] = ifp;
 
