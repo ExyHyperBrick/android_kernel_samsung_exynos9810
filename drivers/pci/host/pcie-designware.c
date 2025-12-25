@@ -19,6 +19,7 @@
 #include <linux/of_pci.h>
 #include <linux/pci.h>
 #include <linux/pci_regs.h>
+#include <linux/uaccess.h>
 #include <linux/platform_device.h>
 #include <linux/types.h>
 #include <linux/delay.h>
@@ -105,22 +106,33 @@ static struct pci_ops dw_pcie_ops;
 
 int dw_pcie_cfg_read(void __iomem *addr, int size, u32 *val)
 {
+	u32 tmp = 0;
+
 	if ((uintptr_t)addr & (size - 1)) {
 		*val = 0;
 		return PCIBIOS_BAD_REGISTER_NUMBER;
 	}
 
-	if (size == 4)
-		*val = readl(addr);
-	else if (size == 2)
-		*val = readw(addr);
-	else if (size == 1)
-		*val = readb(addr);
-	else {
+	if (size != 1 && size != 2 && size != 4) {
 		*val = 0;
 		return PCIBIOS_BAD_REGISTER_NUMBER;
 	}
 
+	/*
+	 * Avoid synchronous external abort if DBI/config space is not accessible
+	 * (power/clock/PD off). Return "not found" style value instead of panicking.
+	 */
+	if (probe_kernel_read(&tmp, (const void __force *)addr, size)) {
+	        *val = 0xffffffff;
+	        return PCIBIOS_DEVICE_NOT_FOUND;
+	}
+
+	if (size == 1)
+	        tmp &= 0xff;
+	else if (size == 2)
+	        tmp &= 0xffff;
+
+	*val = tmp;
 	return PCIBIOS_SUCCESSFUL;
 }
 

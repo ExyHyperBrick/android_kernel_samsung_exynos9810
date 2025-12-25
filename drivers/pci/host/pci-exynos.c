@@ -1535,6 +1535,7 @@ static int exynos_pcie_rd_own_conf(struct pcie_port *pp, int where, int size,
 	if (reg_val == 0 || ret != 0) {
 		dev_info(pp->dev, "PCIe PHY is disabled...\n");
 		*val = 0xffffffff;
+		spin_unlock_irqrestore(&exynos_pcie->reg_lock, flags);
 		return PCIBIOS_DEVICE_NOT_FOUND;
 	}
 #endif
@@ -1596,6 +1597,7 @@ static int exynos_pcie_wr_own_conf(struct pcie_port *pp, int where, int size,
 			&reg_val);
 	if (reg_val == 0 || ret != 0) {
 		dev_info(pp->dev, "PCIe PHY is disabled...\n");
+		spin_unlock_irqrestore(&exynos_pcie->reg_lock, flags);
 		return PCIBIOS_DEVICE_NOT_FOUND;
 	}
 #endif
@@ -2698,6 +2700,7 @@ EXPORT_SYMBOL(exynos_pcie_pm_resume);
 static int exynos_pcie_suspend_noirq(struct device *dev)
 {
 	struct exynos_pcie *exynos_pcie = dev_get_drvdata(dev);
+	unsigned long flags;
 
 	if (exynos_pcie->state == STATE_LINK_DOWN) {
 		dev_info(dev, "RC%d already off\n", exynos_pcie->ch_num);
@@ -2705,6 +2708,15 @@ static int exynos_pcie_suspend_noirq(struct device *dev)
 	}
 
 	pr_err("WARNNING - Unexpected PCIe state(try to power OFF)\n");
+
+	/*
+	 * Ensure poweroff path runs even if we are in an intermediate state.
+	 * poweroff() only acts for STATE_LINK_UP / STATE_LINK_DOWN_TRY.
+	 */
+	spin_lock_irqsave(&exynos_pcie->conf_lock, flags);
+	exynos_pcie->state = STATE_LINK_DOWN_TRY;
+	spin_unlock_irqrestore(&exynos_pcie->conf_lock, flags);
+
 	exynos_pcie_poweroff(exynos_pcie->ch_num);
 
 	return 0;
@@ -2713,6 +2725,7 @@ static int exynos_pcie_suspend_noirq(struct device *dev)
 static int exynos_pcie_resume_noirq(struct device *dev)
 {
 	struct exynos_pcie *exynos_pcie = dev_get_drvdata(dev);
+	unsigned long flags;
 
 #ifdef NCLK_OFF_CONTROL
 	/* Set NCLK_OFF for Speculative access issue after resume. */
@@ -2727,21 +2740,24 @@ static int exynos_pcie_resume_noirq(struct device *dev)
 		exynos_elb_writel(exynos_pcie, (0x1 << NCLK_OFF_OFFSET),
 							PCIE_L12ERR_CTRL);
 #endif
-	if (exynos_pcie->state == STATE_LINK_DOWN) {
-		exynos_pcie_resumed_phydown(&exynos_pcie->pp);
 
-#ifdef CONFIG_DYNAMIC_PHY_OFF
-		regmap_update_bits(exynos_pcie->pmureg,
-			   PCIE_PHY_CONTROL + exynos_pcie->ch_num * 4,
-			   PCIE_PHY_CONTROL_MASK, 1);
-#endif
-		return 0;
-	}
+	/*
+	 * We must have the RC accessible before PCI core resumes the endpoint
+	 * (pci_pm_resume_noirq -> config space reads). If our software state
+	 * is stale, force a full bring-up.
+	 */
+	if (exynos_pcie->state == STATE_LINK_DOWN)
+	        exynos_pcie_resumed_phydown(&exynos_pcie->pp);
+	else
+	        pr_err("WARNNING - Unexpected PCIe state(try to power ON)\n");
 
-	pr_err("WARNNING - Unexpected PCIe state(try to power ON)\n");
 	regmap_update_bits(exynos_pcie->pmureg,
 			   PCIE_PHY_CONTROL + exynos_pcie->ch_num * 4,
 			   PCIE_PHY_CONTROL_MASK, 1);
+
+	spin_lock_irqsave(&exynos_pcie->conf_lock, flags);
+	exynos_pcie->state = STATE_LINK_DOWN; /* force full init in poweron() */
+	spin_unlock_irqrestore(&exynos_pcie->conf_lock, flags);
 
 	exynos_pcie_poweron(exynos_pcie->ch_num);
 
