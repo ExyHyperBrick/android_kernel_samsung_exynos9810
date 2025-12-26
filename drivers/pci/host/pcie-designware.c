@@ -108,13 +108,16 @@ int dw_pcie_cfg_read(void __iomem *addr, int size, u32 *val)
 {
 	u32 tmp = 0;
 
-	if ((uintptr_t)addr & (size - 1)) {
-		*val = 0;
+	if (!val)
+		return PCIBIOS_BAD_REGISTER_NUMBER;
+
+	if (!addr || ((uintptr_t)addr & (size - 1))) {
+		*val = 0xffffffff;
 		return PCIBIOS_BAD_REGISTER_NUMBER;
 	}
 
 	if (size != 1 && size != 2 && size != 4) {
-		*val = 0;
+		*val = 0xffffffff;
 		return PCIBIOS_BAD_REGISTER_NUMBER;
 	}
 
