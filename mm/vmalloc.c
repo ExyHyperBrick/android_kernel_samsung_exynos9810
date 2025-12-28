@@ -39,8 +39,6 @@
 #include <asm/tlbflush.h>
 #include <asm/shmparam.h>
 
-atomic_long_t nr_vmalloc_pages;
-
 #include "internal.h"
 
 struct vfree_deferred {
@@ -1241,7 +1239,7 @@ static void __purge_vmap_area_lazy(unsigned long *start, unsigned long *end,
 
 	valist = llist_del_all(&vmap_purge_list);
 	if (unlikely(valist == NULL))
-		return false;
+		return;
 
 	/*
 	 * TODO: to calculate a flush range without looping.
@@ -1258,7 +1256,7 @@ static void __purge_vmap_area_lazy(unsigned long *start, unsigned long *end,
 	resched_threshold = lazy_max_pages() << 1;
 
 	if (nr)
-		atomic_sub(nr, &vmap_lazy_nr);
+		atomic_long_sub(nr, &vmap_lazy_nr);
 
 	if (nr || force_flush)
 		flush_tlb_kernel_range(*start, *end);
@@ -1728,14 +1726,12 @@ void vm_unmap_ram(const void *mem, unsigned int count)
 	BUG_ON(addr > VMALLOC_END);
 	BUG_ON(!PAGE_ALIGNED(addr));
 
-	debug_check_no_locks_freed(mem, size);
-	vmap_debug_free_range(addr, addr+size);
-
-	if (likely(count <= VMAP_MAX_ALLOC))
+	if (likely(count <= VMAP_MAX_ALLOC)) {
 		debug_check_no_locks_freed(mem, size);
 		vb_free(mem, size);
-	else
+	} else {
 		free_unmap_vmap_area_addr(addr);
+	}
 }
 EXPORT_SYMBOL(vm_unmap_ram);
 
