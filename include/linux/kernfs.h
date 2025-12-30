@@ -144,7 +144,6 @@ struct kernfs_node {
 	union kernfs_node_id	id;
 	unsigned short		flags;
 	umode_t			mode;
-	unsigned int		ino;
 	struct kernfs_iattrs	*iattr;
 };
 
