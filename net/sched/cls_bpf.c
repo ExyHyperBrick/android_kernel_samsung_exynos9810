@@ -22,6 +22,91 @@
 #include <net/pkt_cls.h>
 #include <net/sock.h>
 
+
+/* -------------------------------------------------------------------------
+ * TC cls_bpf tripwire (rndis0)
+ * ------------------------------------------------------------------------- */
+#define CLS_BPF_TW_ENABLE 1
+#if CLS_BPF_TW_ENABLE
+#include <linux/atomic.h>
+
+static atomic_t cls_bpf_tw_stack_cnt = ATOMIC_INIT(0);
+
+static atomic_t tw_clsbpf_budget = ATOMIC_INIT(200);
+
+static __always_inline int tw_clsbpf_ok(void)
+{
+	return atomic_dec_return(&tw_clsbpf_budget) >= 0;
+}
+
+static __always_inline struct net_device *tw_tp_dev(const struct tcf_proto *tp)
+{
+	if (!tp || !tp->q || !tp->q->dev_queue)
+		return NULL;
+	return tp->q->dev_queue->dev;
+}
+
+static __always_inline int tw_tp_is_rndis(const struct tcf_proto *tp)
+{
+	struct net_device *dev = tw_tp_dev(tp);
+	return dev && !strncmp(dev->name, "rndis", 5);
+}
+
+static __always_inline void tw_clsbpf(const char *where,
+				      const struct tcf_proto *tp,
+				      u32 handle,
+				      const struct bpf_prog *fp,
+				      const char *name)
+{
+	struct net_device *dev;
+
+	if (!tw_clsbpf_ok())
+		return;
+
+	dev = tw_tp_dev(tp);
+	if (!dev || strncmp(dev->name, "rndis", 5))
+		return;
+
+	pr_err("TW:cls_bpf where=%s dev=%s ifindex=%d handle=0x%x fp=%p dst_needed=%d name=%s qflags=0x%x\n",
+	       where, dev->name, dev->ifindex, handle, fp,
+	       fp ? fp->dst_needed : -1,
+	       name ? name : "-", tp->q ? tp->q->flags : 0);
+}
+
+static __always_inline bool cls_bpf_tw_is_rndis(const struct net_device *dev)
+{
+	const char *n;
+
+	if (!dev)
+		return false;
+	n = netdev_name(dev);
+	return (n && (!strcmp(n, "rndis0") || !strncmp(n, "rndis", 5)));
+}
+
+static __always_inline void cls_bpf_tw_log(const struct tcf_proto *tp,
+					 const char *tag, u32 handle,
+					 const void *prog_ptr)
+{
+	const struct net_device *dev = NULL;
+
+	if (tp && tp->q)
+		dev = qdisc_dev(tp->q);
+
+	if (!cls_bpf_tw_is_rndis(dev))
+		return;
+
+	pr_err("CLS_BPF-TW: %s dev=%s handle=%u prog=%p\\n",
+	       tag, netdev_name(dev), handle, prog_ptr);
+
+	if (atomic_inc_return(&cls_bpf_tw_stack_cnt) <= 6)
+		dump_stack();
+}
+#else
+static __always_inline void cls_bpf_tw_log(const struct tcf_proto *tp,
+					 const char *tag, u32 handle,
+					 const void *prog_ptr) { }
+#endif
+
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Daniel Borkmann <dborkman@redhat.com>");
 MODULE_DESCRIPTION("TC BPF based classifier");
@@ -266,6 +351,8 @@ static int cls_bpf_delete(struct tcf_proto *tp, unsigned long arg)
 {
 	struct cls_bpf_prog *prog = (struct cls_bpf_prog *) arg;
 
+	cls_bpf_tw_log(tp, "cls_bpf_delete", prog ? prog->handle : 0, prog);
+
 	cls_bpf_stop_offload(tp, prog);
 	list_del_rcu(&prog->link);
 	tcf_unbind_filter(tp, &prog->res);
@@ -279,6 +366,10 @@ static bool cls_bpf_destroy(struct tcf_proto *tp, bool force)
 	struct cls_bpf_head *head = rtnl_dereference(tp->root);
 	struct cls_bpf_prog *prog, *tmp;
 
+	tw_clsbpf("destroy:enter", tp, 0, NULL, NULL);
+
+	cls_bpf_tw_log(tp, force ? "cls_bpf_destroy: force" : "cls_bpf_destroy", 0, head);
+
 	if (!force && !list_empty(&head->plist))
 		return false;
 
@@ -286,7 +377,9 @@ static bool cls_bpf_destroy(struct tcf_proto *tp, bool force)
 		cls_bpf_stop_offload(tp, prog);
 		list_del_rcu(&prog->link);
 		tcf_unbind_filter(tp, &prog->res);
+		tw_clsbpf("destroy:prog", tp, prog->handle, prog->filter, prog->bpf_name);
 		call_rcu(&prog->rcu, __cls_bpf_delete_prog);
+		tw_clsbpf("delete_prog:free", tp, prog->handle, prog->filter, prog->bpf_name);
 	}
 
 	kfree_rcu(head, rcu);
@@ -375,8 +468,10 @@ static int cls_bpf_prog_from_efd(struct nlattr **tb, struct cls_bpf_prog *prog,
 	prog->bpf_name = name;
 	prog->filter = fp;
 
-	if (fp->dst_needed && !(tp->q->flags & TCQ_F_INGRESS))
+	if (fp->dst_needed && !(tp->q->flags & TCQ_F_INGRESS)) {
+		tw_clsbpf("prog_from_efd:keep_dst", tp, prog->handle, fp, name);
 		netif_keep_dst(qdisc_dev(tp->q));
+	}
 
 	return 0;
 }
@@ -475,6 +570,11 @@ static int cls_bpf_change(struct net *net, struct sk_buff *in_skb,
 	struct cls_bpf_prog *prog;
 	int ret;
 
+	if (oldprog)
+		tw_clsbpf("change:enter(old)", tp, handle, oldprog->filter, oldprog->bpf_name);
+	else
+		tw_clsbpf("change:enter(new)", tp, handle, NULL, NULL);
+
 	if (tca[TCA_OPTIONS] == NULL)
 		return -EINVAL;
 
@@ -518,12 +618,17 @@ static int cls_bpf_change(struct net *net, struct sk_buff *in_skb,
 	}
 
 	if (oldprog) {
+		tw_clsbpf("change:replace", tp, prog->handle, prog->filter, prog->bpf_name);
+		tw_clsbpf("change:replaced_old", tp, oldprog->handle, oldprog->filter, oldprog->bpf_name);
 		list_replace_rcu(&oldprog->link, &prog->link);
 		tcf_unbind_filter(tp, &oldprog->res);
+		tw_clsbpf("delete", tp, prog->handle, prog->filter, prog->bpf_name);
 		call_rcu(&oldprog->rcu, __cls_bpf_delete_prog);
 	} else {
 		list_add_rcu(&prog->link, &head->plist);
 	}
+
+	cls_bpf_tw_log(tp, oldprog ? "cls_bpf_change: replace" : "cls_bpf_change: add", prog->handle, prog);
 
 	*arg = (unsigned long) prog;
 	return 0;

@@ -7817,6 +7817,7 @@ static void netdev_wait_allrefs(struct net_device *dev)
 {
 	unsigned long rebroadcast_time, warning_time;
 	int refcnt;
+	static int tw_once;
 
 	linkwatch_forget_dev(dev);
 
@@ -7859,6 +7860,12 @@ static void netdev_wait_allrefs(struct net_device *dev)
 			pr_emerg("unregister_netdevice: waiting for %s to become free. Usage count = %d\n",
 				 dev->name, refcnt);
 			warning_time = jiffies;
+		}
+		if (!tw_once && !strncmp(dev->name, "rndis", 5)) {
+			tw_once = 1;
+			pr_err("TW:netdev_wait_allrefs dev=%s usage=%d state=%d\n",
+				dev->name, refcnt, dev->reg_state);
+			dump_stack();
 		}
 	}
 }

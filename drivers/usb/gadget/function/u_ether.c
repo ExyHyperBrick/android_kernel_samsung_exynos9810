@@ -29,6 +29,74 @@
 #include "rndis.h"
 
 
+/* -------------------------------------------------------------------------
+ * RNDIS tethering tripwire
+ *
+ * Goal: capture *who* triggers rndis netdev register/unregister and correlate
+ *       with BPF devmap / tc-bpf lifetimes.
+ * ------------------------------------------------------------------------- */
+#define RNDIS_TW_ENABLE 1
+#if RNDIS_TW_ENABLE
+#include <linux/atomic.h>
+
+static atomic_t rndis_tw_stack_cnt = ATOMIC_INIT(0);
+
+static atomic_t tw_ueth_budget = ATOMIC_INIT(200);
+
+static __always_inline int tw_ueth_ok(void)
+{
+	return atomic_dec_return(&tw_ueth_budget) >= 0;
+}
+
+static __always_inline int tw_net_is_rndis(const struct net_device *net)
+{
+	return net && !strncmp(net->name, "rndis", 5);
+}
+
+static __always_inline void tw_ueth(const char *where,
+				   const struct net_device *net,
+				   const void *p0, const void *p1)
+{
+	if (!tw_ueth_ok())
+		return;
+	if (net && !tw_net_is_rndis(net))
+		return;
+
+	pr_err("TW:u_ether where=%s net=%s ifindex=%d p0=%p p1=%p\n",
+	       where, net ? net->name : "-", net ? net->ifindex : -1, p0, p1);
+}
+
+static __always_inline bool rndis_tw_is_rndis(const struct net_device *net)
+{
+	const char *n;
+
+	if (!net)
+		return false;
+
+	n = netdev_name(net);
+	/* usually "rndis0" on Android; keep prefix match for safety */
+	return (n && (!strcmp(n, "rndis0") || !strncmp(n, "rndis", 5)));
+}
+
+static __always_inline void rndis_tw_log_netdev(const struct net_device *net,
+					  const char *tag)
+{
+	if (!rndis_tw_is_rndis(net))
+		return;
+
+	pr_err("RNDIS-TW: %s dev=%s ifindex=%d\\n",
+	       tag, netdev_name(net), net->ifindex);
+
+	/* stack traces are expensive; keep a tiny budget */
+	if (atomic_inc_return(&rndis_tw_stack_cnt) <= 6)
+		dump_stack();
+}
+#else
+static __always_inline void rndis_tw_log_netdev(const struct net_device *net,
+					  const char *tag) { }
+#endif
+
+
 /*
  * This component encapsulates the Ethernet link glue needed to provide
  * one (!) network link through the USB gadget stack, normally "usb0".
@@ -109,6 +177,12 @@ struct eth_dev {
 	u8			dev_mac[ETH_ALEN];
 	int 			no_of_zlp;
 };
+
+struct net_device *gether_get_netdev(struct eth_dev *edev)
+{
+        return edev ? edev->net : NULL;
+}
+EXPORT_SYMBOL_GPL(gether_get_netdev);
 
 /*-------------------------------------------------------------------------*/
 
@@ -1239,7 +1313,9 @@ struct eth_dev *gether_setup_name(struct usb_gadget *g,
 		dev_dbg(&g->dev, "register_netdev failed, %d\n", status);
 		free_netdev(net);
 		dev = ERR_PTR(status);
-	} else {
+	}
+	else {
+		rndis_tw_log_netdev(net, "gether_setup_name: register_netdev OK");
 		DBG(dev, "MAC %pM\n", net->dev_addr);
 		DBG(dev, "HOST MAC %pM\n", dev->host_mac);
 
@@ -1312,7 +1388,9 @@ int gether_register_netdev(struct net_device *net)
 	if (status < 0) {
 		dev_dbg(&g->dev, "register_netdev failed, %d\n", status);
 		return status;
-	} else {
+	}
+	else {
+		rndis_tw_log_netdev(net, "gether_register_netdev: register_netdev OK");
 		DBG(dev, "HOST MAC %pM\n", dev->host_mac);
 
 		/* two kinds of host-initiated state changes:
@@ -1450,9 +1528,19 @@ void gether_cleanup(struct eth_dev *dev)
 	if (!dev)
 		return;
 
+	rndis_tw_log_netdev(dev->net, "gether_cleanup: unregister_netdev");
+
+	tw_ueth("gether_cleanup:enter", dev->net, dev, dev->port_usb);
+
 	unregister_netdev(dev->net);
+
+	tw_ueth("gether_cleanup:after_unregister", dev->net, dev, dev->port_usb);
+
 	flush_work(&dev->work);
+	tw_ueth("gether_cleanup:after_flush_work", dev->net, dev, NULL);
+
 	free_netdev(dev->net);
+	tw_ueth("gether_cleanup:after_free_netdev", NULL, dev, NULL);
 }
 EXPORT_SYMBOL_GPL(gether_cleanup);
 
@@ -1618,6 +1706,8 @@ void gether_disconnect(struct gether *link)
 //	struct usb_request	*req;
 	struct sk_buff		*skb;
 
+	tw_ueth("gether_disconnect:enter", dev->net, link, dev);
+
 	WARN_ON(!dev);
 	if (!dev)
 		return;
@@ -1690,6 +1780,9 @@ void gether_disconnect(struct gether *link)
 		dev->en_timer = 0;
 	}
 #endif
+
+	tw_ueth("gether_disconnect:done", dev->net, link, dev);
+
 }
 EXPORT_SYMBOL_GPL(gether_disconnect);
 

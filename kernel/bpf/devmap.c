@@ -56,6 +56,80 @@
 #include <linux/bpf.h>
 #include <linux/filter.h>
 
+/* -------------------------------------------------------------------------
+ * DEVMAP tripwire (rndis0)
+ *
+ * These logs aim to show:
+ *  - when we dev_get_by_index() a netdev
+ *  - when we schedule __dev_map_entry_free()
+ *  - when __dev_map_entry_free() actually dev_put()s
+ *  - whether NETDEV_UNREGISTER notifier runs for rndis0 and clears entries
+ * ------------------------------------------------------------------------- */
+#define DEVMAP_TW_ENABLE 1
+#if DEVMAP_TW_ENABLE
+#include <linux/atomic.h>
+
+static atomic_t tw_devmap_budget = ATOMIC_INIT(200);
+
+static __always_inline int tw_devmap_ok(void)
+{
+	/* stops logging once it goes negative */
+	return atomic_dec_return(&tw_devmap_budget) >= 0;
+}
+
+static __always_inline int tw_is_rndis(const struct net_device *dev)
+{
+	return dev && !strncmp(dev->name, "rndis", 5);
+}
+
+static __always_inline void tw_devmap(const char *where,
+				      struct net_device *dev,
+				      u32 key, u32 ifindex,
+				      void *entry)
+{
+	if (!tw_devmap_ok())
+		return;
+
+	/* log only rndis* (or NULL events that matter) */
+	if (dev && !tw_is_rndis(dev))
+		return;
+
+	pr_err("TW:devmap where=%s dev=%s ifindex=%u key=%u entry=%p\n",
+	       where, dev ? dev->name : "-", ifindex, key, entry);
+}
+
+static atomic_t devmap_tw_stack_cnt = ATOMIC_INIT(0);
+
+static __always_inline bool devmap_tw_is_rndis(const struct net_device *dev)
+{
+	const char *n;
+
+	if (!dev)
+		return false;
+	n = netdev_name(dev);
+	return (n && (!strcmp(n, "rndis0") || !strncmp(n, "rndis", 5)));
+}
+
+static __always_inline void devmap_tw_log(const struct bpf_map *map,
+					 const struct net_device *dev,
+					 const char *tag, u32 idx)
+{
+	if (!devmap_tw_is_rndis(dev))
+		return;
+
+	pr_err("DEVMAP-TW: %s dev=%s ifindex=%d idx=%u map=%p\\n",
+	       tag, netdev_name(dev), dev->ifindex, idx, map);
+
+	if (atomic_inc_return(&devmap_tw_stack_cnt) <= 8)
+		dump_stack();
+}
+#else
+static __always_inline void devmap_tw_log(const struct bpf_map *map,
+					 const struct net_device *dev,
+					 const char *tag, u32 idx) { }
+#endif
+
+
 #define DEV_CREATE_FLAG_MASK \
 	(BPF_F_NUMA_NODE | BPF_F_RDONLY | BPF_F_WRONLY)
 
@@ -411,7 +485,13 @@ static void __dev_map_entry_free(struct rcu_head *rcu)
 	struct bpf_dtab_netdev *dev;
 
 	dev = container_of(rcu, struct bpf_dtab_netdev, rcu);
+
+	/* TW */
+	tw_devmap("__dev_map_entry_free", dev->dev,
+		dev->bit, dev->dev ? dev->dev->ifindex : 0, dev);
+
 	dev_map_flush_old(dev);
+	devmap_tw_log(&dev->dtab->map, dev->dev, "entry_free: dev_put()", dev->bit);
 	dev_put(dev->dev);
 	kfree(dev);
 }
@@ -434,8 +514,16 @@ static int dev_map_delete_elem(struct bpf_map *map, void *key)
 	 * removing the net device in the case of dev_put equals zero.
 	 */
 	old_dev = xchg(&dtab->netdev_map[k], NULL);
+
+	/* TW */
 	if (old_dev)
+		tw_devmap("dev_map_delete_elem", old_dev->dev, k,
+			old_dev->dev ? old_dev->dev->ifindex : 0, old_dev);
+
+	if (old_dev) {
+		devmap_tw_log(map, old_dev->dev, "delete_elem: xchg()->call_rcu()", k);
 		call_rcu(&old_dev->rcu, __dev_map_entry_free);
+	}
 	return 0;
 }
 
@@ -479,6 +567,11 @@ static struct bpf_dtab_netdev *__dev_map_alloc_node(struct net *net,
 		return ERR_PTR(-EINVAL);
 	}
 
+	/* TW */
+	tw_devmap("__dev_map_alloc_node", dev->dev, idx, ifindex, dev);
+
+	devmap_tw_log(&dtab->map, dev->dev, "alloc_node: dev_get_by_index()", idx);
+
 	dev->bit = idx;
 	dev->dtab = dtab;
 
@@ -513,9 +606,19 @@ static int dev_map_update_elem(struct bpf_map *map, void *key, void *value,
 	 * Remembering the driver side flush operation will happen before the
 	 * net device is removed.
 	 */
+	devmap_tw_log(map, dev ? dev->dev : NULL, "update_elem: xchg(new)", i);
+
+	/* TW: new mapping */
+	if (dev)
+		tw_devmap("dev_map_update_elem:new", dev->dev, i, ifindex, dev);
+	else
+		tw_devmap("dev_map_update_elem:clear", NULL, i, 0, NULL);
+
 	old_dev = xchg(&dtab->netdev_map[i], dev);
-	if (old_dev)
+	if (old_dev) {
+		devmap_tw_log(map, old_dev->dev, "update_elem: call_rcu(old)", i);
 		call_rcu(&old_dev->rcu, __dev_map_entry_free);
+	}
 
 	return 0;
 }
@@ -599,6 +702,10 @@ static int dev_map_notification(struct notifier_block *notifier,
 
 	switch (event) {
 	case NETDEV_UNREGISTER:
+		if (tw_devmap_ok() && tw_is_rndis(netdev))
+			pr_err("TW:devmap NETDEV_UNREGISTER dev=%s ifindex=%d\n",
+				netdev->name, netdev->ifindex);
+		devmap_tw_log(NULL, netdev, "NETDEV_UNREGISTER: notifier", 0xffffffff);
 		/* This rcu_read_lock/unlock pair is needed because
 		 * dev_map_list is an RCU list AND to ensure a delete
 		 * operation does not free a netdev_map entry while we
@@ -613,10 +720,16 @@ static int dev_map_notification(struct notifier_block *notifier,
 				if (!dev ||
 				    dev->dev->ifindex != netdev->ifindex)
 					continue;
+
+				if (tw_is_rndis(netdev))
+					tw_devmap("dev_map_notification:match", dev->dev, i,
+						netdev->ifindex, dev);
+
 				odev = cmpxchg(&dtab->netdev_map[i], dev, NULL);
-				if (dev == odev)
-					call_rcu(&dev->rcu,
-						 __dev_map_entry_free);
+				if (dev == odev) {
+					devmap_tw_log(&dtab->map, netdev, "NETDEV_UNREGISTER: cleared entry", i);
+					call_rcu(&dev->rcu, __dev_map_entry_free);
+				}
 			}
 		}
 		rcu_read_unlock();

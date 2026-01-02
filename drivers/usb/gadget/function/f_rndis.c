@@ -29,6 +29,40 @@
 #include "rndis.h"
 #include "configfs.h"
 
+
+/* -------------------------------------------------------------------------
+ * RNDIS tethering tripwire (function driver side)
+ * ------------------------------------------------------------------------- */
+#define RNDIS_FUNC_TW_ENABLE 1
+#if RNDIS_FUNC_TW_ENABLE
+static atomic_t rndis_func_tw_stack_cnt = ATOMIC_INIT(0);
+
+static __always_inline bool rndis_func_tw_is_rndis(const struct net_device *net)
+{
+	const char *n;
+
+	if (!net)
+		return false;
+	n = netdev_name(net);
+	return (n && (!strcmp(n, "rndis0") || !strncmp(n, "rndis", 5)));
+}
+
+static __always_inline void rndis_func_tw_log(struct net_device *net, const char *tag)
+{
+	if (!rndis_func_tw_is_rndis(net))
+		return;
+
+	pr_err("RNDIS-TW: %s dev=%s ifindex=%d\\n",
+	       tag, netdev_name(net), net->ifindex);
+
+	if (atomic_inc_return(&rndis_func_tw_stack_cnt) <= 6)
+		dump_stack();
+}
+#else
+static __always_inline void rndis_func_tw_log(struct net_device *net, const char *tag) { }
+static __always_inline struct net_device *rndis_func_tw_port_net(struct f_rndis *rndis) { return NULL; }
+#endif
+
 /*
  * This function is an RNDIS Ethernet port -- a Microsoft protocol that's
  * been promoted instead of the standard CDC Ethernet.  The published RNDIS
@@ -664,9 +698,23 @@ static void rndis_disable(struct usb_function *f)
 {
 	struct f_rndis		*rndis = func_to_rndis(f);
 	struct usb_composite_dev *cdev = f->config->cdev;
+	struct eth_dev *edev;
+	struct net_device *net;
+
+	edev = rndis->port.ioport;
+	net = gether_get_netdev(edev);
+
+	if (net && !strncmp(net->name, "rndis", 5))
+		pr_err("TW:f_rndis rndis_disable enter net=%s ifindex=%d notify_en=%d\n",
+		       net->name, net->ifindex, rndis->notify->enabled);
 
 	if (!rndis->notify->enabled)
 		return;
+
+	pr_err("RNDIS-TW: rndis_disable: enter rndis=%p ioport=%p\n",
+		rndis, rndis->port.ioport);
+	if (atomic_inc_return(&rndis_func_tw_stack_cnt) <= 6)
+		dump_stack();
 
 	DBG(cdev, "rndis deactivated\n");
 
@@ -756,6 +804,8 @@ rndis_bind(struct usb_configuration *c, struct usb_function *f)
 		status = gether_register_netdev(rndis_opts->net);
 		if (status)
 			goto fail;
+
+		rndis_func_tw_log(rndis_opts->net, "rndis_bind: gether_register_netdev OK");
 		rndis_opts->bound = true;
 	}
 
@@ -962,6 +1012,7 @@ static void rndis_free_inst(struct usb_function_instance *f)
 
 	opts = container_of(f, struct f_rndis_opts, func_inst);
 	if (!opts->borrowed_net) {
+		rndis_func_tw_log(opts->net, opts->bound ? "rndis_unbind: gether_cleanup()" : "rndis_unbind: free_netdev()");
 		if (opts->bound)
 			gether_cleanup(netdev_priv(opts->net));
 		else
@@ -1034,6 +1085,15 @@ static void rndis_unbind(struct usb_configuration *c, struct usb_function *f)
 	struct f_rndis_opts	*opts;
 	struct usb_composite_dev *cdev = f->config->cdev;
 #endif
+	struct eth_dev *edev;
+	struct net_device *net;
+
+	edev = rndis->port.ioport;
+	net = gether_get_netdev(edev);
+
+	if (net && !strncmp(net->name, "rndis", 5))
+		pr_err("TW:f_rndis rndis_unbind enter net=%s ifindex=%d\n",
+		       net->name, net->ifindex);
 
 	kfree(f->os_desc_table);
 	f->os_desc_n = 0;

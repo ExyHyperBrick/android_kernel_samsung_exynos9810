@@ -24,6 +24,47 @@
 #define BPF_TAB_MASK		15
 #define ACT_BPF_NAME_LEN	256
 
+
+/* -------------------------------------------------------------------------
+ * TC act_bpf tripwire (rndis0)
+ *
+ * Actions don't directly own netdev refs, but printing a tiny sample of runtime
+ * executions on rndis0 helps correlate lifetimes with cls_bpf/devmap logs.
+ * ------------------------------------------------------------------------- */
+#define ACT_BPF_TW_ENABLE 1
+#if ACT_BPF_TW_ENABLE
+#include <linux/atomic.h>
+
+static atomic_t act_bpf_tw_pkt_cnt = ATOMIC_INIT(0);
+
+static __always_inline bool act_bpf_tw_is_rndis(const struct net_device *dev)
+{
+	const char *n;
+
+	if (!dev)
+		return false;
+	n = netdev_name(dev);
+	return (n && (!strcmp(n, "rndis0") || !strncmp(n, "rndis", 5)));
+}
+
+static __always_inline void act_bpf_tw_log_skb(const struct sk_buff *skb,
+					 const char *tag,
+					 const struct tc_action *act)
+{
+	const struct net_device *dev = skb ? skb->dev : NULL;
+
+	if (!act_bpf_tw_is_rndis(dev))
+		return;
+
+	if (atomic_inc_return(&act_bpf_tw_pkt_cnt) <= 20)
+		pr_err("ACT_BPF-TW: %s dev=%s act=%p\\n", tag, netdev_name(dev), act);
+}
+#else
+static __always_inline void act_bpf_tw_log_skb(const struct sk_buff *skb,
+					 const char *tag,
+					 const struct tc_action *act) { }
+#endif
+
 struct tcf_bpf_cfg {
 	struct bpf_prog *filter;
 	struct sock_filter *bpf_ops;
@@ -38,6 +79,7 @@ static struct tc_action_ops act_bpf_ops;
 static int tcf_bpf(struct sk_buff *skb, const struct tc_action *act,
 		   struct tcf_result *res)
 {
+	act_bpf_tw_log_skb(skb, "tcf_bpf: exec", act);
 	bool at_ingress = skb_at_tc_ingress(skb);
 	struct tcf_bpf *prog = to_bpf(act);
 	struct bpf_prog *filter;
@@ -251,6 +293,8 @@ static void tcf_bpf_cfg_cleanup(const struct tcf_bpf_cfg *cfg)
 	struct bpf_prog *filter = cfg->filter;
 
 	if (filter) {
+		pr_err("TW:act_bpf cfg_cleanup is_ebpf=%d fp=%p dst_needed=%d\n",
+			cfg->is_ebpf, filter, filter->dst_needed);
 		if (cfg->is_ebpf)
 			bpf_prog_put(filter);
 		else
@@ -278,6 +322,8 @@ static int tcf_bpf_init(struct net *net, struct nlattr *nla,
 			struct nlattr *est, struct tc_action **act,
 			int replace, int bind)
 {
+	pr_err("ACT_BPF-TW: tcf_bpf_init bind=%d replace=%d\\n", bind, replace);
+
 	struct tc_action_net *tn = net_generic(net, bpf_net_id);
 	struct nlattr *tb[TCA_ACT_BPF_MAX + 1];
 	struct tcf_bpf_cfg cfg, old;
@@ -364,6 +410,8 @@ out:
 static void tcf_bpf_cleanup(struct tc_action *act, int bind)
 {
 	struct tcf_bpf_cfg tmp;
+
+	pr_err("ACT_BPF-TW: tcf_bpf_cleanup bind=%d act=%p\\n", bind, act);
 
 	tcf_bpf_prog_fill_cfg(to_bpf(act), &tmp);
 	tcf_bpf_cfg_cleanup(&tmp);

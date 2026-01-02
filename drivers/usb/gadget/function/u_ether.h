@@ -45,6 +45,8 @@
 	MODULE_PARM_DESC(host_addr, "Host Ethernet Address")
 
 struct eth_dev;
+struct net_device;
+struct net_device *gether_get_netdev(struct eth_dev *edev);
 
 /*
  * This represents the USB side of an "ethernet" link, managed by a USB
