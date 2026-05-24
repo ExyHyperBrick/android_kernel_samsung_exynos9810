@@ -1124,26 +1124,23 @@ static int __set_oom_adj(struct file *file, int oom_adj, bool legacy)
 	trace_oom_score_adj_update(task);
 
 	if (mm) {
-		struct task_struct *p;
-
-		rcu_read_lock();
-		for_each_process(p) {
-			if (same_thread_group(task, p))
-				continue;
-
-			/* do not touch kernel threads or the global init */
-			if (p->flags & PF_KTHREAD || is_global_init(p))
-				continue;
-
-			task_lock(p);
-			if (!p->vfork_done && process_shares_mm(p, mm)) {
-				p->signal->oom_score_adj = oom_adj;
-				if (!legacy && has_capability_noaudit(current, CAP_SYS_RESOURCE))
-					p->signal->oom_score_adj_min = (short)oom_adj;
-			}
-			task_unlock(p);
-		}
-		rcu_read_unlock();
+		/*
+		 * Android lmkd writes /proc/<pid>/oom_score_adj very frequently.
+		 * During USB-C/HDMI stress this tree can race the legacy shared-mm
+		 * propagation scan:
+		 *
+		 *   oom_score_adj_write -> __set_oom_adj -> process_shares_mm
+		 *
+		 * and panic while walking another process' thread group.  The scan is
+		 * only needed to mirror oom_score_adj into separate processes that
+		 * share the same mm via CLONE_VM.  Android normal app/service process
+		 * management does not rely on that legacy propagation, while lmkd
+		 * stability is critical.
+		 *
+		 * Keep the target task update above, but drop the extra scan.  This
+		 * avoids dereferencing stale task/signal/thread-list state from the
+		 * lmkd hot path.
+		 */
 		mmdrop(mm);
 	}
 err_unlock:
