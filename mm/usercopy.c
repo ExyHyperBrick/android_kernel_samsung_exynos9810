@@ -104,6 +104,11 @@ static void report_usercopy(unsigned long len, bool to_user, const char *type)
 		pr_warn("hardened usercopy fallback: kernel memory %s attempt detected %s '%s' (%lu bytes); allowing\n",
 			to_user ? "exposure" : "overwrite",
 			to_user ? "from" : "to", type ? : "unknown", len);
+		/*
+		 * Temporary attribution only. Remove after the kmalloc-4096
+		 * offender is identified.
+		 */
+		dump_stack();
 		return;
 	}
 
