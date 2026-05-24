@@ -17,6 +17,7 @@
 #include <linux/mm.h>
 #include <linux/highmem.h>
 #include <linux/slab.h>
+#include <linux/init.h>
 #include <asm/sections.h>
 
 enum {
@@ -62,8 +63,50 @@ static noinline int check_stack_object(const void *obj, unsigned long len)
 	return GOOD_STACK;
 }
 
+
+/*
+ * Keep hardened-usercopy enabled for diagnostics, but allow known vendor
+ * 4.9 slab/usercopy false positives to continue instead of BUG()ing.
+ *
+ * The default follows CONFIG_HARDENED_USERCOPY_FALLBACK and can be changed at
+ * boot with:
+ *
+ *   slab_common.usercopy_fallback=Y
+ *   slab_common.usercopy_fallback=N
+ */
+static bool usercopy_fallback __read_mostly =
+	IS_ENABLED(CONFIG_HARDENED_USERCOPY_FALLBACK);
+
+static int __init parse_usercopy_fallback(char *str)
+{
+	bool enabled;
+
+	if (strtobool(str, &enabled)) {
+		pr_warn("Invalid option string for slab_common.usercopy_fallback: '%s'\n",
+			str);
+		return 1;
+	}
+
+	usercopy_fallback = enabled;
+	return 1;
+}
+__setup("slab_common.usercopy_fallback=", parse_usercopy_fallback);
+
 static void report_usercopy(unsigned long len, bool to_user, const char *type)
 {
+	if (usercopy_fallback) {
+		/*
+		 * Do not use WARN/WARN_ONCE here.  On arm64 those are BRK based
+		 * debug exceptions and this Samsung sec_debug tree can escalate
+		 * them through the BUG/hard-reset reporting path.  The fallback
+		 * must be log-and-continue only.
+		 */
+		pr_warn("hardened usercopy fallback: kernel memory %s attempt detected %s '%s' (%lu bytes); allowing\n",
+			to_user ? "exposure" : "overwrite",
+			to_user ? "from" : "to", type ? : "unknown", len);
+		return;
+	}
+
 	pr_emerg("kernel memory %s attempt detected %s '%s' (%lu bytes)\n",
 		to_user ? "exposure" : "overwrite",
 		to_user ? "from" : "to", type ? : "unknown", len);
@@ -74,6 +117,7 @@ static void report_usercopy(unsigned long len, bool to_user, const char *type)
 	 */
 	BUG();
 }
+
 
 /* Returns true if any portion of [ptr,ptr+n) over laps with [low,high). */
 static bool overlaps(const void *ptr, unsigned long n, unsigned long low,
