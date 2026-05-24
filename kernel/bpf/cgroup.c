@@ -872,6 +872,8 @@ static bool __cgroup_bpf_prog_array_is_empty(struct cgroup *cgrp,
 
 static int sockopt_alloc_buf(struct bpf_sockopt_kern *ctx, int max_optlen)
 {
+	int alloc_len;
+
 	if (unlikely(max_optlen < 0))
 		return -EINVAL;
 
@@ -882,7 +884,11 @@ static int sockopt_alloc_buf(struct bpf_sockopt_kern *ctx, int max_optlen)
 		max_optlen = PAGE_SIZE;
 	}
 
-	ctx->optval = kzalloc(max_optlen, GFP_USER);
+	alloc_len = max_optlen;
+	if (alloc_len == PAGE_SIZE)
+		alloc_len++;
+
+	ctx->optval = kzalloc(alloc_len, GFP_USER);
 	if (!ctx->optval)
 		return -ENOMEM;
 
