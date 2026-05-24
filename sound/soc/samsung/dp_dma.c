@@ -700,9 +700,29 @@ static struct snd_soc_platform_driver samsung_display_adma = {
 
 #ifdef CONFIG_SOC_EXYNOS9810
 struct switch_dev dp_ado_switch;
+static bool dp_ado_switch_registered;
+
+static struct switch_dev hdmi_audio_switch = {
+	.name = "hdmi_audio",
+};
+static bool hdmi_audio_switch_registered;
+
 void dp_ado_switch_set_state(int state)
 {
-	switch_set_state(&dp_ado_switch, state);
+	if (dp_ado_switch_registered)
+		switch_set_state(&dp_ado_switch, state);
+
+	if (hdmi_audio_switch_registered) {
+		/*
+		 * EXYNOS9810_HDMI_AUDIO_SWITCH_BOOL_STATE:
+		 * The Samsung DP audio state can use negative values on detach
+		 * (for example audio info = -1).  The Android hdmi_audio switch
+		 * is boolean, so only strictly positive DP audio capability/state
+		 * should be reported as connected.  Using !!state keeps -1 as 1
+		 * and leaves AUDIO_DEVICE_OUT_HDMI available after unplug.
+		 */
+		switch_set_state(&hdmi_audio_switch, state > 0 ? 1 : 0);
+	}
 }
 #endif
 
@@ -730,9 +750,16 @@ static int samsung_display_adma_probe(struct platform_device *pdev)
 	dp_ado_switch.name = "ch_hdmi_audio";
 	ret = switch_dev_register(&dp_ado_switch);
 	if (ret) {
-		dev_err(dev, "Failed to register dp audio switch\n");
-		kfree(data);
-		return -EINVAL;
+		dev_err(dev, "Failed to register dp audio switch: %d\n", ret);
+		return ret;
+	}
+	dp_ado_switch_registered = true;
+
+	ret = switch_dev_register(&hdmi_audio_switch);
+	if (ret) {
+		dev_warn(dev, "Failed to register hdmi audio switch alias: %d\n", ret);
+	} else {
+		hdmi_audio_switch_registered = true;
 	}
 #endif
 	return snd_soc_register_platform(&pdev->dev, &samsung_display_adma);
@@ -741,6 +768,19 @@ static int samsung_display_adma_probe(struct platform_device *pdev)
 static int samsung_display_adma_remove(struct platform_device *pdev)
 {
 	snd_soc_unregister_platform(&pdev->dev);
+
+#ifdef CONFIG_SOC_EXYNOS9810
+	if (hdmi_audio_switch_registered) {
+		switch_dev_unregister(&hdmi_audio_switch);
+		hdmi_audio_switch_registered = false;
+	}
+
+	if (dp_ado_switch_registered) {
+		switch_dev_unregister(&dp_ado_switch);
+		dp_ado_switch_registered = false;
+	}
+#endif
+
 	return 0;
 }
 
