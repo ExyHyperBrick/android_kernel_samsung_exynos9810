@@ -1500,10 +1500,18 @@ static void dpcm_be_dai_startup_unwind(struct snd_soc_pcm_runtime *fe,
 		struct snd_pcm_substream *be_substream =
 			snd_soc_dpcm_get_substream(be, stream);
 
-		if (be->dpcm[stream].users == 0)
+		if (!be_substream) {
+			dev_err(be->dev, "ASoC: missing backend %s substream at unwind\n",
+				stream ? "capture" : "playback");
+			continue;
+		}
+
+		if (be->dpcm[stream].users == 0) {
 			dev_err(be->dev, "ASoC: no users %s at close - state %d\n",
 				stream ? "capture" : "playback",
 				be->dpcm[stream].state);
+			continue;
+		}
 
 		if (--be->dpcm[stream].users != 0)
 			continue;
@@ -1549,11 +1557,23 @@ int dpcm_be_dai_startup(struct snd_soc_pcm_runtime *fe, int stream)
 			continue;
 
 		if ((be->dpcm[stream].state != SND_SOC_DPCM_STATE_NEW) &&
-		    (be->dpcm[stream].state != SND_SOC_DPCM_STATE_CLOSE))
+		    (be->dpcm[stream].state != SND_SOC_DPCM_STATE_CLOSE)) {
+			dev_err(be->dev, "ASoC: unexpected BE %s state %d at open\n",
+				stream ? "capture" : "playback",
+				be->dpcm[stream].state);
+			be->dpcm[stream].users--;
 			continue;
+		}
 
 		dev_dbg(be->dev, "ASoC: open %s BE %s\n",
 			stream ? "capture" : "playback", be->dai_link->name);
+
+		if (!be->dpcm[stream].runtime) {
+			dev_err(be->dev, "ASoC: missing BE %s runtime at open\n",
+				stream ? "capture" : "playback");
+			be->dpcm[stream].users--;
+			continue;
+		}
 
 		be_substream->runtime = be->dpcm[stream].runtime;
 		err = soc_pcm_open(be_substream);
@@ -1582,13 +1602,21 @@ unwind:
 		struct snd_pcm_substream *be_substream =
 			snd_soc_dpcm_get_substream(be, stream);
 
+		if (!be_substream) {
+			dev_err(be->dev, "ASoC: missing backend %s substream at startup unwind\n",
+				stream ? "capture" : "playback");
+			continue;
+		}
+
 		if (!snd_soc_dpcm_be_can_update(fe, be, stream))
 			continue;
 
-		if (be->dpcm[stream].users == 0)
+		if (be->dpcm[stream].users == 0) {
 			dev_err(be->dev, "ASoC: no users %s at close %d\n",
 				stream ? "capture" : "playback",
 				be->dpcm[stream].state);
+			continue;
+		}
 
 		if (--be->dpcm[stream].users != 0)
 			continue;
@@ -1808,14 +1836,22 @@ int dpcm_be_dai_shutdown(struct snd_soc_pcm_runtime *fe, int stream)
 		struct snd_pcm_substream *be_substream =
 			snd_soc_dpcm_get_substream(be, stream);
 
+		if (!be_substream) {
+			dev_err(be->dev, "ASoC: missing backend %s substream at shutdown\n",
+				stream ? "capture" : "playback");
+			continue;
+		}
+
 		/* is this op for this BE ? */
 		if (!snd_soc_dpcm_be_can_update(fe, be, stream))
 			continue;
 
-		if (be->dpcm[stream].users == 0)
+		if (be->dpcm[stream].users == 0) {
 			dev_err(be->dev, "ASoC: no users %s at close - state %d\n",
 				stream ? "capture" : "playback",
 				be->dpcm[stream].state);
+			continue;
+		}
 
 		if (--be->dpcm[stream].users != 0)
 			continue;
