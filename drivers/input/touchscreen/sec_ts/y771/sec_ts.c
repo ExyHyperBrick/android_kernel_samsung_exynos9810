@@ -3566,8 +3566,23 @@ static int touch_fb_notifier_callback(struct notifier_block *self,
 	struct sec_ts_data *ts =
 		container_of(self, struct sec_ts_data, fb_notif);
 	struct fb_event *ev = (struct fb_event *)data;
+	struct fb_info *fb_info = ev ? ev->info : NULL; /* HDMI_TOUCH_FB_FILTER */
  	if (ev && ev->data && event == FB_EVENT_BLANK) {
 		int *blank = (int *)ev->data;
+
+		/*
+		 * HDMI/DP uses an external framebuffer/decon instance. Do not let
+		 * external blank notifications close the built-in touchscreen, otherwise
+		 * unplugging USB-C HDMI can leave sec_ts in low-power mode until the
+		 * built-in display is toggled off/on.
+		 */
+		if (fb_info && fb_info->node != 0) {
+			input_info(true, &ts->client->dev,
+				"%s: skip external fb%d blank event %d\n",
+				__func__, fb_info->node, *blank);
+			return 0;
+		}
+
  		if (*blank == FB_BLANK_UNBLANK)
 			input_enable_device(ts->input_dev);
 		else
