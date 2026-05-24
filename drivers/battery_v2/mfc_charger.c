@@ -1837,6 +1837,23 @@ static int mfc_chg_get_property(struct power_supply *psy,
 	u8 mst_mode;
 	u8 reg_data;
 
+	/*
+	 * MFC_CHG_PROPERTY_GUARD:
+	 * HDMI/USB-C dock role changes can race sec_bat_monitor_work into the
+	 * wireless charger power_supply while the MFC drvdata/pdata is not
+	 * usable.  Do not let a status poll turn into a NULL dereference.
+	 */
+	if (!val)
+		return -EINVAL;
+
+	if (!charger || !charger->pdata || !charger->client) {
+		pr_err("%s: charger data is not ready (charger=%p, pdata=%p, client=%p)\n",
+			__func__, charger, charger ? charger->pdata : NULL,
+			charger ? charger->client : NULL);
+		val->intval = 0;
+		return -ENODEV;
+	}
+
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
 		pr_info("%s charger->pdata->cs100_status %d\n", __func__, charger->pdata->cs100_status);
@@ -2095,6 +2112,22 @@ static int mfc_chg_set_property(struct power_supply *psy,
 	/* int ret; */
 	union power_supply_propval value;
 	u8 fod[12] = {0, };
+
+	/*
+	 * MFC_CHG_PROPERTY_GUARD:
+	 * Keep set_property defensive too.  USB-C role changes may call into
+	 * the wireless charger while probing/removal/error handling is in
+	 * flight.
+	 */
+	if (!val)
+		return -EINVAL;
+
+	if (!charger || !charger->pdata || !charger->client) {
+		pr_err("%s: charger data is not ready (charger=%p, pdata=%p, client=%p)\n",
+			__func__, charger, charger ? charger->pdata : NULL,
+			charger ? charger->client : NULL);
+		return -ENODEV;
+	}
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
