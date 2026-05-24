@@ -2970,11 +2970,6 @@ redo:
 	if (unlikely(slub_cpu_freelist_object_bad(s, page, object))) {
 		pr_err("SLUB: dropping corrupt cpu freelist object %p from cache %s page %p\n",
 		       object, s->name, page);
-		/*
-		 * Temporary attribution only. Remove after the freelist
-		 * corruption source is identified.
-		 */
-		dump_stack();
 
 		if (unlikely(!this_cpu_cmpxchg_double(
 				s->cpu_slab->freelist, s->cpu_slab->tid,
