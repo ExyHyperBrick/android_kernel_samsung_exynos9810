@@ -2489,6 +2489,22 @@ int usb_new_device(struct usb_device *udev)
 	/* Tell the world! */
 	announce_device(udev);
 
+	/*
+	 * Some USB-C HDMI adapters expose an internal RTL8153 Ethernet
+	 * controller next to the DisplayPort alt-mode path. On exynos9810 this
+	 * can trip a kernel crash while the USB interface is being reconfigured
+	 * and removed from driver_set_config_work. HDMI/DP does not depend on
+	 * this USB Ethernet function, so keep it out of the device model for
+	 * now as an isolation/stability test.
+	 */
+	if (le16_to_cpu(udev->descriptor.idVendor) == 0x0bda &&
+	    le16_to_cpu(udev->descriptor.idProduct) == 0x8153) {
+		dev_info(&udev->dev,
+			 "ignore RTL8153 LAN function in USB-C HDMI adapters for stability test\n");
+		err = -ENODEV;
+		goto fail;
+	}
+
 	if (udev->serial)
 		add_device_randomness(udev->serial, strlen(udev->serial));
 	if (udev->product)
