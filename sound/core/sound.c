@@ -117,8 +117,23 @@ void *snd_lookup_minor_data(unsigned int minor, int type)
 	mreg = snd_minors[minor];
 	if (mreg && mreg->type == type) {
 		private_data = mreg->private_data;
-		if (private_data && mreg->card_ptr)
+
+		/*
+		 * EXYNOS9810_ALSA_CARD_KOBJ_GUARD:
+		 * HDMI/DP-audio hotplug stress can race a userspace PCM open
+		 * against a stale ALSA minor/card.  Do not hand a PCM private
+		 * pointer to snd_pcm_open() unless the backing card device has a
+		 * valid, initialised kobject we can safely reference.
+		 */
+		if (!private_data || !mreg->card_ptr ||
+		    !mreg->card_ptr->card_dev.kobj.state_initialized) {
+			pr_warn_ratelimited("ALSA: skip stale minor %u type %d mreg=%p data=%p card=%p\n",
+					    minor, type, mreg, private_data,
+					    mreg ? mreg->card_ptr : NULL);
+			private_data = NULL;
+		} else {
 			get_device(&mreg->card_ptr->card_dev);
+		}
 	} else
 		private_data = NULL;
 	mutex_unlock(&sound_mutex);
