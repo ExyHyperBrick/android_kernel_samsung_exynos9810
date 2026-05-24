@@ -1010,6 +1010,16 @@ static int displayport_link_training(void)
 
 	mutex_lock(&displayport->training_lock);
 
+	/*
+	 * Re-check HPD after taking training_lock.  The earlier HPD check can
+	 * become stale while CCIC/DP attention work is queued.
+	 */
+	if (!displayport->hpd_current_state) {
+		displayport_info("hpd is low before edid update\n");
+		mutex_unlock(&displayport->training_lock);
+		return 0;
+	}
+
 	ret = edid_update(displayport);
 	if (ret < 0) {
 		displayport_err("failed to update edid\n");

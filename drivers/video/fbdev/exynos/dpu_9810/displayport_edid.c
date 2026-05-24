@@ -808,12 +808,45 @@ int edid_update(struct displayport_device *hdev)
 	struct fb_monspecs specs;
 	struct fb_vendor vsdb;
 	struct fb_audio sad;
-	u8 *edid = hdev->rx_edid_data.edid_buf;
+	u8 *edid = NULL;
 	int block_cnt = 0;
 	int i;
 	int basic_audio = 0;
 	int edid_test = 0;
 	int modedb_len = 0;
+
+	/*
+	 * USB-C/CCIC DP HPD work can race EDID parsing while the displayport
+	 * device or link state is not usable.  Bail out before touching EDID
+	 * state when HPD is already low.
+	 */
+	if (!hdev) {
+		displayport_err("skip edid update: displayport device is NULL\n");
+		return -ENODEV;
+	}
+
+	if (!hdev->hpd_current_state) {
+		displayport_info("skip edid update: HPD is low\n");
+		return -ENODEV;
+	}
+
+	/*
+	 * HPD/CCIC churn can call edid_update() while DP is already gone, or
+	 * while edid_read() returns an error before allocating/filling EDID.
+	 * Never dereference hdev before validation and never let the out: path
+	 * parse a NULL/invalid EDID buffer.
+	 */
+	if (!hdev) {
+		displayport_err("skip edid update: hdev is NULL\n");
+		return -ENODEV;
+	}
+
+	if (!hdev->hpd_current_state) {
+		displayport_info("skip edid update: HPD is low\n");
+		return -ENODEV;
+	}
+
+	edid = hdev->rx_edid_data.edid_buf;
 
 	audio_channels = 0;
 	audio_sample_rates = 0;
@@ -845,8 +878,12 @@ int edid_update(struct displayport_device *hdev)
 		displayport_info("using test edid %d\n", block_cnt);
 	} else
 		block_cnt = edid_read(hdev);
-	if (block_cnt < 0) {
+	if (block_cnt <= 0 || !edid) {
+		displayport_err("failed to read edid: block_cnt=%d edid=%p\n",
+				block_cnt, edid);
 		hdev->bpc = BPC_6;
+		if (block_cnt >= 0)
+			block_cnt = -ENODEV;
 		goto out;
 	}
 
@@ -855,6 +892,20 @@ int edid_update(struct displayport_device *hdev)
 #ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
 	secdp_bigdata_save_item(BD_EDID, edid);
 #endif
+
+	if (block_cnt <= 0 || !edid) {
+		displayport_err("failed to read edid: block_cnt=%d edid=%p\n",
+				block_cnt, edid);
+		if (block_cnt >= 0)
+			block_cnt = -ENODEV;
+		goto out;
+	}
+
+	if (!hdev->hpd_current_state) {
+		displayport_info("skip edid parse: HPD went low after read\n");
+		block_cnt = -ENODEV;
+		goto out;
+	}
 
 	fb_edid_to_monspecs(edid, &specs);
 	modedb_len = specs.modedb_len;
@@ -930,10 +981,12 @@ int edid_update(struct displayport_device *hdev)
 
 out:
 #ifdef FEATURE_SUPPORT_DISPLAYID
-	edid_add_displayid_detailed_modes(edid);
+	if (block_cnt > 0 && edid)
+		edid_add_displayid_detailed_modes(edid);
 #endif
 
-	edid_check_detail_timing_desc1(&specs, modedb_len, edid);
+	if (block_cnt > 0 && edid)
+		edid_check_detail_timing_desc1(&specs, modedb_len, edid);
 
 	/* No supported preset found, use default */
 	if (forced_resolution >= 0) {
@@ -944,7 +997,7 @@ out:
 	if (block_cnt == -EPROTO)
 		edid_misc = FB_MISC_HDMI;
 
-	if (!hdev->do_unit_test && !edid_test)
+	if (edid && !hdev->do_unit_test && !edid_test)
 		kfree(edid);
 
 	return block_cnt;
