@@ -552,13 +552,17 @@ int acpm_ipc_send_data(unsigned int channel_id, struct ipc_config *cfg)
 	u64 timeout, now;
 	u32 retry_cnt = 0;
 
-	if (channel_id >= acpm_ipc->num_channels && !cfg)
+	if (!acpm_ipc || !cfg || !acpm_ipc->channel ||
+	    channel_id >= acpm_ipc->num_channels)
 		return -EIO;
 
 	channel = &acpm_ipc->channel[channel_id];
+	if (!channel->tx_ch.front || !channel->tx_ch.rear ||
+	    !channel->tx_ch.base || !channel->tx_ch.len ||
+	    !channel->tx_ch.size)
+		return -EIO;
 
 	spin_lock(&channel->tx_lock);
-
 	front = __raw_readl(channel->tx_ch.front);
 	rear = __raw_readl(channel->tx_ch.rear);
 
