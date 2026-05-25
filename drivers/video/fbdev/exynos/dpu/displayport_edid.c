@@ -444,11 +444,6 @@ int edid_update(struct displayport_device *hdev)
 	if (block_cnt < 0)
 		goto out;
 
-	if (!edid || block_cnt <= 0) {
-		displayport_err("invalid EDID block count/data from sink, using default preset\n");
-		goto out;
-	}
-
 	preferred_preset = displayport_supported_presets[EDID_DEFAULT_TIMINGS_IDX].dv_timings;
 
 	for (i = 0; i < displayport_pre_cnt; i++)
@@ -458,11 +453,6 @@ int edid_update(struct displayport_device *hdev)
 
 	for (i = 1; i < block_cnt; i++)
 		fb_edid_add_monspecs(edid + i * EDID_BLOCK_SIZE, &specs);
-
-	if (!specs.modedb || specs.modedb_len <= 0) {
-		displayport_err("no valid EDID mode database from sink, using default preset\n");
-		goto out;
-	}
 
 	/* find 2D preset */
 	for (i = 0; i < specs.modedb_len; i++)
