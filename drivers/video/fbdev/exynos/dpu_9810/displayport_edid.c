@@ -953,22 +953,6 @@ out:
 
 	edid_check_detail_timing_desc1(&specs, modedb_len, edid);
 
-	/*
-	 * Some projectors/HDMI adapters advertise 2560x1440/4K modes but then
-	 * reject them as "outside range" after hotplug churn.  Keep the EDID
-	 * support flags intact, but choose 1080p60 as the default/best mode
-	 * whenever the sink reports it.  Higher modes remain marked as
-	 * edid_support_match for future explicit mode-selection work.
-	 */
-	if (hdev && hdev->best_video > V1920X1080P60 &&
-	    supported_videos[V1920X1080P60].edid_support_match) {
-		displayport_info("cap default video_format : %s -> %s\n",
-				 supported_videos[hdev->best_video].name,
-				 supported_videos[V1920X1080P60].name);
-		hdev->best_video = V1920X1080P60;
-		preferred_preset = supported_videos[V1920X1080P60].dv_timings;
-	}
-
 	/* No supported preset found, use default */
 	if (forced_resolution >= 0) {
 		displayport_info("edid_use_default_preset\n");
