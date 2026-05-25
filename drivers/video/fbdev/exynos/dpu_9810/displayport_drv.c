@@ -997,7 +997,7 @@ static void displayport_find_proper_ratio_video_for_dex(struct displayport_devic
 		displayport_info("not found dex support ratio\n");
 }
 
-static int displayport_link_training(bool update_edid)
+static int displayport_link_training(void)
 {
 	u8 val;
 	struct displayport_device *displayport = get_displayport_drvdata();
@@ -1020,19 +1020,15 @@ static int displayport_link_training(bool update_edid)
 		return 0;
 	}
 
-	if (update_edid) {
-		ret = edid_update(displayport);
-		if (ret < 0) {
-			displayport_err("failed to update edid\n");
+	ret = edid_update(displayport);
+	if (ret < 0) {
+		displayport_err("failed to update edid\n");
 #ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
-			secdp_bigdata_inc_error_cnt(ERR_EDID);
+		secdp_bigdata_inc_error_cnt(ERR_EDID);
 #endif
-		}
-
-		displayport_find_proper_ratio_video_for_dex(displayport);
-	} else {
-		displayport_info("skip edid update during HPD IRQ link retrain\n");
 	}
+
+	displayport_find_proper_ratio_video_for_dex(displayport);
 
 	displayport_reg_dpcd_read(DPCD_ADD_MAX_DOWNSPREAD, 1, &val);
 	displayport_dbg("DPCD_ADD_MAX_DOWNSPREAD = %x\n", val);
@@ -1120,7 +1116,7 @@ void displayport_hpd_changed(int state)
 			displayport_err("branch_revision_read fail\n");
 
 		displayport_info("link training in hpd_changed\n");
-		ret = displayport_link_training(true);
+		ret = displayport_link_training();
 		if (ret < 0) {
 			displayport_dbg("link training fail\n");
 			displayport_set_switch_poor_connect();
@@ -1245,7 +1241,7 @@ void displayport_set_reconnection(void)
 	displayport_reg_init(); /* for AUX ch read/write. */
 
 	displayport_info("link training in reconnection\n");
-	ret = displayport_link_training(true);
+	ret = displayport_link_training();
 	if (ret < 0) {
 		displayport_dbg("link training fail\n");
 		return;
@@ -1421,7 +1417,7 @@ static int displayport_Automated_Test_Request(void)
 		g_displayport_debug_param.lane_cnt = (val[0]&TEST_LANE_COUNT);
 
 		g_displayport_debug_param.param_used = 1;
-		displayport_link_training(true);
+		displayport_link_training();
 		g_displayport_debug_param.param_used = 0;
 
 		displayport->bist_used = 1;
@@ -1442,7 +1438,7 @@ static int displayport_Automated_Test_Request(void)
 
 		g_displayport_debug_param.param_used = 1;
 
-		displayport_link_training(true);
+		displayport_link_training();
 
 		g_displayport_debug_param.param_used = 0;
 
@@ -1672,7 +1668,7 @@ static void displayport_hpd_irq_work(struct work_struct *work)
 			hdcp_dplink_set_reauth();
 			displayport_hdcp22_enable(0);
 
-			displayport_link_training(false);
+			displayport_link_training();
 
 			queue_delayed_work(displayport->hdcp2_wq,
 					&displayport->hdcp22_work, msecs_to_jiffies(2000));
@@ -1733,7 +1729,7 @@ static void displayport_hpd_irq_work(struct work_struct *work)
 #ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
 			secdp_bigdata_inc_error_cnt(ERR_INF_IRQHPD);
 #endif
-			displayport_link_training(false);
+			displayport_link_training();
 
 			hdcp13_info.auth_state = HDCP13_STATE_NOT_AUTHENTICATED;
 			queue_delayed_work(displayport->dp_wq,
@@ -2708,7 +2704,7 @@ void displayport_pm_test(int pwr)
 	displayport_info("set power state for CTS(%d)", pwr);
 	if (pwr) {
 		displayport_reg_dpcd_write(DPCD_ADD_SET_POWER, 1, &val[0]);
-		displayport_link_training(true);
+		displayport_link_training();
 	} else
 		displayport_reg_dpcd_write(DPCD_ADD_SET_POWER, 1, &val[1]);
 
@@ -3760,7 +3756,7 @@ static ssize_t displayport_dp_test_store(struct class *dev,
 #endif
 		break;
 	case 5:
-		displayport_link_training(true);
+		displayport_link_training();
 		break;
 	case 6:
 		queue_delayed_work(displayport->dp_wq,
