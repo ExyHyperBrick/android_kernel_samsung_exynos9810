@@ -7273,16 +7273,7 @@ static int rtl8152_probe(struct usb_interface *intf,
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 19)
 		dev_err(&intf->dev, "The kernel too old to set configuration\n");
 #else
-		/*
-		 * Some USB-C HDMI docks expose RTL8153 first in CDC ECM mode.
-		 * Do not schedule usb_driver_set_configuration() from probe here:
-		 * on exynos9810 this can race HDMI dock hotplug/remove through
-		 * driver_set_config_work -> usb_set_configuration() and panic.
-		 * Defer instead so another USB networking driver can bind the
-		 * current configuration.
-		 */
-		dev_info(&intf->dev,
-			"RTL815x: defer non-vendor configuration; not switching USB config\n");
+		usb_driver_set_configuration(udev, 1);
 #endif
 		return -ENODEV;
 	}
