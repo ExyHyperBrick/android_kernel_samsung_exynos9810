@@ -72,7 +72,6 @@ static int audio_channels;
 static int audio_bit_rates;
 static int audio_sample_rates;
 static int audio_speaker_alloc;
-static bool edid_cache_valid;
 
 void edid_check_set_i2c_capabilities(void)
 {
@@ -431,11 +430,6 @@ int edid_update(struct displayport_device *hdev)
 	edid_cache_valid = true;
 	return 0;
 
-	if (edid_cache_valid) {
-		displayport_info("reuse cached EDID info on HPD reconnect\n");
-		return 0;
-	}
-
 	audio_channels = 0;
 	audio_sample_rates = 0;
 	audio_bit_rates = 0;
@@ -521,9 +515,6 @@ out:
 
 	if (block_cnt == -EPROTO)
 		edid_misc = FB_MISC_HDMI;
-
-	if (block_cnt >= 0)
-		edid_cache_valid = true;
 
 	kfree(edid);
 	return block_cnt;
