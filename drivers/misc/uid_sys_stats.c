@@ -30,7 +30,6 @@
 #include <linux/uaccess.h>
 
 
-#include <linux/cred.h>
 #define UID_HASH_BITS	10
 DECLARE_HASHTABLE(hash_table, UID_HASH_BITS);
 static int uid_count;
@@ -39,28 +38,6 @@ static DEFINE_RT_MUTEX(uid_lock);
 static struct proc_dir_entry *cpu_parent;
 static struct proc_dir_entry *io_parent;
 static struct proc_dir_entry *proc_parent;
-
-static bool uid_sys_stats_get_task_uid(struct task_struct *task,
-		struct user_namespace *user_ns, uid_t *uid)
-{
-	const struct cred *cred;
-
-	if (!task || !user_ns || !uid)
-		return false;
-
-	rcu_read_lock();
-	cred = rcu_dereference(task->cred);
-	if (unlikely(!cred)) {
-		rcu_read_unlock();
-		return false;
-	}
-
-	*uid = from_kuid_munged(user_ns, cred->uid);
-	rcu_read_unlock();
-
-	return true;
-}
-
 
 struct io_stats {
 	u64 read_bytes;
@@ -418,11 +395,8 @@ static struct uid_entry *find_or_register_uid(uid_t uid)
 
 static struct uid_entry *find_or_register_uid_of_task(struct task_struct *task)
 {
-	uid_t uid;
+	uid_t uid = from_kuid_munged(current_user_ns(), task_uid(task));
 	struct uid_entry *uid_entry;
-
-	if (!uid_sys_stats_get_task_uid(task, current_user_ns(), &uid))
-		return NULL;
 
 	uid_entry = find_uid_entry(uid);
 	if (uid_entry)
@@ -511,8 +485,7 @@ static int uid_cputime_open(struct inode *inode, struct file *file)
 
 	rcu_read_lock();
 	do_each_thread(temp, task) {
-		if (!uid_sys_stats_get_task_uid(task, user_ns, &uid))
-			continue;
+		uid = from_kuid_munged(user_ns, task_uid(task));
 		if (!uid_entry || uid_entry->uid != uid)
 			uid_entry = find_or_register_uid_of_task(task);
 		if (!uid_entry) {
@@ -632,8 +605,7 @@ static void update_io_stats_all_locked(void)
 
 	rcu_read_lock();
 	do_each_thread(temp, task) {
-		if (!uid_sys_stats_get_task_uid(task, user_ns, &uid))
-			continue;
+		uid = from_kuid_munged(user_ns, task_uid(task));
 		if (!uid_entry || uid_entry->uid != uid)
 			uid_entry = find_or_register_uid_of_task(task);
 		if (!uid_entry)
@@ -655,7 +627,6 @@ static void update_io_stats_uid_locked(struct uid_entry *uid_entry)
 {
 	struct task_struct *task, *temp;
 	struct user_namespace *user_ns = current_user_ns();
-	uid_t uid;
 
 	memset(&uid_entry->io[UID_STATE_TOTAL_CURR], 0,
 		sizeof(struct io_stats));
@@ -663,9 +634,7 @@ static void update_io_stats_uid_locked(struct uid_entry *uid_entry)
 
 	rcu_read_lock();
 	do_each_thread(temp, task) {
-		if (!uid_sys_stats_get_task_uid(task, user_ns, &uid))
-			continue;
-		if (uid != uid_entry->uid)
+		if (from_kuid_munged(user_ns, task_uid(task)) != uid_entry->uid)
 			continue;
 		add_uid_io_stats(uid_entry, task, UID_STATE_TOTAL_CURR);
 	} while_each_thread(temp, task);
@@ -789,9 +758,7 @@ static int process_notifier(struct notifier_block *self,
 		return NOTIFY_OK;
 
 	rt_mutex_lock(&uid_lock);
-	if (!uid_sys_stats_get_task_uid(task, current_user_ns(), &uid))
-		goto exit;
-
+	uid = from_kuid_munged(current_user_ns(), task_uid(task));
 	uid_entry = find_or_register_uid_of_task(task);
 	if (!uid_entry) {
 		pr_err("%s: failed to find uid %d\n", __func__, uid);
