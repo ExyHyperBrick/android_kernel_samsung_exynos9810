@@ -273,36 +273,6 @@ static inline void *get_freepointer_safe(struct kmem_cache *s, void *object)
 	return p;
 }
 
-/*
- * Vendor 4.9 SLUB can otherwise crash in the allocation fastpath when an
- * earlier scribble leaves c->freelist pointing at a low/non-slab address.
- * Validate the freelist head before get_freepointer_safe() dereferences it.
- */
-static inline bool slub_cpu_freelist_object_bad(struct kmem_cache *s,
-						struct page *page,
-						void *object)
-{
-	unsigned long obj, base, end;
-
-	if (!object)
-		return false;
-
-	if (unlikely(!page || !virt_addr_valid(object)))
-		return true;
-
-	obj = (unsigned long)object;
-	base = (unsigned long)page_address(page);
-	end = base + page->objects * s->size;
-
-	if (unlikely(obj < base || obj >= end))
-		return true;
-
-	if (unlikely((obj - base) % s->size))
-		return true;
-
-	return false;
-}
-
 static inline void set_freepointer(struct kmem_cache *s, void *object, void *fp)
 {
 #ifdef CONFIG_RKP_KDP
@@ -2966,22 +2936,6 @@ redo:
 
 	object = c->freelist;
 	page = c->page;
-
-	if (unlikely(slub_cpu_freelist_object_bad(s, page, object))) {
-		pr_err("SLUB: dropping corrupt cpu freelist object %p from cache %s page %p\n",
-		       object, s->name, page);
-
-		if (unlikely(!this_cpu_cmpxchg_double(
-				s->cpu_slab->freelist, s->cpu_slab->tid,
-				object, tid, NULL, next_tid(tid)))) {
-			note_cmpxchg_failure("slab_alloc_corrupt_freelist", s, tid);
-			goto redo;
-		}
-
-		object = NULL;
-		page = c->page;
-	}
-
 	if (unlikely(!object || !node_match(page, node))) {
 		object = __slab_alloc(s, gfpflags, node, addr, c);
 		stat(s, ALLOC_SLOWPATH);
