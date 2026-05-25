@@ -67,14 +67,6 @@ static unsigned long super_cache_scan(struct shrinker *shrink,
 	sb = container_of(shrink, struct super_block, s_shrink);
 
 	/*
-	 * VFS_CACHE_PRESSURE_SUPER_LRU_GUARD:
-	 * A value of zero disables superblock VFS cache reclaim.  Do not even
-	 * touch per-superblock list_lru state in that mode.
-	 */
-	if (!sysctl_vfs_cache_pressure)
-		return SHRINK_STOP;
-
-	/*
 	 * Deadlock avoidance.  We may hold various FS locks, and we don't want
 	 * to recurse into the FS that called us in clear_inode() and friends..
 	 */
@@ -126,14 +118,6 @@ static unsigned long super_cache_count(struct shrinker *shrink,
 	long	total_objects = 0;
 
 	sb = container_of(shrink, struct super_block, s_shrink);
-
-	/*
-	 * VFS_CACHE_PRESSURE_SUPER_LRU_GUARD:
-	 * vfs_pressure_ratio() is applied after list_lru_shrink_count(), so a
-	 * zero pressure value must short-circuit before the list_lru counters.
-	 */
-	if (!sysctl_vfs_cache_pressure)
-		return 0;
 
 	/*
 	 * We don't call trylock_super() here as it is a scalability bottleneck,
@@ -281,14 +265,7 @@ static struct super_block *alloc_super(struct file_system_type *type, int flags,
 	s->s_shrink.scan_objects = super_cache_scan;
 	s->s_shrink.count_objects = super_cache_count;
 	s->s_shrink.batch = 1024;
-	/*
-	 * EXYNOS9810_SUPER_LRU_NO_MEMCG_AWARE:
-	 * This vendor 4.9 tree can crash in the superblock list_lru paths under
-	 * HDMI/USB-C dock stress.  Keep the superblock shrinker registered, but
-	 * avoid the memcg-aware list_lru expansion/walk path used during Android
-	 * cgroup setup and memory-cgroup creation.
-	 */
-	s->s_shrink.flags = SHRINKER_NUMA_AWARE;
+	s->s_shrink.flags = SHRINKER_NUMA_AWARE | SHRINKER_MEMCG_AWARE;
 	return s;
 
 fail:
