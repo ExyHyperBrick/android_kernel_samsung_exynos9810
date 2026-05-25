@@ -44,6 +44,7 @@ static int audio_channels;
 static int audio_bit_rates;
 static int audio_sample_rates;
 static int audio_speaker_alloc;
+static bool edid_cache_valid;
 
 struct fb_audio test_audio_info;
 
@@ -814,6 +815,23 @@ int edid_update(struct displayport_device *hdev)
 	int basic_audio = 0;
 	int edid_test = 0;
 	int modedb_len = 0;
+
+	/*
+	 * Some USB-C HDMI dongles/sinks return unstable EDID data during HPD
+	 * reconnect churn. The fbdev EDID parser can still fault before later
+	 * mode-database guards run. For stability, use the known-good safe
+	 * preset and basic HDMI audio information rather than touching the
+	 * fragile EDID parser on the hotplug path.
+	 */
+	displayport_info("displayport: use safe default EDID info for HDMI stability\n");
+	edid_use_default_preset();
+	edid_misc = FB_MISC_HDMI;
+	audio_channels = 2;
+	audio_sample_rates = FB_AUDIO_44KHZ;
+	audio_bit_rates = FB_AUDIO_16BIT;
+	audio_speaker_alloc = 0;
+	edid_cache_valid = true;
+	return 0;
 
 	/*
 	 * USB-C/CCIC DP HPD work can race EDID parsing while the displayport
