@@ -1971,6 +1971,11 @@ static int decon_set_hdr_info(struct decon_device *decon,
 			decon->ion_client,
 			regs->dma_buf_data[win_num][meta_plane].ion_handle);
 
+	if (!video_meta) {
+		decon_err("ion_map_kernel() failed for HDR meta\n");
+		return -ENOMEM;
+	}
+
 	hdr_cmp = memcmp(&decon->prev_hdr_info,
 			&video_meta->data.dec.shdr_static_info,
 			sizeof(struct exynos_hdr_static_info));
@@ -1978,18 +1983,27 @@ static int decon_set_hdr_info(struct decon_device *decon,
 	/* HDR metadata is same, so skip subdev call.
 	 * Also current hdr_static_info is not copied.
 	 */
-	if (hdr_cmp == 0)
+	if (hdr_cmp == 0) {
+		ion_unmap_kernel(decon->ion_client,
+						 regs->dma_buf_data[win_num][meta_plane].ion_handle);
 		return 0;
+	}
 
 	ret = v4l2_subdev_call(decon->displayport_sd, core, ioctl,
 			DISPLAYPORT_IOC_SET_HDR_METADATA,
 			&video_meta->data.dec.shdr_static_info);
+
+	if (!ret)
+		memcpy(&decon->prev_hdr_info,
+			   &video_meta->data.dec.shdr_static_info,
+			   sizeof(struct exynos_hdr_static_info));
+
+	ion_unmap_kernel(decon->ion_client,
+					 regs->dma_buf_data[win_num][meta_plane].ion_handle);
+
 	if (ret)
 		goto err_hdr_io;
 
-	memcpy(&decon->prev_hdr_info,
-			&video_meta->data.dec.shdr_static_info,
-			sizeof(struct exynos_hdr_static_info));
 	return 0;
 
 err_hdr_io:
@@ -2100,12 +2114,6 @@ static void decon_update_vgf_info(struct decon_device *decon,
 			else
 				afbc_info->size[0] =
 					regs->dma_buf_data[i][0].dma_buf->size;
-
-#if defined(CONFIG_ION_EXYNOS)
-			afbc_info->v_addr[0] = ion_map_kernel(
-				decon->ion_client,
-				regs->dma_buf_data[i][0].ion_handle);
-#endif
 		}
 
 		if (test_bit(IDMA_VGF1, &decon->cur_using_dpp)) {
@@ -2117,12 +2125,6 @@ static void decon_update_vgf_info(struct decon_device *decon,
 			else
 				afbc_info->size[1] =
 					regs->dma_buf_data[i][0].dma_buf->size;
-
-#if defined(CONFIG_ION_EXYNOS)
-			afbc_info->v_addr[1] = ion_map_kernel(
-				decon->ion_client,
-				regs->dma_buf_data[i][0].ion_handle);
-#endif
 		}
 	}
 
@@ -3099,7 +3101,7 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 				break;
 			}
 		} else {
-			decon_dbg("DECON:DBG:%s:decon%d ignore unsupported pwr_state %d\n",
+			decon_warn("DECON:WARN:%s:decon%d invalid pwr_state %d\n",
 					__func__, decon->id, pwr_mode);
 		}
 		break;
