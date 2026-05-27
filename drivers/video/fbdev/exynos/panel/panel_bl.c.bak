@@ -730,12 +730,6 @@ int panel_bl_set_brightness(struct panel_bl_device *panel_bl, int id, int force)
 			panel_bl->props.acl_pwrsave ? "on" : "off",
 			panel_bl->props.acl_opr);
 
-	if (unlikely(panel->state.cur_state == PANEL_STATE_OFF)) {
-		panel_info("%s bl-%d skip brightness: panel off\n",
-				__func__, id);
-		goto set_br_exit;
-	}
-
 	if (unlikely(!force || !luminance))
 		goto set_br_exit;
 
