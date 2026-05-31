@@ -130,12 +130,36 @@ int ion_heap_map_user(struct ion_heap *heap, struct ion_buffer *buffer,
 
 static int ion_heap_clear_pages(struct page **pages, int num, pgprot_t pgprot)
 {
-	void *addr = vmap(pages, num, VM_MAP, pgprot);
+	int p;
 
-	if (!addr)
-		return -ENOMEM;
-	memset(addr, 0, PAGE_SIZE * num);
-	vunmap(addr);
+	/*
+	 * exynos9810: clear ION free pages one-by-one.
+	 *
+	 * The old bulk vmap()+memset() path can panic during deferred ION free
+	 * under HDMI/RenderEngine stress:
+	 *
+	 *   ion_noncontig_h -> ion_heap_sglist_zero -> __memset
+	 *
+	 * If one SG page/PFN is stale or otherwise not safely mappable, the large
+	 * memset over the temporary vmap range faults the whole kernel. Use the same
+	 * per-page kmap()+clear_page() path for all pages so a failed kmap can be
+	 * skipped and the zeroing path does not depend on a 32-page contiguous vmap.
+	 */
+	for (p = 0; p < num; p++) {
+		void *va;
+
+		if (WARN_ON_ONCE(!pages[p]))
+			continue;
+
+		va = kmap(pages[p]);
+		if (!va)
+			continue;
+
+		clear_page(va);
+		if (pgprot_val(pgprot) == pgprot_val(pgprot_writecombine(PAGE_KERNEL)))
+			__flush_dcache_area(va, PAGE_SIZE);
+		kunmap(pages[p]);
+	}
 
 	return 0;
 }
