@@ -23,6 +23,7 @@
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/slab.h>
+#include <linux/mm.h>
 #include <linux/smc.h>
 #include <linux/swap.h>
 #include <linux/swapops.h>
@@ -988,12 +989,29 @@ static int exynos_iommu_map(struct iommu_domain *iommu_domain,
 			    unsigned long l_iova, phys_addr_t paddr, size_t size,
 			    int prot)
 {
-	struct exynos_iommu_domain *domain = to_exynos_domain(iommu_domain);
+	struct exynos_iommu_domain *domain;
 	sysmmu_pte_t *entry;
 	sysmmu_iova_t iova = (sysmmu_iova_t)l_iova;
 	int ret = -ENOMEM;
 
-	BUG_ON(domain->pgtable == NULL);
+	/*
+	 * exynos9810: reject invalid IOMMU map domain state.
+	 *
+	 * HDMI/DP reconnect stress can reach DECON/ION mapping while the backing
+	 * Exynos IOMMU domain still exists but its page-table pointer is invalid.
+	 * The old BUG_ON() only caught NULL and then section_entry() could deref a
+	 * bogus pointer such as ffffffff80000000. Fail the map cleanly instead so
+	 * the caller can reject the frame without panicking the kernel.
+	 */
+	if (WARN_ON_ONCE(!iommu_domain || !virt_addr_valid(iommu_domain)))
+		return -EINVAL;
+
+	domain = to_exynos_domain(iommu_domain);
+	if (WARN_ON_ONCE(!domain->pgtable || !virt_addr_valid(domain->pgtable))) {
+		pr_err("exynos-iommu: invalid map domain=%p pgtable=%p iova=%#lx paddr=%pa size=%#zx prot=%#x\n",
+			domain, domain->pgtable, l_iova, &paddr, size, prot);
+		return -EINVAL;
+	}
 
 	entry = section_entry(domain->pgtable, iova);
 
