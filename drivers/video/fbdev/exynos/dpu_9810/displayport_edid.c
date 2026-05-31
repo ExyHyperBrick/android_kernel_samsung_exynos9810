@@ -949,6 +949,47 @@ out:
 	if (edid)
 		edid_check_detail_timing_desc1(&specs, modedb_len, edid);
 
+	/*
+	 * exynos9810: drop DEX_NOT_SUPPORT EDID modes.
+	 *
+	 * On reconnect the DP state can sometimes reach edid_update() without the
+	 * Samsung DeX resolution policy active. Then 4K modes from the sink EDID
+	 * can become best_video/default even though the table marks them as
+	 * DEX_NOT_SUPPORT. That path has been observed selecting V3840X2160P30
+	 * immediately before unrelated-looking interrupt/memory fallout.
+	 *
+	 * Keep FHD/WQHD-capable modes, including detailed VDUMMYTIMING modes, but
+	 * never expose unsupported 4K/unsafe modes on this branch.
+	 */
+	for (i = 0; i < supported_videos_pre_cnt; i++) {
+		if (supported_videos[i].edid_support_match &&
+				supported_videos[i].dex_support == DEX_NOT_SUPPORT) {
+			displayport_info("EDID: drop unsupported video_format %s\n",
+					supported_videos[i].name);
+			supported_videos[i].edid_support_match = false;
+		}
+	}
+
+	if (hdev->best_video < supported_videos_pre_cnt &&
+			supported_videos[hdev->best_video].dex_support == DEX_NOT_SUPPORT) {
+		int best_video = -1;
+
+		for (i = 0; i < supported_videos_pre_cnt; i++) {
+			if (supported_videos[i].edid_support_match &&
+					supported_videos[i].dex_support != DEX_NOT_SUPPORT &&
+					i > best_video)
+				best_video = i;
+		}
+
+		if (best_video >= 0) {
+			displayport_info("EDID: fallback best video %s -> %s\n",
+					supported_videos[hdev->best_video].name,
+					supported_videos[best_video].name);
+			hdev->best_video = best_video;
+			preferred_preset = supported_videos[hdev->best_video].dv_timings;
+		}
+	}
+
 	/* No supported preset found, use default */
 	if (forced_resolution >= 0) {
 		displayport_info("edid_use_default_preset\n");
