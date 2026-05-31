@@ -120,7 +120,21 @@
  * PATH_MAX includes the nul terminator --RR.
  */
 
-#define EMBEDDED_NAME_MAX	(PATH_MAX - offsetof(struct filename, iname))
+/*
+ * exynos9810: keep embedded filename usercopy away from page end.
+ *
+ * This 4.9 tree lacks kmem_cache_create_usercopy(), and names_cache can be
+ * treated like a generic kmalloc-4096 object by hardened usercopy. Copying
+ * PATH_MAX - offsetof(struct filename, iname) bytes into the embedded ->iname
+ * tail then trips:
+ *
+ *   usercopy: kernel memory overwrite attempt detected to 'kmalloc-4096'
+ *
+ * Keep short names embedded, but force long paths into the existing fallback
+ * path, where the full pathname is copied at the start of the names_cache
+ * allocation instead of near the end of the object.
+ */
+#define EMBEDDED_NAME_MAX	1024
 
 struct filename *
 getname_flags(const char __user *filename, int flags, int *empty)
