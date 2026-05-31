@@ -355,9 +355,34 @@ void dpu_bts_update_bw(struct decon_device *decon, struct decon_reg_data *regs,
 void dpu_bts_acquire_bw(struct decon_device *decon)
 {
 #if defined(CONFIG_DECON_BTS_LEGACY) && defined(CONFIG_EXYNOS_DISPLAYPORT)
-	struct displayport_device *displayport = get_displayport_drvdata();
-	videoformat cur = displayport->cur_video;
-	__u64 pixelclock = supported_videos[cur].dv_timings.bt.pixelclock;
+	struct displayport_device *displayport;
+	videoformat cur;
+	__u64 pixelclock;
+
+	/*
+	 * exynos9810: skip DP BTS QoS acquire on attach.
+	 *
+	 * We already skip DP BTS QoS release because detach hit:
+	 *
+	 *   dpu_bts_release_bw -> pm_qos_update_request -> plist_del
+	 *
+	 * The next crash moved to an unrelated UFS clock-gate worker:
+	 *
+	 *   ufshcd_gate_work -> exynos_ufs_pre_setup_clocks
+	 *     -> pm_qos_update_request -> plist_add
+	 *
+	 * That suggests the PM QoS plist was corrupted earlier, likely by the DP BTS
+	 * request that still gets acquired on external display attach/high-res mode.
+	 * Keep DP away from this BTS QoS request in both directions for now.
+	 */
+	if (decon && decon->dt.out_type == DECON_OUT_DP) {
+		pr_info("decon%d: skip DP BTS QoS acquire on attach\n", decon->id);
+		return;
+	}
+
+	displayport = get_displayport_drvdata();
+	cur = displayport->cur_video;
+	pixelclock = supported_videos[cur].dv_timings.bt.pixelclock;
 
 	DPU_DEBUG_BTS("%s +\n", __func__);
 
@@ -402,6 +427,28 @@ void dpu_bts_acquire_bw(struct decon_device *decon)
 void dpu_bts_release_bw(struct decon_device *decon)
 {
 	struct bts_bw bw = { 0, };
+
+	/*
+	 * exynos9810: skip DP BTS QoS release on detach.
+	 *
+	 * HPD-low / external display powerdown can reach:
+	 *
+	 *   decon_disable -> _decon_disable -> dpu_bts_release_bw
+	 *     -> pm_qos_update_request -> pm_qos_update_target -> plist_del
+	 *
+	 * and crash because the PM QoS plist node is already corrupted/stale:
+	 *
+	 *   list_del corruption. next->prev should be ..., but was NULL
+	 *
+	 * Keep the DP QoS request untouched during detach. This is a diagnostic
+	 * stability workaround; the next DP attach/acquire path can raise/update
+	 * the request again.
+	 */
+	if (decon && decon->dt.out_type == DECON_OUT_DP) {
+		pr_info("decon%d: skip DP BTS QoS release on detach\n", decon->id);
+		return;
+	}
+
 	DPU_DEBUG_BTS("%s +\n", __func__);
 
 	if (!decon->bts.enabled)
