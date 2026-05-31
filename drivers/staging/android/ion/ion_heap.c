@@ -79,25 +79,49 @@ int ion_heap_map_user(struct ion_heap *heap, struct ion_buffer *buffer,
 	int i;
 	int ret;
 
+	/*
+	 * exynos9810: map ION userspace chunks page-aligned.
+	 *
+	 * remap_pfn_range() maps PAGE_ALIGN(size), but the old code advanced
+	 * @addr by the raw sg length. If an sg entry length is not page aligned,
+	 * the next iteration can start inside a page that was already mapped and
+	 * trip BUG_ON(!pte_none(*pte)) in remap_pte_range().
+	 */
+	if (WARN_ON_ONCE(vma->vm_start & ~PAGE_MASK))
+		return -EINVAL;
+	if (WARN_ON_ONCE(vma->vm_end <= vma->vm_start))
+		return -EINVAL;
+
 	for_each_sg(table->sgl, sg, table->nents, i) {
 		struct page *page = sg_page(sg);
 		unsigned long remainder = vma->vm_end - addr;
 		unsigned long len = sg->length;
+		unsigned long map_len;
+
+		if (!remainder)
+			return 0;
 
 		if (offset >= sg->length) {
 			offset -= sg->length;
 			continue;
 		} else if (offset) {
+			if (WARN_ON_ONCE(offset & ~PAGE_MASK))
+				return -EINVAL;
 			page += offset / PAGE_SIZE;
 			len = sg->length - offset;
 			offset = 0;
 		}
-		len = min(len, remainder);
-		ret = remap_pfn_range(vma, addr, page_to_pfn(page), len,
+
+		map_len = min_t(unsigned long, PAGE_ALIGN(len), remainder);
+		if (WARN_ON_ONCE(!map_len))
+			return -EINVAL;
+
+		ret = remap_pfn_range(vma, addr, page_to_pfn(page), map_len,
 				      vma->vm_page_prot);
 		if (ret)
 			return ret;
-		addr += len;
+
+		addr += map_len;
 		if (addr >= vma->vm_end)
 			return 0;
 	}
