@@ -1686,6 +1686,24 @@ static void device_uncache_fw_images_delay(unsigned long delay)
 static int fw_pm_notify(struct notifier_block *notify_block,
 			unsigned long mode, void *unused)
 {
+	/*
+	 * exynos9810: skip firmware suspend cache walk.
+	 *
+	 * HDMI/dock idle testing can enter suspend and hit:
+	 *
+	 *   pm_suspend -> fw_pm_notify -> dpm_for_each_dev
+	 *     -> dev_cache_fw_image -> devres_for_each_res
+	 *     -> _raw_spin_lock_irqsave
+	 *
+	 * where CPU6 hardlocks while walking device devres firmware entries.
+	 * Android userspace can request firmware again after resume; avoid the
+	 * fragile global firmware-cache walk during suspend prepare.
+	 */
+	if (mode == PM_SUSPEND_PREPARE || mode == PM_HIBERNATION_PREPARE) {
+		pr_info_once("firmware_class: skip firmware suspend cache walk\n");
+		return NOTIFY_DONE;
+	}
+
 	switch (mode) {
 	case PM_HIBERNATION_PREPARE:
 	case PM_SUSPEND_PREPARE:
