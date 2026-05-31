@@ -58,11 +58,26 @@ static unsigned long super_cache_scan(struct shrinker *shrink,
 				      struct shrink_control *sc)
 {
 	struct super_block *sb;
+	struct shrink_control local_sc;
 	long	fs_objects = 0;
 	long	total_objects;
 	long	freed = 0;
 	long	dentries;
 	long	inodes;
+
+	/*
+	 * exynos9810: avoid memcg-aware superblock LRU reclaim.
+	 *
+	 * HDMI hotplug/unplug stress can drive reclaim through the per-sb
+	 * shrinker with a memcg-aware shrink_control. This 4.9 backport has
+	 * shown list_lru corruption in that path, so keep superblock reclaim
+	 * global-only for now.
+	 */
+	local_sc = *sc;
+	local_sc.memcg = NULL;
+	sc = &local_sc;
+
+
 
 	sb = container_of(shrink, struct super_block, s_shrink);
 
@@ -115,7 +130,24 @@ static unsigned long super_cache_count(struct shrinker *shrink,
 				       struct shrink_control *sc)
 {
 	struct super_block *sb;
+	struct shrink_control local_sc;
 	long	total_objects = 0;
+
+	/*
+	 * exynos9810: avoid memcg-aware superblock LRU reclaim.
+	 *
+	 * The observed crash site is:
+	 *
+	 *   kswapd0 -> shrink_slab -> super_cache_count -> list_lru_count_one
+	 *
+	 * Force global list_lru accounting so list_lru_shrink_count() does not
+	 * walk per-memcg LRU state for superblock dentries/inodes.
+	 */
+	local_sc = *sc;
+	local_sc.memcg = NULL;
+	sc = &local_sc;
+
+
 
 	sb = container_of(shrink, struct super_block, s_shrink);
 
@@ -265,7 +297,14 @@ static struct super_block *alloc_super(struct file_system_type *type, int flags,
 	s->s_shrink.scan_objects = super_cache_scan;
 	s->s_shrink.count_objects = super_cache_count;
 	s->s_shrink.batch = 1024;
-	s->s_shrink.flags = SHRINKER_NUMA_AWARE | SHRINKER_MEMCG_AWARE;
+	/*
+	 * exynos9810: keep superblock shrinker global-only.
+	 *
+	 * Per-memcg list_lru state is unstable on this 4.9 backport under HDMI
+	 * hotplug reclaim pressure. Keep NUMA awareness but avoid memcg-aware
+	 * superblock dentry/inode LRU shrinking.
+	 */
+	s->s_shrink.flags = SHRINKER_NUMA_AWARE;
 	return s;
 
 fail:
