@@ -1823,6 +1823,60 @@ static int __decon_update_regs(struct decon_device *decon, struct decon_reg_data
 	/* apply window update configuration to DECON, DSIM and panel */
 	dpu_set_win_update_config(decon, regs);
 
+	/*
+	 * exynos9810: configure DPP before enabling DECON windows.
+	 *
+	 * If DPP validation/programming fails after DECON window registers have
+	 * already been enabled, the display path can briefly point DECON at an
+	 * invalid or unconfigured DMA channel. For the HDMI AFBC failure case this
+	 * leads to VG1/WB SysMMU faults at 0x0. Validate/program the DPP side first
+	 * and only touch DECON window registers after all requested DPPs accepted
+	 * their configuration.
+	 */
+	err_cnt = decon_set_dpp_config(decon, regs);
+	/*
+	 * exynos9810: fail the frame when DPP config fails.
+	 *
+	 * dpp_check_format() can reject invalid configurations, for example AFBC
+	 * submitted to a non-VGF DPP. decon_set_dpp_config() disables the failed
+	 * window and may reduce num_of_window to zero, but returning success here
+	 * leaves userspace believing the frame was accepted while DECON/DPP state is
+	 * inconsistent. That can later fault the display SysMMU.
+	 */
+	if (err_cnt) {
+		decon_err("decon%d: dpp_config failed(err_cnt:%d, num_of_window:%d)\n",
+			decon->id, err_cnt, regs->num_of_window);
+		if (!regs->num_of_window)
+			decon_err("decon%d: num_of_window=0 during dpp_config(err_cnt:%d)\n",
+				decon->id, err_cnt);
+
+		/*
+		 * exynos9810: latch disabled windows after DPP config failure.
+		 *
+		 * decon_set_dpp_config() disables windows whose DPP config was rejected,
+		 * but the normal DECON window-control and shadow-update path is below this
+		 * error return. Without explicitly committing the disabled state here, the
+		 * hardware can keep scanning a stale/invalid VG window and fault the display
+		 * SysMMU at 0x0.
+		 */
+		for (i = 0; i < decon->dt.max_win; i++)
+			decon_reg_set_window_control(decon->id, i, &regs->win_regs[i],
+						regs->win_regs[i].winmap_state);
+
+		decon_reg_all_win_shadow_update_req(decon->id);
+		decon_to_psr_info(decon, &psr);
+		if (decon_reg_start(decon->id, &psr) < 0)
+			decon_err("decon%d: failed to latch disabled windows after dpp_config failure\n",
+				decon->id);
+
+		return -EINVAL;
+	}
+	if (!regs->num_of_window) {
+		decon_err("decon%d: num_of_window=0 during dpp_config(err_cnt:%d)\n",
+			decon->id, err_cnt);
+		return -EINVAL;
+	}
+
 	for (i = 0; i < decon->dt.max_win; i++) {
 		if (regs->is_cursor_win[i]) {
 			dpu_cursor_win_update_config(decon, regs);
@@ -1836,13 +1890,6 @@ static int __decon_update_regs(struct decon_device *decon, struct decon_reg_data
 		for (j = 0; j < regs->plane_cnt[i]; ++j)
 			decon->win[i]->dma_buf_data[j] = regs->dma_buf_data[i][j];
 		decon->win[i]->plane_cnt = regs->plane_cnt[i];
-	}
-
-	err_cnt = decon_set_dpp_config(decon, regs);
-	if (!regs->num_of_window) {
-		decon_err("decon%d: num_of_window=0 during dpp_config(err_cnt:%d)\n",
-			decon->id, err_cnt);
-		return 0;
 	}
 
 #if defined(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION)
