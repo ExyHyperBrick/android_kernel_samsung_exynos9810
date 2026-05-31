@@ -836,16 +836,28 @@ int edid_update(struct displayport_device *hdev)
 	for (i = 1; i < supported_videos_pre_cnt; i++)
 		supported_videos[i].edid_support_match = false;
 
+	/*
+	 * exynos9810: harden EDID reconnect parsing.
+	 *
+	 * HPD reconnect can reach edid_update() before the optional test EDID
+	 * buffer is assigned. Do not dereference hdev->edid_test_buf unless it is
+	 * present. Also keep the local EDID pointer synced after edid_read().
+	 */
 	if (hdev->do_unit_test)
 		block_cnt = edid_read_unit(&edid);
-	else if (hdev->edid_test_buf[0] == 1 || hdev->edid_test_buf[0] == 2) {
+	else if (hdev->edid_test_buf &&
+			(hdev->edid_test_buf[0] == 1 || hdev->edid_test_buf[0] == 2)) {
 		edid_test = 1;
 		edid = &hdev->edid_test_buf[1];
 		block_cnt = hdev->edid_test_buf[0];
 		displayport_info("using test edid %d\n", block_cnt);
 	} else
 		block_cnt = edid_read(hdev);
-	if (block_cnt < 0) {
+
+	if (!hdev->do_unit_test && !edid_test)
+		edid = hdev->rx_edid_data.edid_buf;
+
+	if (block_cnt < 0 || !edid) {
 		hdev->bpc = BPC_6;
 		goto out;
 	}
@@ -930,10 +942,12 @@ int edid_update(struct displayport_device *hdev)
 
 out:
 #ifdef FEATURE_SUPPORT_DISPLAYID
-	edid_add_displayid_detailed_modes(edid);
+	if (edid)
+		edid_add_displayid_detailed_modes(edid);
 #endif
 
-	edid_check_detail_timing_desc1(&specs, modedb_len, edid);
+	if (edid)
+		edid_check_detail_timing_desc1(&specs, modedb_len, edid);
 
 	/* No supported preset found, use default */
 	if (forced_resolution >= 0) {
@@ -944,7 +958,7 @@ out:
 	if (block_cnt == -EPROTO)
 		edid_misc = FB_MISC_HDMI;
 
-	if (!hdev->do_unit_test && !edid_test)
+	if (!hdev->do_unit_test && !edid_test && edid)
 		kfree(edid);
 
 	return block_cnt;
