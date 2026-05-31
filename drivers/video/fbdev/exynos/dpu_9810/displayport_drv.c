@@ -2621,11 +2621,26 @@ static int displayport_enum_dv_timings(struct v4l2_subdev *sd,
 			return -EINVAL;
 		}
 		if (supported_videos[timings->index].dex_support > displayport->dex_adapter_type) {
-			displayport_info("%s not supported, adapter:%d, resolution:%d in dex mode\n",
-					supported_videos[timings->index].name,
-					displayport->dex_adapter_type,
-					supported_videos[timings->index].dex_support);
-			return -EINVAL;
+			/*
+			 * exynos9810: allow WQHD modes on FHD-class DeX adapter.
+			 *
+			 * Samsung's DeX adapter whitelist often reports this path as FHD-only
+			 * after reconnect, even when EDID/link training successfully expose
+			 * WQHD timings such as V2560X1440P59. We already drop DEX_NOT_SUPPORT
+			 * 4K/unsafe modes in EDID parsing, so allow WQHD-capable modes here
+			 * instead of forcing the display back to 1080p.
+			 */
+			if (displayport->dex_adapter_type == DEX_FHD_SUPPORT &&
+					supported_videos[timings->index].dex_support == DEX_WQHD_SUPPORT) {
+				displayport_info("%s allowed as WQHD despite FHD DeX adapter\n",
+						supported_videos[timings->index].name);
+			} else {
+				displayport_info("%s not supported, adapter:%d, resolution:%d in dex mode\n",
+						supported_videos[timings->index].name,
+						displayport->dex_adapter_type,
+						supported_videos[timings->index].dex_support);
+				return -EINVAL;
+			}
 		}
 	}
 
