@@ -7519,11 +7519,52 @@ NG:
 	sec_cmd_set_cmd_exit(sec);
 }
 
+static int sec_ts_set_default_aod_rect(struct sec_ts_data *ts)
+{
+	u8 data[10] = { 0x02, 0 };
+	u16 rect_data[4] = {
+		ts->plat_data->max_x,
+		ts->plat_data->max_y,
+		0,
+		0,
+	};
+	int ret;
+	int i;
+
+	for (i = 0; i < 4; i++) {
+		data[i * 2 + 2] = rect_data[i] & 0xFF;
+		data[i * 2 + 3] = (rect_data[i] >> 8) & 0xFF;
+		ts->rect_data[i] = rect_data[i];
+	}
+
+	if (!ts->use_sponge)
+		return 0;
+
+	disable_irq(ts->client->irq);
+
+	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SPONGE_WRITE_PARAM, data, 10);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev,
+			  "%s: failed to write default AOD rect\n", __func__);
+		goto out;
+	}
+
+	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SPONGE_NOTIFY_PACKET, NULL, 0);
+	if (ret < 0)
+		input_err(true, &ts->client->dev,
+			  "%s: failed to notify default AOD rect\n", __func__);
+
+out:
+	enable_irq(ts->client->irq);
+	return ret;
+}
+
 static void aod_enable(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
 	char buff[SEC_CMD_STR_LEN] = { 0 };
+	int ret = 0;
 
 	sec_cmd_set_default_result(sec);
 
@@ -7540,8 +7581,15 @@ static void aod_enable(void *device_data)
 
 	input_info(true, &ts->client->dev, "%s: %02X\n", __func__, ts->lowpower_mode);
 
-	if (ts->use_sponge)
+	if (ts->use_sponge) {
 		sec_ts_set_custom_library(ts);
+
+		if (sec->cmd_param[0]) {
+			ret = sec_ts_set_default_aod_rect(ts);
+			if (ret < 0)
+				goto NG;
+		}
+	}
 
 	snprintf(buff, sizeof(buff), "%s", "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
