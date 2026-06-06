@@ -268,10 +268,19 @@ static int alarmtimer_suspend(struct device *dev)
 		return 0;
 
 	if (ktime_to_ns(min) < 2 * NSEC_PER_SEC) {
-		__pm_wakeup_event(ws, 2 * MSEC_PER_SEC);
+		s64 msec = ktime_to_ms(min);
+		unsigned int wake_ms;
+
+		if (msec <= 0)
+			wake_ms = 1;
+		else
+			wake_ms = min_t(s64, msec + 1, 2 * MSEC_PER_SEC);
+
+		__pm_wakeup_event(ws, wake_ms);
+
 #ifdef CONFIG_SEC_PM_DEBUG
-		pr_err("%s: alarm will be expired in 2 secs[PID:%d(%s), %pf]\n",
-				__func__, pid, task_comm, func);
+		pr_err("%s: alarm will expire in %u ms[PID:%d(%s), %pf]\n",
+				__func__, wake_ms, pid, task_comm, func);
 #endif
 		return -EBUSY;
 	}
