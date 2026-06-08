@@ -923,6 +923,38 @@ void location_detect(struct sec_ts_data *ts, char *loc, int x, int y)
 }
 
 
+static bool sec_ts_lpm_single_tap_dt2w(struct sec_ts_data *ts, int x, int y)
+{
+	static unsigned long last_tap_jiffies;
+	static int last_x;
+	static int last_y;
+	unsigned long now = jiffies;
+	int dx = abs(x - last_x);
+	int dy = abs(y - last_y);
+	bool matched;
+
+	matched = time_after(now, last_tap_jiffies + msecs_to_jiffies(40)) &&
+		  time_before(now, last_tap_jiffies + msecs_to_jiffies(450)) &&
+		  dx < 250 &&
+		  dy < 250;
+
+	if (matched) {
+		input_info(true, &ts->client->dev,
+			   "%s: LPM single-tap DT2W match (%d,%d) dx:%d dy:%d\n",
+			   __func__, x, y, dx, dy);
+		last_tap_jiffies = 0;
+		last_x = 0;
+		last_y = 0;
+		return true;
+	}
+
+	last_tap_jiffies = now;
+	last_x = x;
+	last_y = y;
+
+	return false;
+}
+
 #define MAX_EVENT_COUNT 32
 static void sec_ts_read_event(struct sec_ts_data *ts)
 {
@@ -1392,7 +1424,16 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 				input_info(true, &ts->client->dev, "%s: SINGLE TAP: %d, %d, %d\n",
 						__func__, ts->scrub_id, ts->scrub_x, ts->scrub_y);
 #endif
-				input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 1);
+				if (ts->power_status == SEC_TS_STATE_LPM) {
+					if (sec_ts_lpm_single_tap_dt2w(ts, ts->scrub_x, ts->scrub_y)) {
+						input_report_key(ts->input_dev, KEY_POWER, 1);
+						input_sync(ts->input_dev);
+						input_report_key(ts->input_dev, KEY_POWER, 0);
+						input_sync(ts->input_dev);
+					}
+				} else {
+					input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 1);
+				}
 				break;
 			case SEC_TS_GESTURE_CODE_FORCE:
 				if (ts->power_status == SEC_TS_STATE_POWER_ON) {
