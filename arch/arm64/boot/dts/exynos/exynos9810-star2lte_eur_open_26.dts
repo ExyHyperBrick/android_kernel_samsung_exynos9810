@@ -13723,6 +13723,7 @@
 	max77705-charger {
 		status = "okay";
 		charger,cpu_max_freq = <0 1690000>;
+		charger,charging_cpu_max_freq = <1053000 1456000>;
 	};
 
 	max77705-fuelgauge {
