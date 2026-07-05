@@ -278,6 +278,12 @@ enum max77705_otg_limit_step {
 	MAX77705_LIMIT_STEP_OTG_ON,
 	MAX77705_LIMIT_STEP_NUM,
 };
+
+enum max77705_charging_cpu_limit {
+	MAX77705_CHARGING_CPU_LIMIT_CLUSTER0,
+	MAX77705_CHARGING_CPU_LIMIT_CLUSTER1,
+	MAX77705_CHARGING_CPU_LIMIT_NUM,
+};
 #endif
 
 struct max77705_charger_data {
@@ -369,6 +375,8 @@ struct max77705_charger_data {
 #if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
 	int otg_limit_step;
 	int cpu_max_freq[MAX77705_LIMIT_STEP_NUM];
+	int charging_cpu_max_freq[MAX77705_CHARGING_CPU_LIMIT_NUM];
+	bool charging_cpu_limit_on;
 #endif
 
 	int pmic_ver;
