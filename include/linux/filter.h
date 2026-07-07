@@ -676,22 +676,24 @@ bpf_ctx_narrow_access_ok(u32 off, u32 size, const u32 size_default)
 #ifdef CONFIG_ARCH_HAS_SET_MEMORY
 static inline void bpf_prog_lock_ro(struct bpf_prog *fp)
 {
-				undo_set_mem:1,	/* Passed set_memory_ro() checkpoint */
-}
-
-static inline void bpf_prog_unlock_ro(struct bpf_prog *fp)
-{
-				undo_set_mem:1,	/* Passed set_memory_ro() checkpoint */
+#ifdef CONFIG_ARCH_HAS_SET_MEMORY
+	fp->undo_set_mem = 1;
+	set_memory_ro((unsigned long)fp, fp->pages);
+#endif
 }
 
 static inline void bpf_jit_binary_lock_ro(struct bpf_binary_header *hdr)
 {
+#ifdef CONFIG_ARCH_HAS_SET_MEMORY
 	set_memory_ro((unsigned long)hdr, hdr->pages);
+#endif
 }
 
 static inline void bpf_jit_binary_unlock_ro(struct bpf_binary_header *hdr)
 {
+#ifdef CONFIG_ARCH_HAS_SET_MEMORY
 	set_memory_rw((unsigned long)hdr, hdr->pages);
+#endif
 }
 #else
 static inline void bpf_prog_lock_ro(struct bpf_prog *fp)
@@ -700,10 +702,10 @@ static inline void bpf_prog_lock_ro(struct bpf_prog *fp)
 
 static inline void bpf_prog_unlock_ro(struct bpf_prog *fp)
 {
-}
-
-static inline void bpf_jit_binary_lock_ro(struct bpf_binary_header *hdr)
-{
+#ifdef CONFIG_ARCH_HAS_SET_MEMORY
+	if (fp->undo_set_mem)
+		set_memory_rw((unsigned long)fp, fp->pages);
+#endif
 }
 
 static inline void bpf_jit_binary_unlock_ro(struct bpf_binary_header *hdr)
