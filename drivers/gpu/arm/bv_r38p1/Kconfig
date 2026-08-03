@@ -21,6 +21,7 @@
 menuconfig MALI_MIDGARD
 	tristate "Mali Midgard series support"
 	select GPU_TRACEPOINTS if ANDROID
+	select TRACE_GPU_MEM if ANDROID
 	select DMA_SHARED_BUFFER
 	select PM_DEVFREQ
 	select DEVFREQ_THERMAL
