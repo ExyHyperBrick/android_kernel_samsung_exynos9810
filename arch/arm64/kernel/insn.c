@@ -771,7 +771,10 @@ u32 aarch64_insn_gen_load_store_ex(enum aarch64_insn_register reg,
 		insn = aarch64_insn_get_load_ex_value();
 		break;
 	case AARCH64_INSN_LDST_STORE_EX:
+	case AARCH64_INSN_LDST_STORE_REL_EX:
 		insn = aarch64_insn_get_store_ex_value();
+		if (type == AARCH64_INSN_LDST_STORE_REL_EX)
+			insn |= BIT(15);
 		break;
 	default:
 		pr_err("%s: unknown load/store exclusive encoding %d\n", __func__, type);
