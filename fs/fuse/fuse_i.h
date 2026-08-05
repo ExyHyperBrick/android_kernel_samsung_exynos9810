@@ -74,6 +74,7 @@ struct fuse_dentry {
 		struct rcu_head rcu;
 	};
 #ifdef CONFIG_FUSE_BPF
+	spinlock_t backing_lock;
 	struct path backing_path;
 #endif
 };
@@ -84,18 +85,83 @@ static inline struct fuse_dentry *get_fuse_dentry(const struct dentry *entry)
 }
 
 #ifdef CONFIG_FUSE_BPF
-static inline void get_fuse_backing_path(const struct dentry *entry,
+static inline void fuse_backing_path_init(struct fuse_dentry *fd)
+{
+	spin_lock_init(&fd->backing_lock);
+}
+
+static inline bool get_fuse_backing_path(const struct dentry *entry,
 					 struct path *path)
 {
 	struct fuse_dentry *fd = get_fuse_dentry(entry);
+	bool found = false;
 
-	if (!fd || !fd->backing_path.dentry || !fd->backing_path.mnt) {
-		*path = (struct path) { };
+	*path = (struct path) { };
+	if (!fd)
+		return false;
+
+	spin_lock(&fd->backing_lock);
+	if (fd->backing_path.dentry && fd->backing_path.mnt) {
+		*path = fd->backing_path;
+		path_get(path);
+		found = true;
+	}
+	spin_unlock(&fd->backing_lock);
+	return found;
+}
+
+static inline bool fuse_has_backing_path(const struct dentry *entry)
+{
+	struct fuse_dentry *fd = get_fuse_dentry(entry);
+	bool found = false;
+
+	if (!fd)
+		return false;
+
+	spin_lock(&fd->backing_lock);
+	found = fd->backing_path.dentry && fd->backing_path.mnt;
+	spin_unlock(&fd->backing_lock);
+	return found;
+}
+
+static inline void fuse_put_backing_path(struct path *path)
+{
+	if (WARN_ON_ONCE(!!path->dentry != !!path->mnt)) {
+		if (path->dentry)
+			dput(path->dentry);
+		if (path->mnt)
+			mntput(path->mnt);
+	} else if (path->dentry) {
+		path_put(path);
+	}
+	*path = (struct path) { };
+}
+
+/*
+ * Move one owned path reference into the dentry and release the old path.
+ * The caller's path is empty on return.
+ */
+static inline void fuse_replace_backing_path(struct fuse_dentry *fd,
+					     struct path *new_path)
+{
+	struct path old_path = { };
+
+	if (WARN_ON_ONCE(!!new_path->dentry != !!new_path->mnt)) {
+		fuse_put_backing_path(new_path);
+		return;
+	}
+	if (!fd) {
+		fuse_put_backing_path(new_path);
 		return;
 	}
 
-	*path = fd->backing_path;
-	path_get(path);
+	spin_lock(&fd->backing_lock);
+	old_path = fd->backing_path;
+	fd->backing_path = *new_path;
+	*new_path = (struct path) { };
+	spin_unlock(&fd->backing_lock);
+
+	fuse_put_backing_path(&old_path);
 }
 #endif
 

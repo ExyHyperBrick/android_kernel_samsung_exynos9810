@@ -217,14 +217,6 @@ ssize_t fuse_bpf_simple_request(struct fuse_conn *fc,
 	return ret;
 }
 
-static void fuse_bpf_path_put(struct path *path)
-{
-	if (path->dentry)
-		path_put(path);
-	path->dentry = NULL;
-	path->mnt = NULL;
-}
-
 static void fuse_bpf_put_lookup_files(struct fuse_entry_bpf *entry)
 {
 	if (!entry)
@@ -332,8 +324,9 @@ int fuse_lookup_backing(struct fuse_bpf_args *args, struct inode *dir,
 			struct dentry *entry, unsigned int flags)
 {
 	struct fuse_entry_out *out = args->out_args[0].value;
-	struct fuse_dentry *parent_data;
 	struct fuse_dentry *entry_data;
+	struct path parent_path = { };
+	struct path child_path = { };
 	struct dentry *backing_parent;
 	struct dentry *backing_entry;
 	struct inode *backing_dir;
@@ -341,20 +334,19 @@ int fuse_lookup_backing(struct fuse_bpf_args *args, struct inode *dir,
 	u32 name_size;
 	int ret;
 
-	parent_data = get_fuse_dentry(entry->d_parent);
 	entry_data = get_fuse_dentry(entry);
-	if (!parent_data || !entry_data ||
-	    !parent_data->backing_path.dentry ||
-	    !parent_data->backing_path.mnt) {
+	if (!entry_data ||
+	    !get_fuse_backing_path(entry->d_parent, &parent_path)) {
 		args->error_in = -EIO;
 		return -EIO;
 	}
 
-	backing_parent = parent_data->backing_path.dentry;
+	backing_parent = parent_path.dentry;
 	backing_dir = d_inode(backing_parent);
 	if (!backing_dir) {
 		args->error_in = -ENOENT;
-		return -ENOENT;
+		ret = -ENOENT;
+		goto out_parent;
 	}
 
 	name = args->in_args[0].value;
@@ -362,38 +354,47 @@ int fuse_lookup_backing(struct fuse_bpf_args *args, struct inode *dir,
 	if (!name || !name_size || name_size > FUSE_NAME_MAX + 1 ||
 	    name[name_size - 1] != '\0') {
 		args->error_in = -EINVAL;
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out_parent;
 	}
 
-	fuse_bpf_path_put(&entry_data->backing_path);
+	fuse_replace_backing_path(entry_data, &child_path);
 	inode_lock_nested(backing_dir, I_MUTEX_PARENT);
 	backing_entry = lookup_one_len(name, backing_parent, name_size - 1);
 	inode_unlock(backing_dir);
 	if (IS_ERR(backing_entry)) {
 		ret = PTR_ERR(backing_entry);
 		args->error_in = ret;
-		return ret;
+		goto out_parent;
 	}
 
-	entry_data->backing_path.dentry = backing_entry;
-	entry_data->backing_path.mnt = mntget(parent_data->backing_path.mnt);
+	child_path.dentry = backing_entry;
+	child_path.mnt = mntget(parent_path.mnt);
 	if (d_really_is_negative(backing_entry)) {
+		fuse_replace_backing_path(entry_data, &child_path);
 		args->error_in = -ENOENT;
-		return 0;
+		ret = 0;
+		goto out_parent;
 	}
 
 	ret = fuse_lookup_refresh_attr(get_fuse_conn(dir),
-				       &entry_data->backing_path, out);
+				       &child_path, out);
 	if (ret) {
 		args->error_in = ret;
-		fuse_bpf_path_put(&entry_data->backing_path);
-		return ret;
+		goto out_child;
 	}
 
+	fuse_replace_backing_path(entry_data, &child_path);
 	out->nodeid = 0;
 	args->error_in = 0;
+	ret = 0;
 	(void)flags;
-	return 0;
+
+out_child:
+	fuse_put_backing_path(&child_path);
+out_parent:
+	fuse_put_backing_path(&parent_path);
+	return ret;
 }
 
 int fuse_handle_backing(struct fuse_entry_bpf *entry,
@@ -413,7 +414,7 @@ int fuse_handle_backing(struct fuse_entry_bpf *entry,
 			iput(*backing_inode);
 			*backing_inode = NULL;
 		}
-		fuse_bpf_path_put(backing_path);
+		fuse_put_backing_path(backing_path);
 		return 0;
 
 	case FUSE_ACTION_REPLACE:
@@ -437,7 +438,7 @@ int fuse_handle_backing(struct fuse_entry_bpf *entry,
 
 		if (*backing_inode)
 			iput(*backing_inode);
-		fuse_bpf_path_put(backing_path);
+		fuse_put_backing_path(backing_path);
 		*backing_inode = new_inode;
 		*backing_path = new_path;
 		return 0;
@@ -503,14 +504,12 @@ int fuse_handle_bpf_prog(struct fuse_entry_bpf *entry,
 static void fuse_bpf_copy_alias_path(struct dentry *from,
 				     struct dentry *to)
 {
-	struct fuse_dentry *from_data = get_fuse_dentry(from);
 	struct fuse_dentry *to_data = get_fuse_dentry(to);
+	struct path path = { };
 
-	if (!from_data || !to_data || !from_data->backing_path.dentry)
+	if (!to_data || !get_fuse_backing_path(from, &path))
 		return;
-	fuse_bpf_path_put(&to_data->backing_path);
-	to_data->backing_path = from_data->backing_path;
-	path_get(&to_data->backing_path);
+	fuse_replace_backing_path(to_data, &path);
 }
 
 void *fuse_lookup_finalize(struct fuse_bpf_args *args,
@@ -521,6 +520,7 @@ void *fuse_lookup_finalize(struct fuse_bpf_args *args,
 	struct fuse_entry_bpf_out *bpf_out;
 	struct fuse_entry_bpf *bpf_entry = NULL;
 	struct fuse_dentry *entry_data;
+	struct path backing_path = { };
 	struct inode *backing_inode = NULL;
 	struct inode *inode = NULL;
 	struct dentry *alias;
@@ -548,14 +548,14 @@ void *fuse_lookup_finalize(struct fuse_bpf_args *args,
 		goto out_files;
 	}
 
-	if (entry_data->backing_path.dentry) {
-		backing_inode = d_inode(entry_data->backing_path.dentry);
+	if (get_fuse_backing_path(entry, &backing_path)) {
+		backing_inode = d_inode(backing_path.dentry);
 		if (backing_inode)
 			ihold(backing_inode);
 	}
 
 	ret = fuse_handle_backing(bpf_entry, &backing_inode,
-				  &entry_data->backing_path);
+				  &backing_path);
 	if (ret) {
 		result = ERR_PTR(ret);
 		goto out_inode;
@@ -565,12 +565,14 @@ void *fuse_lookup_finalize(struct fuse_bpf_args *args,
 	    (bpf_entry->out.backing_action == FUSE_ACTION_REPLACE ||
 	     fuse_invalid_attr(&out->attr))) {
 		ret = fuse_lookup_refresh_attr(get_fuse_conn(dir),
-					       &entry_data->backing_path, out);
+					       &backing_path, out);
 		if (ret) {
+			fuse_replace_backing_path(entry_data, &backing_path);
 			result = ERR_PTR(ret);
 			goto out_inode;
 		}
 	}
+	fuse_replace_backing_path(entry_data, &backing_path);
 
 	if (!backing_inode) {
 		error = (s32)args->error_in;
@@ -632,6 +634,7 @@ void *fuse_lookup_finalize(struct fuse_bpf_args *args,
 out_inode:
 	if (backing_inode)
 		iput(backing_inode);
+	fuse_put_backing_path(&backing_path);
 out_files:
 	fuse_bpf_put_lookup_files(bpf_entry);
 	return result;
@@ -639,23 +642,37 @@ out_files:
 
 int fuse_revalidate_backing(struct dentry *entry, unsigned int flags)
 {
-	struct fuse_dentry *data = get_fuse_dentry(entry);
+	struct path path = { };
 	struct dentry *backing;
+	struct inode *inode;
+	struct inode *backing_inode;
+	int ret = 1;
 
-	if (!data || !data->backing_path.dentry)
-		return 1;
+	if (!get_fuse_backing_path(entry, &path))
+		return 0;
 
-	backing = data->backing_path.dentry;
+	backing = path.dentry;
 	spin_lock(&backing->d_lock);
 	if (d_unhashed(backing)) {
 		spin_unlock(&backing->d_lock);
-		return 0;
+		ret = 0;
+		goto out;
 	}
 	spin_unlock(&backing->d_lock);
 	if ((backing->d_flags & DCACHE_OP_REVALIDATE) &&
 	    backing->d_op && backing->d_op->d_revalidate)
-		return backing->d_op->d_revalidate(backing, flags);
-	return 1;
+		ret = backing->d_op->d_revalidate(backing, flags);
+	if (ret > 0) {
+		inode = d_inode(entry);
+		backing_inode = d_inode(backing);
+		if (!!inode != !!backing_inode ||
+		    (inode && backing_inode !=
+		     get_fuse_inode(inode)->backing_inode))
+			ret = 0;
+	}
+out:
+	fuse_put_backing_path(&path);
+	return ret;
 }
 
 int fuse_open_initialize(struct fuse_bpf_args *args,

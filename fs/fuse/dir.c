@@ -53,10 +53,12 @@ void fuse_init_dentry_root(struct dentry *root, struct file *backing_dir)
 {
 #ifdef CONFIG_FUSE_BPF
 	struct fuse_dentry *fd = get_fuse_dentry(root);
+	struct path path = { };
 
 	if (backing_dir && fd) {
-		fd->backing_path = backing_dir->f_path;
-		path_get(&fd->backing_path);
+		path = backing_dir->f_path;
+		path_get(&path);
+		fuse_replace_backing_path(fd, &path);
 	}
 #else
 	(void)root;
@@ -174,8 +176,8 @@ static int fuse_dentry_revalidate(struct dentry *entry, unsigned int flags)
 		goto invalid;
 
 #ifdef CONFIG_FUSE_BPF
-	if (get_fuse_dentry(entry) &&
-	    get_fuse_dentry(entry)->backing_path.dentry) {
+	if (fuse_has_backing_path(entry) ||
+	    (inode && get_fuse_inode(inode)->backing_inode)) {
 		if (flags & LOOKUP_RCU)
 			return -ECHILD;
 		ret = fuse_revalidate_backing(entry, flags);
@@ -202,11 +204,10 @@ static int fuse_dentry_revalidate(struct dentry *entry, unsigned int flags)
 		fc = get_fuse_conn(inode);
 		parent = dget_parent(entry);
 #ifdef CONFIG_FUSE_BPF
-		if (get_fuse_dentry(entry) &&
-		    get_fuse_dentry(entry)->backing_path.dentry &&
+		if (get_fuse_inode(inode)->backing_inode &&
 		    get_fuse_inode(d_inode(parent))->backing_inode) {
+			ret = fuse_has_backing_path(entry) ? 1 : 0;
 			dput(parent);
-			ret = 1;
 			goto out;
 		}
 #endif
@@ -321,6 +322,10 @@ static int invalid_nodeid(u64 nodeid)
 static int fuse_dentry_init(struct dentry *dentry)
 {
 	dentry->d_fsdata = kzalloc(sizeof(struct fuse_dentry), GFP_KERNEL);
+#ifdef CONFIG_FUSE_BPF
+	if (dentry->d_fsdata)
+		fuse_backing_path_init(dentry->d_fsdata);
+#endif
 
 	return dentry->d_fsdata ? 0 : -ENOMEM;
 }
@@ -329,8 +334,9 @@ static void fuse_dentry_release(struct dentry *dentry)
 	struct fuse_dentry *fd = get_fuse_dentry(dentry);
 
 #ifdef CONFIG_FUSE_BPF
-	if (fd && fd->backing_path.dentry)
-		path_put(&fd->backing_path);
+	struct path path = { };
+
+	fuse_replace_backing_path(fd, &path);
 #endif
 	kfree_rcu(fd, rcu);
 }
