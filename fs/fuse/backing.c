@@ -945,7 +945,8 @@ int fuse_file_read_iter_initialize(struct fuse_bpf_args *args,
 
 	*args = (struct fuse_bpf_args) {
 		.opcode = FUSE_READ,
-		.nodeid = ff->nodeid,
+		/* Lower-only handles must never be sent to the daemon. */
+		.nodeid = 0,
 		.in_numargs = 1,
 		.out_numargs = 1,
 		.in_args[0] = (struct fuse_bpf_in_arg) {
@@ -971,7 +972,7 @@ int fuse_file_read_iter_backing(struct fuse_bpf_args *args,
 	ssize_t ret;
 
 	if (!ff || !ff->backing_file || args->opcode != FUSE_READ ||
-	    args->nodeid != ff->nodeid || args->in_numargs != 1 ||
+	    args->nodeid || args->in_numargs != 1 ||
 	    args->out_numargs != 1 || !args->in_args[0].value ||
 	    !args->out_args[0].value ||
 	    args->in_args[0].size != sizeof(*in) ||
@@ -1055,7 +1056,8 @@ int fuse_file_write_iter_initialize(struct fuse_bpf_args *args,
 
 	*args = (struct fuse_bpf_args) {
 		.opcode = FUSE_WRITE,
-		.nodeid = ff->nodeid,
+		/* Lower-only handles must never be sent to the daemon. */
+		.nodeid = 0,
 		.in_numargs = 1,
 		.out_numargs = 1,
 		.in_args[0] = (struct fuse_bpf_in_arg) {
@@ -1082,7 +1084,7 @@ int fuse_file_write_iter_backing(struct fuse_bpf_args *args,
 	ssize_t ret;
 
 	if (!ff || !ff->backing_file || args->opcode != FUSE_WRITE ||
-	    args->nodeid != ff->nodeid || args->in_numargs != 1 ||
+	    args->nodeid || args->in_numargs != 1 ||
 	    args->out_numargs != 1 || !args->in_args[0].value ||
 	    !args->out_args[0].value ||
 	    args->in_args[0].size != sizeof(*in) ||
@@ -1160,7 +1162,8 @@ int fuse_release_initialize(struct fuse_bpf_args *args,
 	fuse_file_put_backing(ff);
 	*in = req->misc.release.in;
 	*args = (struct fuse_bpf_args) {
-		.nodeid = ff->nodeid,
+		/* The daemon did not open this lower-only handle. */
+		.nodeid = 0,
 		.opcode = opcode,
 		.in_numargs = 1,
 		.in_args[0] = (struct fuse_bpf_in_arg) {

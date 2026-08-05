@@ -280,9 +280,6 @@ int fuse_open_common(struct inode *inode, struct file *file, bool isdir)
 		return err;
 
 #ifdef CONFIG_FUSE_BPF
-	if ((file->f_flags & O_TRUNC) && !get_node_id(inode) &&
-	    get_fuse_inode(inode)->backing_inode)
-		return -EOPNOTSUPP;
 	{
 		struct fuse_err_ret result;
 
@@ -302,6 +299,9 @@ int fuse_open_common(struct inode *inode, struct file *file, bool isdir)
 			return err;
 		}
 	}
+	/* A backing-only inode has no userspace node to fall back to. */
+	if (!get_node_id(inode) && get_fuse_inode(inode)->backing_inode)
+		return -EOPNOTSUPP;
 #endif
 
 	if (is_wb_truncate) {

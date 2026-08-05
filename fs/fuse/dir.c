@@ -444,6 +444,9 @@ static struct dentry *fuse_lookup(struct inode *dir, struct dentry *entry,
 			return result.result;
 		}
 	}
+	/* A backing-only parent has no userspace node to fall back to. */
+	if (!get_node_id(dir) && get_fuse_inode(dir)->backing_inode)
+		return ERR_PTR(-EOPNOTSUPP);
 #endif
 
 	locked = fuse_lock_inode(dir);
