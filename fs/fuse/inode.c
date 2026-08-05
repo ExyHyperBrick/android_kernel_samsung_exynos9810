@@ -659,7 +659,8 @@ static int fuse_statfs(struct dentry *dentry, struct kstatfs *buf)
 				       fuse_statfs_finalize, dentry, buf);
 		if (fer.ret)
 			return PTR_ERR_OR_ZERO(fer.result);
-		return -EOPNOTSUPP;
+		if (!get_node_id(inode))
+			return -EOPNOTSUPP;
 	}
 #endif
 

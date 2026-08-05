@@ -1479,6 +1479,14 @@ void *fuse_release_finalize(struct fuse_bpf_args *args,
 			__fuse_bpf_fer.ret = true; \
 			break; \
 		} \
+		if ((__fuse_bpf_ext_flags & FUSE_BPF_POST_FILTER) && \
+		    !(__fuse_bpf_ext_flags & FUSE_BPF_BACKING)) { \
+			__fuse_bpf_ret = -EINVAL; \
+			__fuse_bpf_args.error_in = __fuse_bpf_ret; \
+			__fuse_bpf_fer.result = ERR_PTR(__fuse_bpf_ret); \
+			__fuse_bpf_fer.ret = true; \
+			break; \
+		} \
 		/* Dual daemon/lower OPEN ownership is not supported yet. */ \
 		if ((__fuse_bpf_backup.opcode == FUSE_OPEN || \
 		     __fuse_bpf_backup.opcode == FUSE_OPENDIR) && \
