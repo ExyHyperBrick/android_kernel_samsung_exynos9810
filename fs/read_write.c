@@ -431,6 +431,10 @@ int rw_verify_area(int read_write, struct file *file, const loff_t *ppos, size_t
 				read_write == READ ? MAY_READ : MAY_WRITE);
 }
 
+#ifdef CONFIG_FUSE_BPF
+EXPORT_SYMBOL_GPL(rw_verify_area);
+#endif
+
 static ssize_t new_sync_read(struct file *filp, char __user *buf, size_t len, loff_t *ppos)
 {
 	struct iovec iov = { .iov_base = buf, .iov_len = len };
