@@ -1090,7 +1090,6 @@ void *fuse_lookup_finalize(struct fuse_bpf_args *args,
 	struct dentry *alias;
 	void *result = NULL;
 	u64 nodeid;
-	int error;
 	int ret;
 
 	if (args->out_numargs < 2 || !args->out_args[0].value ||
@@ -1104,6 +1103,16 @@ void *fuse_lookup_finalize(struct fuse_bpf_args *args,
 	    (args->out_args[1].size &&
 	     args->out_args[1].size != sizeof(*bpf_out))) {
 		result = ERR_PTR(-EIO);
+		goto out_files;
+	}
+	ret = (s32)args->error_in;
+	if (ret) {
+		if (ret == -ENOENT) {
+			fuse_invalidate_entry_cache(entry);
+			result = NULL;
+		} else {
+			result = ERR_PTR(ret < 0 ? ret : -EIO);
+		}
 		goto out_files;
 	}
 	entry_data = get_fuse_dentry(entry);
@@ -1146,11 +1155,6 @@ void *fuse_lookup_finalize(struct fuse_bpf_args *args,
 	fuse_replace_backing_path(entry_data, &backing_path);
 
 	if (!backing_inode) {
-		error = (s32)args->error_in;
-		if (error && error != -ENOENT) {
-			result = ERR_PTR(error);
-			goto out_inode;
-		}
 		if (!out->nodeid) {
 			fuse_invalidate_entry_cache(entry);
 			result = NULL;

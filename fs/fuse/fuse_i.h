@@ -1593,6 +1593,9 @@ void *fuse_release_finalize(struct fuse_bpf_args *args,
 		if (__fuse_bpf_res < 0) { \
 			__fuse_bpf_fer.result = ERR_PTR(__fuse_bpf_res); \
 			__fuse_bpf_args.error_in = __fuse_bpf_res; \
+		} else { \
+			__fuse_bpf_fer.result = NULL; \
+			__fuse_bpf_args.error_in = 0; \
 		} \
 	} while (false); \
 	\
