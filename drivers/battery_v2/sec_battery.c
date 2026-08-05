@@ -880,6 +880,16 @@ int sec_bat_set_charging_current(struct sec_battery_info *battery)
 		}
 	}
 
+#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
+	/* Follow Samsung's charging thermal latches and their hysteresis. */
+	value.intval =
+		battery->cable_type != SEC_BATTERY_CABLE_UNKNOWN &&
+		!is_nocharge_type(battery->cable_type) &&
+		(battery->chg_limit || battery->mix_limit);
+	psy_do_property(battery->pdata->charger_name, set,
+			POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT, value);
+#endif
+
 	/* In wireless charging, must be set charging current before input current. */
 	if (is_wireless_type(battery->cable_type) &&
 		battery->charging_current != charging_current) {

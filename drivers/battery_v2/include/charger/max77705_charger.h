@@ -376,7 +376,12 @@ struct max77705_charger_data {
 	int otg_limit_step;
 	int cpu_max_freq[MAX77705_LIMIT_STEP_NUM];
 	int charging_cpu_max_freq[MAX77705_CHARGING_CPU_LIMIT_NUM];
+	/* Serializes the charging CPU PM QoS state. */
+	struct mutex charging_cpu_limit_lock;
+	bool charging_cpu_limit_requested;
 	bool charging_cpu_limit_on;
+	bool charging_cpu_limit_qos_ready;
+	bool charging_cpu_limit_disabled;
 #endif
 
 	int pmic_ver;

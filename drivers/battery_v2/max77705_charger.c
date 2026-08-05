@@ -567,18 +567,33 @@ static void max77705_set_otg_limit(struct max77705_charger_data *charger, int st
 	charger->otg_limit_step = step;
 }
 
-static void max77705_set_charging_cpu_limit(struct max77705_charger_data *charger,
-						   bool enable)
+static void max77705_apply_charging_cpu_limit_locked(
+		struct max77705_charger_data *charger)
 {
-	int cluster0_freq = enable ?
-		charger->charging_cpu_max_freq[MAX77705_CHARGING_CPU_LIMIT_CLUSTER0] :
-		PM_QOS_CLUSTER0_FREQ_MAX_DEFAULT_VALUE;
-	int cluster1_freq = enable ?
-		charger->charging_cpu_max_freq[MAX77705_CHARGING_CPU_LIMIT_CLUSTER1] :
-		PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE;
+	bool enable;
+	int cluster0_freq;
+	int cluster1_freq;
+
+	if (!charger->charging_cpu_limit_qos_ready)
+		return;
+
+	enable = charger->charging_cpu_limit_requested &&
+		!charger->charging_cpu_limit_disabled &&
+		!charger->otg_on &&
+		charger->cable_type != SEC_BATTERY_CABLE_UNKNOWN &&
+		!is_nocharge_type(charger->cable_type);
 
 	if (charger->charging_cpu_limit_on == enable)
 		return;
+
+	cluster0_freq = enable ?
+		charger->charging_cpu_max_freq[
+			MAX77705_CHARGING_CPU_LIMIT_CLUSTER0] :
+		PM_QOS_CLUSTER0_FREQ_MAX_DEFAULT_VALUE;
+	cluster1_freq = enable ?
+		charger->charging_cpu_max_freq[
+			MAX77705_CHARGING_CPU_LIMIT_CLUSTER1] :
+		PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE;
 
 	pr_info("%s: %s cluster0=%d cluster1=%d\n", __func__,
 		enable ? "limit" : "restore", cluster0_freq, cluster1_freq);
@@ -589,12 +604,52 @@ static void max77705_set_charging_cpu_limit(struct max77705_charger_data *charge
 	charger->charging_cpu_limit_on = enable;
 }
 
-static bool max77705_is_charging_cpu_limit_needed(struct max77705_charger_data *charger)
+static void max77705_update_charging_cpu_limit(
+		struct max77705_charger_data *charger)
 {
-	if (charger->otg_on)
-		return false;
+	mutex_lock(&charger->charging_cpu_limit_lock);
+	max77705_apply_charging_cpu_limit_locked(charger);
+	mutex_unlock(&charger->charging_cpu_limit_lock);
+}
 
-	return !is_nocharge_type(charger->cable_type);
+static void max77705_request_charging_cpu_limit(
+		struct max77705_charger_data *charger, bool enable)
+{
+	mutex_lock(&charger->charging_cpu_limit_lock);
+	charger->charging_cpu_limit_requested = enable &&
+		charger->cable_type != SEC_BATTERY_CABLE_UNKNOWN &&
+		!is_nocharge_type(charger->cable_type);
+	max77705_apply_charging_cpu_limit_locked(charger);
+	mutex_unlock(&charger->charging_cpu_limit_lock);
+}
+
+static void max77705_disable_charging_cpu_limit(
+		struct max77705_charger_data *charger)
+{
+	mutex_lock(&charger->charging_cpu_limit_lock);
+	charger->charging_cpu_limit_disabled = true;
+	charger->charging_cpu_limit_requested = false;
+	max77705_apply_charging_cpu_limit_locked(charger);
+	mutex_unlock(&charger->charging_cpu_limit_lock);
+}
+
+static void max77705_remove_cpu_qos_requests(
+		struct max77705_charger_data *charger)
+{
+	mutex_lock(&charger->charging_cpu_limit_lock);
+	if (!charger->charging_cpu_limit_qos_ready) {
+		mutex_unlock(&charger->charging_cpu_limit_lock);
+		return;
+	}
+
+	charger->charging_cpu_limit_disabled = true;
+	charger->charging_cpu_limit_requested = false;
+	max77705_apply_charging_cpu_limit_locked(charger);
+	charger->charging_cpu_limit_qos_ready = false;
+	pm_qos_remove_request(&charging_cpu_cluster0_limit_request);
+	pm_qos_remove_request(&charging_cpu_cluster1_limit_request);
+	pm_qos_remove_request(&ifpmic_cpu_limit_request);
+	mutex_unlock(&charger->charging_cpu_limit_lock);
 }
 #endif
 
@@ -855,7 +910,7 @@ static int max77705_set_otg(struct max77705_charger_data *charger, int enable)
 			POWER_SUPPLY_PROP_CHARGE_OTG_CONTROL, value);
 
 #if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-		max77705_set_charging_cpu_limit(charger, false);
+		max77705_update_charging_cpu_limit(charger);
 		max77705_set_otg_limit(charger, MAX77705_LIMIT_STEP_OTG_ON);
 #endif
 
@@ -903,8 +958,7 @@ static int max77705_set_otg(struct max77705_charger_data *charger, int enable)
 
 #if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
 		max77705_set_otg_limit(charger, MAX77705_LIMIT_STEP_DEFAULT);
-		max77705_set_charging_cpu_limit(charger,
-			max77705_is_charging_cpu_limit_needed(charger));
+		max77705_update_charging_cpu_limit(charger);
 #endif
 	}
 	max77705_read_reg(charger->i2c, MAX77705_CHG_REG_INT_MASK,
@@ -1339,6 +1393,14 @@ static int max77705_chg_set_property(struct power_supply *psy,
 	enum power_supply_ext_property ext_psp = (enum power_supply_ext_property) psp;
 	union power_supply_propval value = {0, };
 
+#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
+	if (psp == POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT) {
+		/* val is Samsung's charge-thermal limit state, not a level. */
+		max77705_request_charging_cpu_limit(charger, !!val->intval);
+		return 0;
+	}
+#endif
+
 	/* check unlock status before does set the register */
 	max77705_charger_unlock(charger);
 	switch (psp) {
@@ -1382,8 +1444,11 @@ static int max77705_chg_set_property(struct power_supply *psy,
 #if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
 		if (!charger->otg_on)
 			max77705_set_otg_limit(charger, MAX77705_LIMIT_STEP_DEFAULT);
-		max77705_set_charging_cpu_limit(charger,
-			max77705_is_charging_cpu_limit_needed(charger));
+		if (charger->cable_type == SEC_BATTERY_CABLE_UNKNOWN ||
+		    is_nocharge_type(charger->cable_type))
+			max77705_request_charging_cpu_limit(charger, false);
+		else
+			max77705_update_charging_cpu_limit(charger);
 #endif
 		if (!max77705_get_autoibus(charger))
 			max77705_set_fw_noautoibus(MAX77705_AUTOIBUS_AT_OFF);
@@ -2393,6 +2458,9 @@ static int max77705_charger_probe(struct platform_device *pdev)
 	}
 
 	mutex_init(&charger->charger_mutex);
+#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
+	mutex_init(&charger->charging_cpu_limit_lock);
+#endif
 
 	charger->dev = &pdev->dev;
 	charger->i2c = max77705->charger;
@@ -2458,6 +2526,23 @@ static int max77705_charger_probe(struct platform_device *pdev)
 	wake_lock_init(&charger->otg_wake_lock, WAKE_LOCK_SUSPEND,
 		       "charger->otg");
 
+#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
+	charger->otg_limit_step = MAX77705_LIMIT_STEP_DEFAULT;
+	mutex_lock(&charger->charging_cpu_limit_lock);
+	pm_qos_add_request(&ifpmic_cpu_limit_request,
+			   PM_QOS_CLUSTER1_FREQ_MAX,
+			   PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE);
+	pm_qos_add_request(&charging_cpu_cluster0_limit_request,
+			   PM_QOS_CLUSTER0_FREQ_MAX,
+			   PM_QOS_CLUSTER0_FREQ_MAX_DEFAULT_VALUE);
+	pm_qos_add_request(&charging_cpu_cluster1_limit_request,
+			   PM_QOS_CLUSTER1_FREQ_MAX,
+			   PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE);
+	charger->charging_cpu_limit_qos_ready = true;
+	max77705_apply_charging_cpu_limit_locked(charger);
+	mutex_unlock(&charger->charging_cpu_limit_lock);
+#endif
+
 	charger_cfg.drv_data = charger;
 
 	charger->psy_chg =
@@ -2476,18 +2561,6 @@ static int max77705_charger_probe(struct platform_device *pdev)
 		pr_err("%s: Failed to Register otg_chg\n", __func__);
 		goto err_power_supply_register_otg;
 	}
-
-#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-	charger->otg_limit_step = MAX77705_LIMIT_STEP_DEFAULT;
-	pm_qos_add_request(&ifpmic_cpu_limit_request,
-			PM_QOS_CLUSTER1_FREQ_MAX, PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE);
-	pm_qos_add_request(&charging_cpu_cluster0_limit_request,
-			PM_QOS_CLUSTER0_FREQ_MAX, PM_QOS_CLUSTER0_FREQ_MAX_DEFAULT_VALUE);
-	pm_qos_add_request(&charging_cpu_cluster1_limit_request,
-			PM_QOS_CLUSTER1_FREQ_MAX, PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE);
-	max77705_set_charging_cpu_limit(charger,
-		max77705_is_charging_cpu_limit_needed(charger));
-#endif
 
 	if (charger->pdata->chg_irq) {
 		INIT_DELAYED_WORK(&charger->isr_work, max77705_chg_isr_work);
@@ -2599,6 +2672,9 @@ err_irq:
 err_power_supply_register_otg:
 	power_supply_unregister(charger->psy_chg);
 err_power_supply_register:
+#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
+	max77705_remove_cpu_qos_requests(charger);
+#endif
 	destroy_workqueue(charger->wqueue);
 	wake_lock_destroy(&charger->sysovlo_wake_lock);
 	wake_lock_destroy(&charger->otg_wake_lock);
@@ -2607,6 +2683,9 @@ err_power_supply_register:
 	wake_lock_destroy(&charger->aicl_wake_lock);
 	wake_lock_destroy(&charger->chgin_wake_lock);
 err_pdata_free:
+#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
+	mutex_destroy(&charger->charging_cpu_limit_lock);
+#endif
 	kfree(charger_data);
 err_free:
 	kfree(charger);
@@ -2621,10 +2700,7 @@ static int max77705_charger_remove(struct platform_device *pdev)
 	pr_info("%s: ++\n", __func__);
 
 #if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-	max77705_set_charging_cpu_limit(charger, false);
-	pm_qos_remove_request(&charging_cpu_cluster0_limit_request);
-	pm_qos_remove_request(&charging_cpu_cluster1_limit_request);
-	pm_qos_remove_request(&ifpmic_cpu_limit_request);
+	max77705_disable_charging_cpu_limit(charger);
 #endif
 
 	destroy_workqueue(charger->wqueue);
@@ -2654,6 +2730,11 @@ static int max77705_charger_remove(struct platform_device *pdev)
 		power_supply_unregister(charger->psy_chg);
 	if (charger->psy_otg)
 		power_supply_unregister(charger->psy_otg);
+
+#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
+	max77705_remove_cpu_qos_requests(charger);
+	mutex_destroy(&charger->charging_cpu_limit_lock);
+#endif
 
 	wake_lock_destroy(&charger->sysovlo_wake_lock);
 	wake_lock_destroy(&charger->otg_wake_lock);
@@ -2723,7 +2804,7 @@ static void max77705_charger_shutdown(struct platform_device *pdev)
 	pr_info("%s: ++\n", __func__);
 
 #if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-	max77705_set_charging_cpu_limit(charger, false);
+	max77705_disable_charging_cpu_limit(charger);
 #endif
 
 	if (charger->i2c) {
