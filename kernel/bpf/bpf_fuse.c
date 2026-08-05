@@ -4,7 +4,7 @@
 #include <linux/android_fuse.h>
 #include <linux/filter.h>
 
-#define FUSE_BPF_MAX_ARG_SIZE 256
+#define FUSE_BPF_COMPAT_ARG_SIZE 256
 
 static const struct bpf_func_proto *
 fuse_prog_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
@@ -25,6 +25,26 @@ fuse_prog_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 	}
 }
 
+static bool fuse_prog_is_scalar_access(int off, int size)
+{
+	switch (off) {
+	case offsetof(struct fuse_bpf_args, nodeid):
+		return size == sizeof(((struct fuse_bpf_args *)0)->nodeid);
+	case offsetof(struct fuse_bpf_args, opcode):
+		return size == sizeof(((struct fuse_bpf_args *)0)->opcode);
+	case offsetof(struct fuse_bpf_args, error_in):
+		return size == sizeof(((struct fuse_bpf_args *)0)->error_in);
+	case offsetof(struct fuse_bpf_args, in_numargs):
+		return size == sizeof(((struct fuse_bpf_args *)0)->in_numargs);
+	case offsetof(struct fuse_bpf_args, out_numargs):
+		return size == sizeof(((struct fuse_bpf_args *)0)->out_numargs);
+	case offsetof(struct fuse_bpf_args, flags):
+		return size == sizeof(((struct fuse_bpf_args *)0)->flags);
+	default:
+		return false;
+	}
+}
+
 static bool fuse_prog_is_valid_access(int off, int size,
 				      enum bpf_access_type type,
 				      const struct bpf_prog *prog,
@@ -32,32 +52,52 @@ static bool fuse_prog_is_valid_access(int off, int size,
 {
 	int i;
 
-	if (off < 0 || size <= 0 || off + size > (int)sizeof(struct fuse_bpf_args))
+	if (off < 0 || size <= 0 ||
+	    size > (int)sizeof(struct fuse_bpf_args) ||
+	    off > (int)sizeof(struct fuse_bpf_args) - size)
+		return false;
+	if (type != BPF_READ)
 		return false;
 
-	for (i = 0; i < FUSE_MAX_IN_ARGS; i++) {
-		if (off != (int)offsetof(struct fuse_bpf_args, in_args[i].value))
-			continue;
-		if (type != BPF_READ || size != (int)sizeof(void *))
-			return false;
-
-		info->reg_type = PTR_TO_RDONLY_BUF;
-		info->ctx_field_size = FUSE_BPF_MAX_ARG_SIZE;
+	if (fuse_prog_is_scalar_access(off, size))
 		return true;
+
+	for (i = 0; i < FUSE_MAX_IN_ARGS; i++) {
+		if (off == (int)offsetof(struct fuse_bpf_args,
+					 in_args[i].size))
+			return size == sizeof(((struct fuse_bpf_args *)0)->
+					      in_args[0].size);
+		if (off == (int)offsetof(struct fuse_bpf_args,
+					 in_args[i].value)) {
+			if (size != (int)sizeof(void *))
+				return false;
+			info->reg_type = PTR_TO_RDONLY_BUF;
+			info->ctx_field_size = FUSE_BPF_COMPAT_ARG_SIZE;
+			return true;
+		}
+		if (off == (int)offsetof(struct fuse_bpf_args,
+					 in_args[i].end_offset))
+			return size == (int)sizeof(void *);
 	}
 
 	for (i = 0; i < FUSE_MAX_OUT_ARGS; i++) {
-		if (off != (int)offsetof(struct fuse_bpf_args, out_args[i].value))
-			continue;
-		if (type != BPF_READ || size != (int)sizeof(void *))
-			return false;
-
-		info->reg_type = PTR_TO_RDWR_BUF;
-		info->ctx_field_size = FUSE_BPF_MAX_ARG_SIZE;
-		return true;
+		if (off == (int)offsetof(struct fuse_bpf_args,
+					 out_args[i].size))
+			return size == sizeof(((struct fuse_bpf_args *)0)->
+					      out_args[0].size);
+		if (off == (int)offsetof(struct fuse_bpf_args,
+					 out_args[i].value)) {
+			if (size != (int)sizeof(void *))
+				return false;
+			info->reg_type = PTR_TO_RDWR_BUF;
+			info->ctx_field_size = FUSE_BPF_COMPAT_ARG_SIZE;
+			return true;
+		}
+		if (off == (int)offsetof(struct fuse_bpf_args,
+					 out_args[i].end_offset))
+			return size == (int)sizeof(void *);
 	}
-
-	return type == BPF_READ;
+	return false;
 }
 
 const struct bpf_verifier_ops fuse_verifier_ops = {

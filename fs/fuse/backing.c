@@ -13,6 +13,7 @@
 #include <linux/namei.h>
 #include <linux/pagemap.h>
 #include <linux/posix_acl.h>
+#include <linux/slab.h>
 #include <linux/statfs.h>
 #include <linux/string.h>
 
@@ -22,12 +23,24 @@
 
 static const void *fuse_bpf_const_end(const void *value, u32 size)
 {
-	return value ? (const char *)value + size : NULL;
+	unsigned long start = (unsigned long)value;
+	unsigned long end;
+
+	if (!value)
+		return NULL;
+	end = start + size;
+	return end < start ? NULL : (const void *)end;
 }
 
 static void *fuse_bpf_end(void *value, u32 size)
 {
-	return value ? (char *)value + size : NULL;
+	unsigned long start = (unsigned long)value;
+	unsigned long end;
+
+	if (!value)
+		return NULL;
+	end = start + size;
+	return end < start ? NULL : (void *)end;
 }
 
 static int fuse_bpf_validate_args(const struct fuse_bpf_args *args)
@@ -45,6 +58,54 @@ static int fuse_bpf_validate_args(const struct fuse_bpf_args *args)
 		return -EINVAL;
 	if ((args->flags & FUSE_BPF_OUT_ARGVAR) && !args->out_numargs)
 		return -EINVAL;
+	return 0;
+}
+
+static int fuse_bpf_validate_filter_arg(u32 size, const void *value,
+					const void *end_offset, bool active)
+{
+	unsigned long start;
+	unsigned long end;
+
+	if (!active)
+		return size || value || end_offset ? -EINVAL : 0;
+	if (!size)
+		return value == end_offset ? 0 : -EINVAL;
+	if (!value)
+		return -EINVAL;
+
+	start = (unsigned long)value;
+	end = start + size;
+	if (end < start || end != (unsigned long)end_offset)
+		return -EINVAL;
+	return 0;
+}
+
+static int fuse_bpf_validate_filter_args(const struct fuse_bpf_args *args)
+{
+	u32 i;
+	int ret;
+
+	ret = fuse_bpf_validate_args(args);
+	if (ret)
+		return ret;
+
+	for (i = 0; i < FUSE_MAX_IN_ARGS; i++) {
+		ret = fuse_bpf_validate_filter_arg(args->in_args[i].size,
+						   args->in_args[i].value,
+						   args->in_args[i].end_offset,
+						   i < args->in_numargs);
+		if (ret)
+			return ret;
+	}
+	for (i = 0; i < FUSE_MAX_OUT_ARGS; i++) {
+		ret = fuse_bpf_validate_filter_arg(args->out_args[i].size,
+						   args->out_args[i].value,
+						   args->out_args[i].end_offset,
+						   i < args->out_numargs);
+		if (ret)
+			return ret;
+	}
 	return 0;
 }
 
@@ -155,17 +216,154 @@ int fuse_bpf_restore_outputs(struct fuse_bpf_args *args,
 	return 0;
 }
 
+#define FUSE_BPF_COMPAT_ARG_SIZE 256
+
+struct fuse_bpf_arg_window {
+	const void *original;
+	void *filter;
+	u32 size;
+	bool allocated;
+};
+
+static int fuse_bpf_prepare_arg_window(
+		struct fuse_bpf_arg_window *windows, u32 *nr_windows,
+		const void *value, u32 size, void **filter)
+{
+	struct fuse_bpf_arg_window *window = NULL;
+	u32 i;
+
+	if (value) {
+		for (i = 0; i < *nr_windows; i++) {
+			if (windows[i].original == value) {
+				window = &windows[i];
+				break;
+			}
+		}
+	}
+	if (!window) {
+		if (*nr_windows >= FUSE_MAX_IN_ARGS + FUSE_MAX_OUT_ARGS)
+			return -E2BIG;
+		window = &windows[(*nr_windows)++];
+		window->original = value;
+		window->size = size;
+		if (size >= FUSE_BPF_COMPAT_ARG_SIZE) {
+			window->filter = (void *)value;
+		} else {
+			window->filter =
+				kzalloc(FUSE_BPF_COMPAT_ARG_SIZE, GFP_KERNEL);
+			if (!window->filter) {
+				(*nr_windows)--;
+				return -ENOMEM;
+			}
+			window->allocated = true;
+			if (value && size)
+				memcpy(window->filter, value, size);
+		}
+	} else if (size > window->size) {
+		if (size >= FUSE_BPF_COMPAT_ARG_SIZE &&
+		    window->allocated) {
+			kfree(window->filter);
+			window->filter = (void *)value;
+			window->allocated = false;
+		} else if (window->allocated && value) {
+			memcpy((char *)window->filter + window->size,
+			       (const char *)value + window->size,
+			       size - window->size);
+		}
+		window->size = size;
+	}
+
+	*filter = window->filter;
+	return 0;
+}
+
+static int fuse_bpf_prepare_arg_windows(
+		const struct fuse_bpf_args *args,
+		struct fuse_bpf_args *filter_args,
+		struct fuse_bpf_arg_window *windows, u32 *nr_windows)
+{
+	void *value;
+	u32 i;
+	int ret;
+
+	*filter_args = *args;
+	*nr_windows = 0;
+	for (i = 0; i < args->in_numargs; i++) {
+		ret = fuse_bpf_prepare_arg_window(
+			windows, nr_windows, args->in_args[i].value,
+			args->in_args[i].size, &value);
+		if (ret)
+			return ret;
+		filter_args->in_args[i].value = value;
+		filter_args->in_args[i].end_offset =
+			fuse_bpf_const_end(value, args->in_args[i].size);
+	}
+	for (i = 0; i < args->out_numargs; i++) {
+		ret = fuse_bpf_prepare_arg_window(
+			windows, nr_windows, args->out_args[i].value,
+			args->out_args[i].size, &value);
+		if (ret)
+			return ret;
+		filter_args->out_args[i].value = value;
+		filter_args->out_args[i].end_offset =
+			fuse_bpf_end(value, args->out_args[i].size);
+	}
+	return 0;
+}
+
+static void fuse_bpf_commit_arg_windows(
+		const struct fuse_bpf_args *args,
+		const struct fuse_bpf_args *filter_args)
+{
+	u32 i;
+
+	for (i = 0; i < args->out_numargs; i++) {
+		if (!args->out_args[i].size || !args->out_args[i].value ||
+		    args->out_args[i].value ==
+			    filter_args->out_args[i].value)
+			continue;
+		memcpy(args->out_args[i].value,
+		       filter_args->out_args[i].value,
+		       args->out_args[i].size);
+	}
+}
+
+static void fuse_bpf_release_arg_windows(
+		struct fuse_bpf_arg_window *windows, u32 nr_windows)
+{
+	u32 i;
+
+	for (i = 0; i < nr_windows; i++)
+		if (windows[i].allocated)
+			kfree(windows[i].filter);
+}
+
 int fuse_bpf_run_filter(struct bpf_prog *prog, struct fuse_bpf_args *args)
 {
+	struct fuse_bpf_arg_window windows[
+		FUSE_MAX_IN_ARGS + FUSE_MAX_OUT_ARGS] = { };
+	struct fuse_bpf_args filter_args;
+	u32 nr_windows;
 	int ret;
 
 	if (!prog)
 		return -EINVAL;
-	ret = (int)bpf_prog_run_pin_on_cpu(prog, args);
-	if (ret < 0)
+	ret = fuse_bpf_validate_filter_args(args);
+	if (ret)
 		return ret;
-	if (ret & ~FUSE_BPF_RET_MASK)
-		return -EINVAL;
+	ret = fuse_bpf_prepare_arg_windows(args, &filter_args,
+					   windows, &nr_windows);
+	if (ret)
+		goto out;
+	ret = (int)bpf_prog_run_pin_on_cpu(prog, &filter_args);
+	if (ret < -MAX_ERRNO)
+		ret = -EINVAL;
+	else if (ret >= 0 && (ret & ~FUSE_BPF_RET_MASK))
+		ret = -EINVAL;
+	else if (ret >= 0)
+		fuse_bpf_commit_arg_windows(args, &filter_args);
+out:
+	fuse_bpf_release_arg_windows(windows, nr_windows);
 	return ret;
 }
 
@@ -660,6 +858,8 @@ int fuse_lookup_initialize(struct fuse_bpf_args *args,
 		return -ENAMETOOLONG;
 
 	memset(io, 0, sizeof(*io));
+	memcpy(io->name, entry->d_name.name, entry->d_name.len);
+	io->name[entry->d_name.len] = '\0';
 	*args = (struct fuse_bpf_args) {
 		.nodeid = get_node_id(dir),
 		.opcode = FUSE_LOOKUP,
@@ -668,7 +868,7 @@ int fuse_lookup_initialize(struct fuse_bpf_args *args,
 		.flags = FUSE_BPF_OUT_ARGVAR,
 		.in_args[0] = (struct fuse_bpf_in_arg) {
 			.size = entry->d_name.len + 1,
-			.value = entry->d_name.name,
+			.value = io->name,
 		},
 		.out_args[0] = (struct fuse_bpf_arg) {
 			.size = sizeof(io->entry),

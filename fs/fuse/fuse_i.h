@@ -1313,6 +1313,7 @@ void *fuse_statfs_finalize(struct fuse_bpf_args *args,
 struct fuse_lookup_io {
 	struct fuse_entry_out entry;
 	struct fuse_entry_bpf bpf;
+	char name[FUSE_NAME_MAX + 1];
 };
 
 int fuse_lookup_initialize(struct fuse_bpf_args *args,
