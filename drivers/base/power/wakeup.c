@@ -176,9 +176,46 @@ static void wakeup_source_record(struct wakeup_source *ws)
 
 static void wakeup_source_free(struct wakeup_source *ws)
 {
-	ida_simple_remove(&wakeup_ida, ws->id);
+	if (ws->id >= 0)
+		ida_simple_remove(&wakeup_ida, ws->id);
 	kfree_const(ws->name);
 	kfree(ws);
+}
+
+/*
+ * Samsung drivers still embed wakeup_source objects and initialize them with
+ * wakeup_source_init().  Give those sources a virtual wakeup class device too,
+ * but don't make a statistics allocation failure disable the wakeup source.
+ */
+static void wakeup_source_stats_add(struct wakeup_source *ws)
+{
+	int id;
+
+	if (ws->id >= 0)
+		return;
+
+	id = ida_simple_get(&wakeup_ida, 0, 0, GFP_KERNEL);
+	if (id < 0)
+		return;
+
+	ws->id = id;
+	if (wakeup_source_sysfs_add(NULL, ws)) {
+		ida_simple_remove(&wakeup_ida, ws->id);
+		ws->id = -1;
+	}
+}
+
+static void wakeup_source_stats_remove(struct wakeup_source *ws)
+{
+	if (ws->dev) {
+		wakeup_source_sysfs_remove(ws);
+		ws->dev = NULL;
+	}
+
+	if (ws->id >= 0) {
+		ida_simple_remove(&wakeup_ida, ws->id);
+		ws->id = -1;
+	}
 }
 
 /**
@@ -208,6 +245,8 @@ void wakeup_source_add(struct wakeup_source *ws)
 
 	if (WARN_ON(!ws))
 		return;
+
+	wakeup_source_stats_add(ws);
 
 	spin_lock_init(&ws->lock);
 	setup_timer(&ws->timer, pm_wakeup_timer_fn, (unsigned long)ws);
@@ -242,6 +281,8 @@ void wakeup_source_remove(struct wakeup_source *ws)
 	 * this wakeup source as not registered.
 	 */
 	ws->timer.function = NULL;
+
+	wakeup_source_stats_remove(ws);
 }
 EXPORT_SYMBOL_GPL(wakeup_source_remove);
 
@@ -279,9 +320,6 @@ void wakeup_source_unregister(struct wakeup_source *ws)
 {
 	if (ws) {
 		wakeup_source_remove(ws);
-		if (ws->dev)
-			wakeup_source_sysfs_remove(ws);
-
 		wakeup_source_destroy(ws);
 	}
 }
