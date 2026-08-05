@@ -1013,6 +1013,46 @@ out_files:
 	return result;
 }
 
+static int fuse_revalidate_backing_name(struct dentry *entry,
+					const struct path *stored_path)
+{
+	struct path parent_path = { };
+	struct path current_path = { };
+	struct dentry *current_dentry;
+	struct inode *backing_dir;
+	int ret = 0;
+
+	if (!get_fuse_backing_path(entry->d_parent, &parent_path))
+		return 0;
+	backing_dir = d_inode(parent_path.dentry);
+	if (!backing_dir)
+		goto out_parent;
+
+	inode_lock_nested(backing_dir, I_MUTEX_PARENT);
+	current_dentry = lookup_one_len(entry->d_name.name, parent_path.dentry,
+				 entry->d_name.len);
+	inode_unlock(backing_dir);
+	if (IS_ERR(current_dentry)) {
+		ret = PTR_ERR(current_dentry);
+		goto out_parent;
+	}
+
+	current_path.dentry = current_dentry;
+	current_path.mnt = mntget(parent_path.mnt);
+	if (d_really_is_positive(current_dentry)) {
+		ret = follow_down(&current_path);
+		if (ret)
+			goto out_current;
+	}
+	ret = current_path.dentry == stored_path->dentry &&
+	      current_path.mnt == stored_path->mnt;
+out_current:
+	fuse_put_backing_path(&current_path);
+out_parent:
+	fuse_put_backing_path(&parent_path);
+	return ret;
+}
+
 int fuse_revalidate_backing(struct dentry *entry, unsigned int flags)
 {
 	struct path path = { };
@@ -1021,6 +1061,8 @@ int fuse_revalidate_backing(struct dentry *entry, unsigned int flags)
 	struct inode *backing_inode;
 	int ret = 1;
 
+	if (flags & LOOKUP_RCU)
+		return -ECHILD;
 	if (!get_fuse_backing_path(entry, &path))
 		return 0;
 
@@ -1032,6 +1074,10 @@ int fuse_revalidate_backing(struct dentry *entry, unsigned int flags)
 		goto out;
 	}
 	spin_unlock(&backing->d_lock);
+
+	ret = fuse_revalidate_backing_name(entry, &path);
+	if (ret <= 0)
+		goto out;
 	if ((backing->d_flags & DCACHE_OP_REVALIDATE) &&
 	    backing->d_op && backing->d_op->d_revalidate)
 		ret = backing->d_op->d_revalidate(backing, flags);
@@ -1039,8 +1085,10 @@ int fuse_revalidate_backing(struct dentry *entry, unsigned int flags)
 		inode = d_inode(entry);
 		backing_inode = d_inode(backing);
 		if (!!inode != !!backing_inode ||
-		    (inode && backing_inode !=
-		     get_fuse_inode(inode)->backing_inode))
+		    (inode &&
+		     (backing_inode != get_fuse_inode(inode)->backing_inode ||
+		      !get_fuse_inode(inode)->backing_mnt ||
+		      path.mnt != get_fuse_inode(inode)->backing_mnt)))
 			ret = 0;
 	}
 out:
@@ -1102,7 +1150,6 @@ static int fuse_open_access_mask(u32 flags)
 int fuse_open_backing(struct fuse_bpf_args *args, struct inode *inode,
 		      struct file *file, bool isdir)
 {
-	struct fuse_inode *fi = get_fuse_inode(inode);
 	const struct fuse_open_in *in;
 	struct file *backing_file;
 	struct inode *backing_inode;
@@ -1127,15 +1174,12 @@ int fuse_open_backing(struct fuse_bpf_args *args, struct inode *inode,
 	if (file->f_flags & FMODE_EXEC)
 		mask |= MAY_EXEC;
 
-	get_fuse_backing_path(file->f_path.dentry, &path);
-	if (!path.dentry || !path.mnt)
+	if (!get_fuse_backing_path(file->f_path.dentry, &path))
 		return -EBADF;
-	backing_inode = d_inode(path.dentry);
-	if (!fi || !fi->backing_inode || !backing_inode ||
-	    backing_inode != fi->backing_inode) {
-		ret = -ESTALE;
+	ret = fuse_validate_backing_path(inode, &path);
+	if (ret)
 		goto out_path;
-	}
+	backing_inode = d_inode(path.dentry);
 	if (isdir && !S_ISDIR(backing_inode->i_mode)) {
 		ret = -ENOTDIR;
 		goto out_path;

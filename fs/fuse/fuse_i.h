@@ -900,11 +900,9 @@ static inline bool fuse_file_has_backing(struct file *file)
 	return ff && ff->backing_file;
 }
 
-static inline bool fuse_inode_is_backing_only(struct inode *inode)
+static inline bool fuse_inode_has_backing(struct inode *inode)
 {
-	struct fuse_inode *fi = get_fuse_inode(inode);
-
-	return !fi->nodeid && READ_ONCE(fi->backing_inode);
+	return inode && READ_ONCE(get_fuse_inode(inode)->backing_inode);
 }
 
 struct bpf_prog *fuse_get_bpf_prog(struct file *file);

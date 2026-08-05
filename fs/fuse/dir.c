@@ -177,7 +177,7 @@ static int fuse_dentry_revalidate(struct dentry *entry, unsigned int flags)
 
 #ifdef CONFIG_FUSE_BPF
 	if (fuse_has_backing_path(entry) ||
-	    (inode && get_fuse_inode(inode)->backing_inode)) {
+	    fuse_inode_has_backing(inode)) {
 		if (flags & LOOKUP_RCU)
 			return -ECHILD;
 		ret = fuse_revalidate_backing(entry, flags);
@@ -204,9 +204,9 @@ static int fuse_dentry_revalidate(struct dentry *entry, unsigned int flags)
 		fc = get_fuse_conn(inode);
 		parent = dget_parent(entry);
 #ifdef CONFIG_FUSE_BPF
-		if (get_fuse_inode(inode)->backing_inode &&
-		    get_fuse_inode(d_inode(parent))->backing_inode) {
-			ret = fuse_has_backing_path(entry) ? 1 : 0;
+		if (fuse_inode_has_backing(inode)) {
+			ret = fuse_inode_has_backing(d_inode(parent)) &&
+				fuse_has_backing_path(entry) ? 1 : 0;
 			dput(parent);
 			goto out;
 		}
@@ -283,6 +283,10 @@ static void fuse_dentry_canonical_path(const struct path *path, struct path *can
 	int err;
 	char *path_name;
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(inode))
+		goto default_path;
+#endif
 	req = fuse_get_req(fc, 1);
 	err = PTR_ERR(req);
 	if (IS_ERR(req))
@@ -450,8 +454,8 @@ static struct dentry *fuse_lookup(struct inode *dir, struct dentry *entry,
 			return result.result;
 		}
 	}
-	/* A backing-only parent has no userspace node to fall back to. */
-	if (!get_node_id(dir) && get_fuse_inode(dir)->backing_inode)
+	/* Unhandled backing lookups must not bypass policy in userspace. */
+	if (fuse_inode_has_backing(dir))
 		return ERR_PTR(-EOPNOTSUPP);
 #endif
 
@@ -513,6 +517,10 @@ static int fuse_create_open(struct inode *dir, struct dentry *entry,
 	/* Userspace expects S_IFREG in create mode */
 	BUG_ON((mode & S_IFMT) != S_IFREG);
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(dir))
+		return -EOPNOTSUPP;
+#endif
 	forget = fuse_alloc_forget();
 	err = -ENOMEM;
 	if (!forget)
@@ -611,6 +619,12 @@ static int fuse_atomic_open(struct inode *dir, struct dentry *entry,
 		goto no_open;
 
 	/* Only creates */
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(dir)) {
+		err = -EOPNOTSUPP;
+		goto out_dput;
+	}
+#endif
 	*opened |= FILE_CREATED;
 
 	if (fc->no_create)
@@ -648,6 +662,10 @@ static int create_new_entry(struct fuse_conn *fc, struct fuse_args *args,
 	if (fuse_is_bad(dir))
 		return -EIO;
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(dir))
+		return -EOPNOTSUPP;
+#endif
 	forget = fuse_alloc_forget();
 	if (!forget)
 		return -ENOMEM;
@@ -772,6 +790,12 @@ static int fuse_unlink(struct inode *dir, struct dentry *entry)
 	if (fuse_is_bad(dir))
 		return -EIO;
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(dir) ||
+	    (d_really_is_positive(entry) &&
+	     fuse_inode_has_backing(d_inode(entry))))
+		return -EOPNOTSUPP;
+#endif
 	args.in.h.opcode = FUSE_UNLINK;
 	args.in.h.nodeid = get_node_id(dir);
 	args.in.numargs = 1;
@@ -811,6 +835,12 @@ static int fuse_rmdir(struct inode *dir, struct dentry *entry)
 	if (fuse_is_bad(dir))
 		return -EIO;
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(dir) ||
+	    (d_really_is_positive(entry) &&
+	     fuse_inode_has_backing(d_inode(entry))))
+		return -EOPNOTSUPP;
+#endif
 	args.in.h.opcode = FUSE_RMDIR;
 	args.in.h.nodeid = get_node_id(dir);
 	args.in.numargs = 1;
@@ -895,6 +925,15 @@ static int fuse_rename2(struct inode *olddir, struct dentry *oldent,
 	if (flags & ~(RENAME_NOREPLACE | RENAME_EXCHANGE))
 		return -EINVAL;
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(olddir) ||
+	    fuse_inode_has_backing(newdir) ||
+	    (d_really_is_positive(oldent) &&
+	     fuse_inode_has_backing(d_inode(oldent))) ||
+	    (d_really_is_positive(newent) &&
+	     fuse_inode_has_backing(d_inode(newent))))
+		return -EOPNOTSUPP;
+#endif
 	if (flags) {
 		if (fc->no_rename2 || fc->minor < 23)
 			return -EINVAL;
@@ -924,6 +963,11 @@ static int fuse_link(struct dentry *entry, struct inode *newdir,
 	struct fuse_conn *fc = get_fuse_conn(inode);
 	FUSE_ARGS(args);
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(inode) ||
+	    fuse_inode_has_backing(newdir))
+		return -EOPNOTSUPP;
+#endif
 	memset(&inarg, 0, sizeof(inarg));
 	inarg.oldnodeid = get_node_id(inode);
 	args.in.h.opcode = FUSE_LINK;
@@ -1552,6 +1596,10 @@ static const char *fuse_get_link(struct dentry *dentry,
 	if (fuse_is_bad(inode))
 		return ERR_PTR(-EIO);
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(inode))
+		return ERR_PTR(-EOPNOTSUPP);
+#endif
 	link = kmalloc(PAGE_SIZE, GFP_KERNEL);
 	if (!link)
 		return ERR_PTR(-ENOMEM);
@@ -1685,6 +1733,10 @@ int fuse_flush_times(struct inode *inode, struct fuse_file *ff)
 	struct fuse_setattr_in inarg;
 	struct fuse_attr_out outarg;
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(inode))
+		return -EOPNOTSUPP;
+#endif
 	memset(&inarg, 0, sizeof(inarg));
 	memset(&outarg, 0, sizeof(outarg));
 
@@ -1728,6 +1780,10 @@ int fuse_do_setattr(struct dentry *dentry, struct iattr *attr,
 	int err;
 	bool trust_local_cmtime = is_wb && S_ISREG(inode->i_mode);
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(inode))
+		return -EOPNOTSUPP;
+#endif
 	if (!fc->default_permissions)
 		attr->ia_valid |= ATTR_FORCE;
 
@@ -1860,6 +1916,10 @@ static int fuse_setattr(struct dentry *entry, struct iattr *attr)
 	if (!fuse_allow_current_process(get_fuse_conn(inode)))
 		return -EACCES;
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(inode))
+		return -EOPNOTSUPP;
+#endif
 	if (attr->ia_valid & (ATTR_KILL_SUID | ATTR_KILL_SGID)) {
 		attr->ia_valid &= ~(ATTR_KILL_SUID | ATTR_KILL_SGID |
 				    ATTR_MODE);

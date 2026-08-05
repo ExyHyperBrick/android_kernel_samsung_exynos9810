@@ -958,6 +958,10 @@ static struct dentry *fuse_get_dentry(struct super_block *sb,
 	struct dentry *entry;
 	int err = -ESTALE;
 
+#ifdef CONFIG_FUSE_BPF
+	if (sb->s_root && fuse_inode_has_backing(d_inode(sb->s_root)))
+		goto out_err;
+#endif
 	if (handle->nodeid == 0)
 		goto out_err;
 
@@ -981,6 +985,12 @@ static struct dentry *fuse_get_dentry(struct super_block *sb,
 		if (get_node_id(inode) != handle->nodeid)
 			goto out_iput;
 	}
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(inode)) {
+		err = -ESTALE;
+		goto out_iput;
+	}
+#endif
 	err = -ESTALE;
 	if (inode->i_generation != handle->generation)
 		goto out_iput;
@@ -1004,6 +1014,13 @@ static int fuse_encode_fh(struct inode *inode, u32 *fh, int *max_len,
 	u64 nodeid;
 	u32 generation;
 
+#ifdef CONFIG_FUSE_BPF
+	if ((inode->i_sb->s_root &&
+	     fuse_inode_has_backing(d_inode(inode->i_sb->s_root))) ||
+	    fuse_inode_has_backing(inode) ||
+	    fuse_inode_has_backing(parent))
+		return FILEID_INVALID;
+#endif
 	if (*max_len < len) {
 		*max_len = len;
 		return  FILEID_INVALID;
@@ -1067,6 +1084,12 @@ static struct dentry *fuse_get_parent(struct dentry *child)
 	const struct qstr name = QSTR_INIT("..", 2);
 	int err;
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(child_inode) ||
+	    (child_inode->i_sb->s_root &&
+	     fuse_inode_has_backing(d_inode(child_inode->i_sb->s_root))))
+		return ERR_PTR(-ESTALE);
+#endif
 	if (!fc->export_support)
 		return ERR_PTR(-ESTALE);
 

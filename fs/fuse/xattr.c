@@ -19,6 +19,10 @@ int fuse_setxattr(struct inode *inode, const char *name, const void *value,
 	struct fuse_setxattr_in inarg;
 	int err;
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(inode))
+		return -EOPNOTSUPP;
+#endif
 	if (fc->no_setxattr)
 		return -EOPNOTSUPP;
 
@@ -55,6 +59,10 @@ ssize_t fuse_getxattr(struct inode *inode, const char *name, void *value,
 	struct fuse_getxattr_out outarg;
 	ssize_t ret;
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(inode))
+		return -EOPNOTSUPP;
+#endif
 	if (fc->no_getxattr)
 		return -EOPNOTSUPP;
 
@@ -119,6 +127,10 @@ ssize_t fuse_listxattr(struct dentry *entry, char *list, size_t size)
 	if (!fuse_allow_current_process(fc))
 		return -EACCES;
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(inode))
+		return -EOPNOTSUPP;
+#endif
 	if (fc->no_listxattr)
 		return -EOPNOTSUPP;
 
@@ -157,6 +169,10 @@ int fuse_removexattr(struct inode *inode, const char *name)
 	FUSE_ARGS(args);
 	int err;
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(inode))
+		return -EOPNOTSUPP;
+#endif
 	if (fc->no_removexattr)
 		return -EOPNOTSUPP;
 

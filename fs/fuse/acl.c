@@ -22,6 +22,10 @@ struct posix_acl *fuse_get_acl(struct inode *inode, int type)
 	if (fuse_is_bad(inode))
 		return ERR_PTR(-EIO);
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(inode))
+		return ERR_PTR(-EOPNOTSUPP);
+#endif
 	if (!fc->posix_acl || fc->no_getxattr)
 		return NULL;
 
@@ -59,6 +63,10 @@ int fuse_set_acl(struct inode *inode, struct posix_acl *acl, int type)
 	if (fuse_is_bad(inode))
 		return -EIO;
 
+#ifdef CONFIG_FUSE_BPF
+	if (fuse_inode_has_backing(inode))
+		return -EOPNOTSUPP;
+#endif
 	if (!fc->posix_acl || fc->no_setxattr)
 		return -EOPNOTSUPP;
 
