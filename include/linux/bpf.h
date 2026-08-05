@@ -392,6 +392,10 @@ struct bpf_insn_access_aux {
 		int ctx_field_size;
 		u32 btf_id;
 	};
+	/* Pair a context data pointer with its corresponding end pointer. */
+	u32 ctx_ptr_id;
+	/* Context data pointer may be read but not written through. */
+	u32 ctx_ptr_readonly;
 	struct bpf_verifier_log *log; /* for verbose logs */
 };
 

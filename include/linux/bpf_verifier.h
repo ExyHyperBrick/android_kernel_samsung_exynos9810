@@ -63,6 +63,14 @@ struct bpf_reg_state {
 	};
 	/* Fixed part of pointer offset, pointer types only */
 	s32 off;
+	/*
+	 * Identity shared by a context data pointer and its end pointer.
+	 * This is separate from packet pointer id, which may change when a
+	 * variable offset is added.
+	 */
+	u32 ctx_ptr_id;
+	/* Context data pointer may be read but not written through. */
+	u32 ctx_ptr_readonly;
 	/* For PTR_TO_PACKET, used to find other pointers with the same variable
 	 * offset, so they can share range knowledge.
 	 * For PTR_TO_MAP_VALUE_OR_NULL this is used to share which map value we

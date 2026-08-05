@@ -2559,6 +2559,7 @@ static bool may_access_direct_pkt_data(struct bpf_verifier_env *env,
 	case BPF_PROG_TYPE_SK_SKB:
 	case BPF_PROG_TYPE_SK_MSG:
 	case BPF_PROG_TYPE_FLOW_DISSECTOR:
+	case BPF_PROG_TYPE_FUSE:
 		if (meta)
 			return meta->pkt_access;
 
@@ -2605,7 +2606,8 @@ static int check_packet_access(struct bpf_verifier_env *env, u32 regno, int off,
 /* check access to 'struct bpf_context' fields.  Supports fixed offsets only */
 static int check_ctx_access(struct bpf_verifier_env *env, int insn_idx, int off, int size,
 			    enum bpf_access_type t, enum bpf_reg_type *reg_type,
-			    u32 *btf_id)
+			    u32 *btf_id, u32 *ctx_ptr_id,
+			    u32 *ctx_ptr_readonly)
 {
 	struct bpf_insn_access_aux info = {
 		.reg_type = *reg_type,
@@ -2626,6 +2628,8 @@ static int check_ctx_access(struct bpf_verifier_env *env, int insn_idx, int off,
 		 * type of narrower access.
 		 */
 		*reg_type = info.reg_type;
+		*ctx_ptr_id = info.ctx_ptr_id;
+		*ctx_ptr_readonly = info.ctx_ptr_readonly;
 
 		if (*reg_type == PTR_TO_BTF_ID ||
 		    *reg_type == PTR_TO_BTF_ID_OR_NULL)
@@ -3294,6 +3298,8 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 	} else if (reg->type == PTR_TO_CTX) {
 		enum bpf_reg_type reg_type = SCALAR_VALUE;
 		u32 btf_id = 0;
+		u32 ctx_ptr_id = 0;
+		u32 ctx_ptr_readonly = 0;
 
 		if (t == BPF_WRITE && value_regno >= 0 &&
 		    is_pointer_value(env, value_regno)) {
@@ -3304,7 +3310,9 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 		if (err < 0)
 			return err;
 
-		err = check_ctx_access(env, insn_idx, off, size, t, &reg_type, &btf_id);
+		err = check_ctx_access(env, insn_idx, off, size, t, &reg_type,
+				       &btf_id, &ctx_ptr_id,
+				       &ctx_ptr_readonly);
 		if (err)
 			verbose_linfo(env, insn_idx, "; ");
 		if (!err && t == BPF_READ && value_regno >= 0) {
@@ -3316,6 +3324,9 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 				mark_reg_unknown(env, regs, value_regno);
 			} else {
 				mark_reg_known_zero(env, regs, value_regno);
+				regs[value_regno].ctx_ptr_id = ctx_ptr_id;
+				regs[value_regno].ctx_ptr_readonly =
+					ctx_ptr_readonly;
 				if (reg_type_may_be_null(reg_type))
 					regs[value_regno].id = ++env->id_gen;
 				regs[value_regno].subreg_def = DEF_NOT_SUBREG;
@@ -3344,6 +3355,12 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 			err = check_stack_read(env, state, off, size,
 						value_regno);
 	} else if (reg_is_pkt_pointer(reg)) {
+		if (t == BPF_WRITE && reg->ctx_ptr_readonly) {
+			verbose(env,
+				"R%d cannot write through read-only context pointer\n",
+				regno);
+			return -EACCES;
+		}
 		if (t == BPF_WRITE && !may_access_direct_pkt_data(env, NULL, t)) {
 			return -EACCES;
 		}
@@ -3603,6 +3620,12 @@ static int check_helper_mem_access(struct bpf_verifier_env *env, int regno,
 	switch (reg->type) {
 	case PTR_TO_PACKET:
 	case PTR_TO_PACKET_META:
+		if (meta && meta->raw_mode && reg->ctx_ptr_readonly) {
+			verbose(env,
+				"R%d cannot write through read-only context pointer\n",
+				regno);
+			return -EACCES;
+		}
 		return check_packet_access(env, regno, reg->off, access_size,
 				   zero_size_allowed);
 	case PTR_TO_FLOW_KEYS:
@@ -5736,11 +5759,15 @@ static int adjust_ptr_min_max_vals(struct bpf_verifier_env *env,
 		break;
 	}
 
-	/* In case of 'scalar += pointer', dst_reg inherits pointer type and id.
-	 * The id may be overwritten later if we create a new variable offset.
+	/* In case of 'scalar += pointer', dst_reg inherits pointer metadata.
+	 * The packet id may be overwritten later if we create a new variable
+	 * offset, but context pointer identity and permissions must remain tied
+	 * to the original pointer.
 	 */
 	dst_reg->type = ptr_reg->type;
 	dst_reg->id = ptr_reg->id;
+	dst_reg->ctx_ptr_id = ptr_reg->ctx_ptr_id;
+	dst_reg->ctx_ptr_readonly = ptr_reg->ctx_ptr_readonly;
 
 	if (!check_reg_sane_offset(env, off_reg, ptr_reg->type) ||
 	    !check_reg_sane_offset(env, ptr_reg, ptr_reg->type))
@@ -6891,7 +6918,9 @@ static void find_good_pkt_pointers(struct bpf_verifier_state *vstate,
 	 * dst_reg->off is known < MAX_PACKET_OFF, therefore it fits in a u16.
 	 */
 	for (i = 0; i < MAX_BPF_REG; i++)
-		if (regs[i].type == type && regs[i].id == dst_reg->id)
+		if (regs[i].type == type && regs[i].id == dst_reg->id &&
+		    regs[i].ctx_ptr_id == dst_reg->ctx_ptr_id &&
+		    regs[i].ctx_ptr_readonly == dst_reg->ctx_ptr_readonly)
 			/* keep the maximum range already checked */
 			regs[i].range = max(regs[i].range, new_range);
 
@@ -6900,7 +6929,9 @@ static void find_good_pkt_pointers(struct bpf_verifier_state *vstate,
 		bpf_for_each_spilled_reg(i, state, reg) {
 			if (!reg)
 				continue;
-			if (reg->type == type && reg->id == dst_reg->id)
+			if (reg->type == type && reg->id == dst_reg->id &&
+			    reg->ctx_ptr_id == dst_reg->ctx_ptr_id &&
+			    reg->ctx_ptr_readonly == dst_reg->ctx_ptr_readonly)
 				reg->range = max(reg->range, new_range);
 		}
 	}
@@ -7385,6 +7416,14 @@ static bool try_match_pkt_pointers(const struct bpf_insn *insn,
 {
 	if (BPF_CLASS(insn->code) == BPF_JMP32 ||
 	    BPF_SRC(insn->code) != BPF_X)
+		return false;
+
+	if (((reg_is_pkt_pointer(dst_reg) &&
+	      src_reg->type == PTR_TO_PACKET_END) ||
+	     (dst_reg->type == PTR_TO_PACKET_END &&
+	      reg_is_pkt_pointer(src_reg))) &&
+	    (dst_reg->ctx_ptr_id != src_reg->ctx_ptr_id ||
+	     dst_reg->ctx_ptr_readonly != src_reg->ctx_ptr_readonly))
 		return false;
 
 	switch (BPF_OP(insn->code)) {
@@ -8621,6 +8660,9 @@ static bool regsafe(struct bpf_reg_state *rold, struct bpf_reg_state *rcur,
 	case PTR_TO_PACKET_META:
 	case PTR_TO_PACKET:
 		if (rcur->type != rold->type)
+			return false;
+		if (rcur->ctx_ptr_id != rold->ctx_ptr_id ||
+		    rcur->ctx_ptr_readonly != rold->ctx_ptr_readonly)
 			return false;
 		/* We must have at least as much range as the old ptr
 		 * did, so that any accesses which were safe before are
