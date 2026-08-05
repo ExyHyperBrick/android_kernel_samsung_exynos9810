@@ -11,6 +11,7 @@
 #include <linux/fsnotify.h>
 #include <linux/mount.h>
 #include <linux/namei.h>
+#include <linux/pagemap.h>
 #include <linux/string.h>
 
 #define FUSE_BPF_RET_MASK	(FUSE_BPF_USER_FILTER | FUSE_BPF_BACKING | \
@@ -807,6 +808,7 @@ void *fuse_open_finalize(struct fuse_bpf_args *args, struct inode *inode,
 	struct fuse_open_out *out;
 	struct fuse_file *ff = file->private_data;
 	int error = (s32)args->error_in;
+	int ret;
 
 	if (error)
 		return ERR_PTR(error < 0 ? error : -EIO);
@@ -815,6 +817,13 @@ void *fuse_open_finalize(struct fuse_bpf_args *args, struct inode *inode,
 	if (args->out_numargs != 1 || !args->out_args[0].value ||
 	    args->out_args[0].size != sizeof(*out))
 		return ERR_PTR(-EIO);
+	if (!isdir) {
+		if (mapping_mapped(inode->i_mapping))
+			return ERR_PTR(-EBUSY);
+		ret = invalidate_inode_pages2(inode->i_mapping);
+		if (ret)
+			return ERR_PTR(ret);
+	}
 
 	out = args->out_args[0].value;
 	ff->fh = out->fh;
@@ -1232,8 +1241,14 @@ int fuse_file_write_iter_backing(struct fuse_bpf_args *args,
 		return ret;
 
 	inode_lock(inode);
-	ret = fuse_bpf_sync_iter(iocb, from, ff->backing_file, WRITE,
-				 &io->executed);
+	if (io->original_count && mapping_mapped(inode->i_mapping))
+		ret = -EBUSY;
+	else
+		ret = io->original_count ?
+			invalidate_inode_pages2(inode->i_mapping) : 0;
+	if (!ret)
+		ret = fuse_bpf_sync_iter(iocb, from, ff->backing_file,
+					 WRITE, &io->executed);
 	if (ret > 0)
 		fuse_bpf_copy_write_attr(file, ff->backing_file);
 	inode_unlock(inode);

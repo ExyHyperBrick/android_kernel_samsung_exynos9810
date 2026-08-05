@@ -830,6 +830,13 @@ static inline bool fuse_file_has_backing(struct file *file)
 	return ff && ff->backing_file;
 }
 
+static inline bool fuse_inode_is_backing_only(struct inode *inode)
+{
+	struct fuse_inode *fi = get_fuse_inode(inode);
+
+	return !fi->nodeid && READ_ONCE(fi->backing_inode);
+}
+
 struct bpf_prog *fuse_get_bpf_prog(struct file *file);
 void fuse_file_put_backing(struct fuse_file *ff);
 #endif
@@ -1355,6 +1362,16 @@ void *fuse_release_finalize(struct fuse_bpf_args *args,
 			__fuse_bpf_fer.ret = true; \
 			break; \
 		} \
+		/* Dual daemon/lower OPEN ownership is not supported yet. */ \
+		if ((__fuse_bpf_backup.opcode == FUSE_OPEN || \
+		     __fuse_bpf_backup.opcode == FUSE_OPENDIR) && \
+		    (__fuse_bpf_ext_flags & FUSE_BPF_USER_FILTER)) { \
+			__fuse_bpf_ret = -EOPNOTSUPP; \
+			__fuse_bpf_args.error_in = __fuse_bpf_ret; \
+			__fuse_bpf_fer.result = ERR_PTR(__fuse_bpf_ret); \
+			__fuse_bpf_fer.ret = true; \
+			break; \
+		} \
 		\
 		if (__fuse_bpf_ext_flags & FUSE_BPF_USER_FILTER) { \
 			if (!__fuse_bpf_args.nodeid) { \
@@ -1417,6 +1434,14 @@ void *fuse_release_finalize(struct fuse_bpf_args *args,
 				ERR_PTR(__fuse_bpf_ext_flags); \
 			__fuse_bpf_args.error_in = \
 				__fuse_bpf_ext_flags; \
+			break; \
+		} \
+		if ((__fuse_bpf_backup.opcode == FUSE_OPEN || \
+		     __fuse_bpf_backup.opcode == FUSE_OPENDIR) && \
+		    (__fuse_bpf_ext_flags & FUSE_BPF_USER_FILTER)) { \
+			__fuse_bpf_ret = -EOPNOTSUPP; \
+			__fuse_bpf_args.error_in = __fuse_bpf_ret; \
+			__fuse_bpf_fer.result = ERR_PTR(__fuse_bpf_ret); \
 			break; \
 		} \
 		if (!(__fuse_bpf_ext_flags & FUSE_BPF_USER_FILTER)) \
