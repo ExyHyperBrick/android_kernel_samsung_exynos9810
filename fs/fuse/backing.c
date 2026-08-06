@@ -1894,6 +1894,8 @@ int fuse_flush_backing(struct fuse_bpf_args *args,
 
 	ret = ff->backing_file->f_op->flush ?
 		ff->backing_file->f_op->flush(ff->backing_file, id) : 0;
+	/* Closing any descriptor drops this owner's lower POSIX locks. */
+	locks_remove_posix(ff->backing_file, id);
 	return ret > 0 ? -EIO : ret;
 }
 
