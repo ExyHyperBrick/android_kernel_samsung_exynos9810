@@ -812,7 +812,7 @@ out_prog:
 	return ret;
 }
 
-static int fuse_bpf_symlink_paths(struct inode *dir,
+static int fuse_bpf_create_paths(struct inode *dir,
 				  struct dentry *entry,
 				  struct path *parent_path,
 				  struct path *child_path)
@@ -866,6 +866,29 @@ static void fuse_bpf_copy_parent_attr(struct inode *dir,
 	spin_unlock(&fc->lock);
 }
 
+static int fuse_bpf_rollback_create(const struct path *parent_path,
+				    const struct path *child_path,
+				    bool directory)
+{
+	struct inode *backing_dir = d_inode(parent_path->dentry);
+	int ret;
+
+	if (!backing_dir || !child_path->dentry ||
+	    child_path->dentry->d_parent != parent_path->dentry ||
+	    child_path->mnt != parent_path->mnt)
+		return -ESTALE;
+
+	inode_lock_nested(backing_dir, I_MUTEX_PARENT);
+	if (directory)
+		ret = vfs_rmdir2(parent_path->mnt, backing_dir,
+				 child_path->dentry);
+	else
+		ret = vfs_unlink2(parent_path->mnt, backing_dir,
+				  child_path->dentry, NULL);
+	inode_unlock(backing_dir);
+	return ret;
+}
+
 static int fuse_bpf_symlink(struct inode *dir, struct dentry *entry,
 			    const char *link, size_t link_len)
 {
@@ -880,6 +903,8 @@ static int fuse_bpf_symlink(struct inode *dir, struct dentry *entry,
 	char *name_copy;
 	char *link_copy;
 	size_t name_len;
+	bool created = false;
+	int rollback;
 	int ret;
 
 	if (!link_len || entry->d_name.len > FUSE_NAME_MAX ||
@@ -924,8 +949,8 @@ static int fuse_bpf_symlink(struct inode *dir, struct dentry *entry,
 		goto out_link;
 	}
 
-	ret = fuse_bpf_symlink_paths(dir, entry, &parent_path,
-				     &child_path);
+	ret = fuse_bpf_create_paths(dir, entry, &parent_path,
+				    &child_path);
 	if (ret)
 		goto out_link;
 	backing_dir = d_inode(parent_path.dentry);
@@ -937,36 +962,45 @@ static int fuse_bpf_symlink(struct inode *dir, struct dentry *entry,
 	ret = vfs_symlink2(parent_path.mnt, backing_dir,
 			   child_path.dentry, link_copy);
 	inode_unlock(backing_dir);
-	mnt_drop_write(parent_path.mnt);
 	if (ret)
-		goto out_paths;
+		goto out_write;
+	created = true;
 
 	backing_inode = d_inode(child_path.dentry);
 	if (!backing_inode || !S_ISLNK(backing_inode->i_mode) ||
 	    unlikely(d_unhashed(child_path.dentry))) {
 		ret = -EIO;
-		goto out_paths;
+		goto out_write;
 	}
 	inode = fuse_iget_backing(dir->i_sb, 0, backing_inode,
 				  child_path.mnt);
 	if (!inode) {
 		ret = -ENOMEM;
-		goto out_paths;
+		goto out_write;
 	}
 	ret = fuse_handle_bpf_prog(&bpf_entry, dir,
 				   &get_fuse_inode(inode)->bpf);
 	if (ret) {
 		iput(inode);
-		goto out_paths;
+		goto out_write;
 	}
 	ret = d_instantiate_no_diralias(entry, inode);
 	if (ret)
-		goto out_paths;
+		goto out_write;
 
 	fuse_bpf_copy_parent_attr(dir, backing_dir);
 	fuse_invalidate_entry_cache(entry);
 	ret = 0;
 
+out_write:
+	if (ret && created) {
+		rollback = fuse_bpf_rollback_create(&parent_path,
+					    &child_path, false);
+		if (rollback)
+			fuse_invalidate_entry_cache(entry);
+		fuse_bpf_copy_parent_attr(dir, backing_dir);
+	}
+	mnt_drop_write(parent_path.mnt);
 out_paths:
 	fuse_put_backing_path(&child_path);
 	fuse_put_backing_path(&parent_path);
