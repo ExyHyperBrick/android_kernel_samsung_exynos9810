@@ -1987,10 +1987,11 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 		struct fuse_entry_bpf *entry =
 			container_of(out, struct fuse_entry_bpf, out);
 
-		if (out->backing_action == FUSE_ACTION_REPLACE)
-			entry->backing_file = fget(out->backing_fd);
-		if (out->bpf_action == FUSE_ACTION_REPLACE)
-			entry->bpf_file = fget(out->bpf_fd);
+		int capture_error;
+
+		capture_error = fuse_bpf_capture_entry_files(entry);
+		if (capture_error)
+			req->out.h.error = capture_error;
 	}
 #endif
 

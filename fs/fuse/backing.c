@@ -7,6 +7,7 @@
 #include "fuse_i.h"
 
 #include <linux/errno.h>
+#include <linux/file.h>
 #include <linux/fs_stack.h>
 #include <linux/fsnotify.h>
 #include <linux/mount.h>
@@ -430,6 +431,53 @@ static void fuse_bpf_put_lookup_files(struct fuse_entry_bpf *entry)
 	if (entry->bpf_file && !IS_ERR(entry->bpf_file))
 		fput(entry->bpf_file);
 	entry->bpf_file = NULL;
+}
+
+int fuse_bpf_capture_entry_files(struct fuse_entry_bpf *entry)
+{
+	struct file *backing_file = NULL;
+	struct file *bpf_file = NULL;
+
+	if (!entry)
+		return -EINVAL;
+
+	if (entry->out.backing_action == FUSE_ACTION_REPLACE &&
+	    !entry->backing_file) {
+		backing_file = fget(entry->out.backing_fd);
+		if (!backing_file)
+			return -EBADF;
+	}
+	if (entry->out.bpf_action == FUSE_ACTION_REPLACE &&
+	    !entry->bpf_file) {
+		bpf_file = fget(entry->out.bpf_fd);
+		if (!bpf_file) {
+			if (backing_file)
+				fput(backing_file);
+			return -EBADF;
+		}
+	}
+
+	if (backing_file)
+		entry->backing_file = backing_file;
+	if (bpf_file)
+		entry->bpf_file = bpf_file;
+	return 0;
+}
+
+int fuse_bpf_capture_lookup_files(struct fuse_bpf_args *args)
+{
+	struct fuse_entry_bpf_out *out;
+	struct fuse_entry_bpf *entry;
+
+	if (args->opcode != (FUSE_LOOKUP | FUSE_POSTFILTER) ||
+	    args->flags != FUSE_BPF_OUT_ARGVAR ||
+	    args->out_numargs < 2 || !args->out_args[1].value ||
+	    args->out_args[1].size != sizeof(*out))
+		return -EINVAL;
+
+	out = args->out_args[1].value;
+	entry = container_of(out, struct fuse_entry_bpf, out);
+	return fuse_bpf_capture_entry_files(entry);
 }
 
 static void fuse_stat_to_attr(struct fuse_conn *fc, struct inode *inode,
