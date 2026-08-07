@@ -438,6 +438,21 @@ static struct dentry *binderfs_create_dentry(struct dentry *parent,
 	return dentry;
 }
 
+void binderfs_remove_file(struct dentry *dentry)
+{
+	struct inode *parent_inode;
+
+	parent_inode = d_inode(dentry->d_parent);
+	inode_lock(parent_inode);
+	if (simple_positive(dentry)) {
+		dget(dentry);
+		simple_unlink(parent_inode, dentry);
+		d_delete(dentry);
+		dput(dentry);
+	}
+	inode_unlock(parent_inode);
+}
+
 struct dentry *binderfs_create_file(struct dentry *parent, const char *name,
 				    const struct file_operations *fops,
 				    void *data)
@@ -543,6 +558,7 @@ static int init_binder_features(struct super_block *sb)
 static int init_binder_logs(struct super_block *sb)
 {
 	struct dentry *dir, *proc_dir;
+	struct binderfs_info *info = sb->s_fs_info;
 	int ret;
 
 	dir = binderfs_create_dir(sb->s_root, "binder_logs");
@@ -557,10 +573,7 @@ static int init_binder_logs(struct super_block *sb)
 	if (IS_ERR(proc_dir))
 		return PTR_ERR(proc_dir);
 
-	/*
-	 * Per-process BinderFS mirrors are added separately. The global files
-	 * used by Android dumpstate are already live.
-	 */
+	info->proc_log_dir = proc_dir;
 	return 0;
 }
 

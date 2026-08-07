@@ -49,6 +49,7 @@ struct binderfs_info {
 	kgid_t root_gid;
 	struct binderfs_mount_opts mount_opts;
 	int device_count;
+	struct dentry *proc_log_dir;
 };
 
 extern const struct file_operations binder_fops;
@@ -59,12 +60,24 @@ bool is_binderfs_device(const struct inode *inode);
 struct dentry *binderfs_create_file(struct dentry *dir, const char *name,
 				    const struct file_operations *fops,
 				    void *data);
+void binderfs_remove_file(struct dentry *dentry);
 int binderfs_create_logs(struct dentry *dir);
 int __init init_binderfs(void);
 #else
 static inline bool is_binderfs_device(const struct inode *inode)
 {
 	return false;
+}
+static inline struct dentry *binderfs_create_file(
+					   struct dentry *dir,
+					   const char *name,
+					   const struct file_operations *fops,
+					   void *data)
+{
+	return NULL;
+}
+static inline void binderfs_remove_file(struct dentry *dentry)
+{
 }
 static inline int __init init_binderfs(void)
 {

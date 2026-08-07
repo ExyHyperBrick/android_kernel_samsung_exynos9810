@@ -538,6 +538,7 @@ struct binder_priority {
  * @inner_lock:           can nest under outer_lock and/or node lock
  * @outer_lock:           no nesting under innor or node lock
  *                        Lock order: 1) outer, 2) node, 3) inner
+ * @binderfs_entry:       process-specific BinderFS log file
  *
  * Bookkeeping structure for binder processes
  */
@@ -571,6 +572,7 @@ struct binder_proc {
 	struct binder_context *context;
 	spinlock_t inner_lock;
 	spinlock_t outer_lock;
+	struct dentry *binderfs_entry;
 };
 
 enum {
@@ -5302,6 +5304,8 @@ static int binder_open(struct inode *nodp, struct file *filp)
 {
 	struct binder_proc *proc;
 	struct binder_device *binder_dev;
+	struct binderfs_info *info;
+	struct dentry *binder_binderfs_dir_entry_proc = NULL;
 
 	binder_debug(BINDER_DEBUG_OPEN_CLOSE, "%s: %d:%d\n", __func__,
 		     current->group_leader->pid, current->pid);
@@ -5325,11 +5329,14 @@ static int binder_open(struct inode *nodp, struct file *filp)
 	}
 
 	/* BinderFS stashes its binder_device in inode->i_private. */
-	if (is_binderfs_device(nodp))
+	if (is_binderfs_device(nodp)) {
 		binder_dev = nodp->i_private;
-	else
+		info = nodp->i_sb->s_fs_info;
+		binder_binderfs_dir_entry_proc = info->proc_log_dir;
+	} else {
 		binder_dev = container_of(filp->private_data,
 					  struct binder_device, miscdev);
+	}
 
 	if (!binder_dev) {
 		put_task_struct(proc->tsk);
@@ -5367,6 +5374,28 @@ static int binder_open(struct inode *nodp, struct file *filp)
 			binder_debugfs_dir_entry_proc,
 			(void *)(unsigned long)proc->pid,
 			&binder_proc_fops);
+	}
+
+	if (binder_binderfs_dir_entry_proc) {
+		char strbuf[11];
+		struct dentry *binderfs_entry;
+
+		snprintf(strbuf, sizeof(strbuf), "%u", proc->pid);
+		/*
+		 * The process-specific log is shared between Binder contexts.
+		 * A second open for the same PID may therefore find that the
+		 * entry already exists, which is expected.
+		 */
+		binderfs_entry = binderfs_create_file(
+			binder_binderfs_dir_entry_proc, strbuf,
+			&binder_proc_fops,
+			(void *)(unsigned long)proc->pid);
+		if (!IS_ERR(binderfs_entry)) {
+			proc->binderfs_entry = binderfs_entry;
+		} else if (PTR_ERR(binderfs_entry) != -EEXIST) {
+			pr_warn("Unable to create file %s in binderfs (error %ld)\n",
+				strbuf, PTR_ERR(binderfs_entry));
+		}
 	}
 
 	return 0;
@@ -5408,6 +5437,12 @@ static int binder_release(struct inode *nodp, struct file *filp)
 	struct binder_proc *proc = filp->private_data;
 
 	debugfs_remove(proc->debugfs_entry);
+
+	if (proc->binderfs_entry) {
+		binderfs_remove_file(proc->binderfs_entry);
+		proc->binderfs_entry = NULL;
+	}
+
 	binder_defer_work(proc, BINDER_DEFERRED_RELEASE);
 
 	return 0;
