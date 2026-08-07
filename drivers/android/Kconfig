@@ -19,6 +19,15 @@ config ANDROID_BINDER_IPC
 	  Android process, using Binder to identify, invoke and pass arguments
 	  between said processes.
 
+config ANDROID_BINDERFS
+	bool "Android Binderfs filesystem"
+	depends on ANDROID_BINDER_IPC
+	default n
+	---help---
+	  Binderfs is a pseudo-filesystem for the Android Binder IPC driver.
+	  It provides binder-control and Binder device nodes from a filesystem
+	  mount and supports global Binder statistics.
+
 config ANDROID_BINDER_DEVICES
 	string "Android Binder devices"
 	depends on ANDROID_BINDER_IPC

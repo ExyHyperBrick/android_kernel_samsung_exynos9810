@@ -4,11 +4,14 @@
 #define _LINUX_BINDER_INTERNAL_H
 
 #include <linux/fs.h>
+#include <linux/init.h>
 #include <linux/list.h>
 #include <linux/miscdevice.h>
 #include <linux/mutex.h>
+#include <linux/refcount.h>
 #include <linux/types.h>
 #include <linux/uidgid.h>
+#include <uapi/linux/android/binderfs.h>
 
 struct binder_node;
 
@@ -32,16 +35,40 @@ struct binder_device {
 	struct miscdevice miscdev;
 	struct binder_context context;
 	struct inode *binderfs_inode;
+	refcount_t ref;
+};
+
+struct binderfs_mount_opts {
+	int max;
+	int stats_mode;
+};
+
+struct binderfs_info {
+	struct dentry *control_dentry;
+	kuid_t root_uid;
+	kgid_t root_gid;
+	struct binderfs_mount_opts mount_opts;
+	int device_count;
 };
 
 extern const struct file_operations binder_fops;
+extern char *binder_devices_param;
 
 #ifdef CONFIG_ANDROID_BINDERFS
 bool is_binderfs_device(const struct inode *inode);
+struct dentry *binderfs_create_file(struct dentry *dir, const char *name,
+				    const struct file_operations *fops,
+				    void *data);
+int binderfs_create_logs(struct dentry *dir);
+int __init init_binderfs(void);
 #else
 static inline bool is_binderfs_device(const struct inode *inode)
 {
 	return false;
+}
+static inline int __init init_binderfs(void)
+{
+	return 0;
 }
 #endif
 

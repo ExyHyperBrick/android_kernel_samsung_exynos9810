@@ -146,7 +146,7 @@ static uint32_t binder_debug_mask = BINDER_DEBUG_USER_ERROR |
 	BINDER_DEBUG_FAILED_TRANSACTION | BINDER_DEBUG_DEAD_TRANSACTION;
 module_param_named(debug_mask, binder_debug_mask, uint, 0644);
 
-static char *binder_devices_param = CONFIG_ANDROID_BINDER_DEVICES;
+char *binder_devices_param = CONFIG_ANDROID_BINDER_DEVICES;
 module_param_named(devices, binder_devices_param, charp, S_IRUGO);
 
 static DECLARE_WAIT_QUEUE_HEAD(binder_user_error_wait);
@@ -4757,6 +4757,9 @@ static struct binder_thread *binder_get_thread(struct binder_proc *proc)
 
 static void binder_free_proc(struct binder_proc *proc)
 {
+	struct binder_device *device =
+		container_of(proc->context, struct binder_device, context);
+
 	BUG_ON(!list_empty(&proc->todo));
 	BUG_ON(!list_empty(&proc->delivered_death));
 	binder_alloc_deferred_release(&proc->alloc);
@@ -4764,6 +4767,11 @@ static void binder_free_proc(struct binder_proc *proc)
 	put_cred(proc->cred);
 	binder_stats_deleted(BINDER_STAT_PROC);
 	kfree(proc);
+
+	if (refcount_dec_and_test(&device->ref)) {
+		kfree(device->context.name);
+		kfree(device);
+	}
 }
 
 static void binder_free_thread(struct binder_thread *thread)
@@ -5316,8 +5324,21 @@ static int binder_open(struct inode *nodp, struct file *filp)
 		proc->default_priority.prio = NICE_TO_PRIO(0);
 	}
 
-	binder_dev = container_of(filp->private_data, struct binder_device,
-				  miscdev);
+	/* BinderFS stashes its binder_device in inode->i_private. */
+	if (is_binderfs_device(nodp))
+		binder_dev = nodp->i_private;
+	else
+		binder_dev = container_of(filp->private_data,
+					  struct binder_device, miscdev);
+
+	if (!binder_dev) {
+		put_task_struct(proc->tsk);
+		put_cred(proc->cred);
+		kfree(proc);
+		return -ENODEV;
+	}
+
+	refcount_inc(&binder_dev->ref);
 	proc->context = &binder_dev->context;
 	binder_alloc_init(&proc->alloc);
 
@@ -6216,6 +6237,40 @@ BINDER_DEBUG_ENTRY(stats);
 BINDER_DEBUG_ENTRY(transactions);
 BINDER_DEBUG_ENTRY(transaction_log);
 
+#ifdef CONFIG_ANDROID_BINDERFS
+int binderfs_create_logs(struct dentry *dir)
+{
+	struct dentry *dentry;
+
+	dentry = binderfs_create_file(dir, "stats", &binder_stats_fops, NULL);
+	if (IS_ERR(dentry))
+		return PTR_ERR(dentry);
+
+	dentry = binderfs_create_file(dir, "state", &binder_state_fops, NULL);
+	if (IS_ERR(dentry))
+		return PTR_ERR(dentry);
+
+	dentry = binderfs_create_file(dir, "transactions",
+				      &binder_transactions_fops, NULL);
+	if (IS_ERR(dentry))
+		return PTR_ERR(dentry);
+
+	dentry = binderfs_create_file(dir, "transaction_log",
+				      &binder_transaction_log_fops,
+				      &binder_transaction_log);
+	if (IS_ERR(dentry))
+		return PTR_ERR(dentry);
+
+	dentry = binderfs_create_file(dir, "failed_transaction_log",
+				      &binder_transaction_log_fops,
+				      &binder_transaction_log_failed);
+	if (IS_ERR(dentry))
+		return PTR_ERR(dentry);
+
+	return 0;
+}
+#endif
+
 static int __init init_binder_device(const char *name)
 {
 	int ret;
@@ -6232,6 +6287,7 @@ static int __init init_binder_device(const char *name)
 	binder_device->context.binder_context_mgr_uid = INVALID_UID;
 	binder_device->context.name = name;
 	mutex_init(&binder_device->context.context_mgr_node_lock);
+	refcount_set(&binder_device->ref, 1);
 
 	ret = misc_register(&binder_device->miscdev);
 	if (ret < 0) {
@@ -6307,6 +6363,18 @@ static int __init binder_init(void)
 		ret = init_binder_device(device_name);
 		if (ret)
 			goto err_init_binder_device_failed;
+	}
+
+	/*
+	 * Keep legacy misc Binder devices active while validating BinderFS.
+	 * Registration failure must not remove Binder from Android until the
+	 * filesystem, device creation and SELinux labeling are verified.
+	 */
+	ret = init_binderfs();
+	if (ret) {
+		pr_warn("BinderFS initialization failed: %d; using legacy Binder devices\n",
+			ret);
+		ret = 0;
 	}
 
 	return ret;
