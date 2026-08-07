@@ -220,7 +220,7 @@ enum ems_boost_group {
  *    implementation especially for the computation of the per-CPU boost
  *    value
  */
-#define BOOSTGROUPS_COUNT 8
+#define BOOSTGROUPS_COUNT 10
 
 struct boost_groups {
 	/* Maximum boost value for all RUNNABLE tasks on a CPU */
