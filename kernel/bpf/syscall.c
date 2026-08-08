@@ -1642,6 +1642,8 @@ static int bpf_prog_alloc_id(struct bpf_prog *prog)
 
 void bpf_prog_free_id(struct bpf_prog *prog, bool do_idr_lock)
 {
+	unsigned long flags;
+
 	/* cBPF to eBPF migrations are currently not in the idr store.
 	 * Offloaded programs are removed from the store when their device
 	 * disappears - even if someone grabs an fd to them they are unusable,
@@ -1651,7 +1653,7 @@ void bpf_prog_free_id(struct bpf_prog *prog, bool do_idr_lock)
 		return;
 
 	if (do_idr_lock)
-		spin_lock_bh(&prog_idr_lock);
+		spin_lock_irqsave(&prog_idr_lock, flags);
 	else
 		__acquire(&prog_idr_lock);
 
@@ -1659,7 +1661,7 @@ void bpf_prog_free_id(struct bpf_prog *prog, bool do_idr_lock)
 
 	prog->aux->id = 0;
 	if (do_idr_lock)
-		spin_unlock_bh(&prog_idr_lock);
+		spin_unlock_irqrestore(&prog_idr_lock, flags);
 	else
 		__release(&prog_idr_lock);
 }
@@ -1674,19 +1676,38 @@ static void __bpf_prog_put_rcu(struct rcu_head *rcu)
 	bpf_prog_free(aux->prog);
 }
 
+static void bpf_prog_put_deferred(struct work_struct *work)
+{
+	struct bpf_prog_aux *aux;
+	struct bpf_prog *prog;
+
+	aux = container_of(work, struct bpf_prog_aux, work);
+	prog = aux->prog;
+
+	trace_bpf_prog_put_rcu(prog);
+	bpf_prog_kallsyms_del(prog);
+	btf_put(aux->btf);
+	kvfree(aux->func_info);
+	kfree(aux->func_info_aux);
+	bpf_prog_free_linfo(prog);
+
+	call_rcu(&aux->rcu, __bpf_prog_put_rcu);
+}
+
 static void __bpf_prog_put(struct bpf_prog *prog, bool do_idr_lock)
 {
-	if (atomic64_dec_and_test(&prog->aux->refcnt)) {
-		trace_bpf_prog_put_rcu(prog);
+	struct bpf_prog_aux *aux = prog->aux;
+
+	if (atomic64_dec_and_test(&aux->refcnt)) {
 		/* bpf_prog_free_id() must be called first */
 		bpf_prog_free_id(prog, do_idr_lock);
-		bpf_prog_kallsyms_del(prog);
-		btf_put(prog->aux->btf);
-		kvfree(prog->aux->func_info);
-		kfree(prog->aux->func_info_aux);
-		bpf_prog_free_linfo(prog);
 
-		call_rcu(&prog->aux->rcu, __bpf_prog_put_rcu);
+		if (in_irq() || irqs_disabled()) {
+			INIT_WORK(&aux->work, bpf_prog_put_deferred);
+			schedule_work(&aux->work);
+		} else {
+			bpf_prog_put_deferred(&aux->work);
+		}
 	}
 }
 
