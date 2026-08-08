@@ -2541,11 +2541,17 @@ static int check_map_access(struct bpf_verifier_env *env, u32 regno,
 
 #define MAX_PACKET_OFF 0xffff
 
+static enum bpf_prog_type resolve_prog_type(const struct bpf_prog *prog)
+{
+	return prog->aux->linked_prog ? prog->aux->linked_prog->type :
+					     prog->type;
+}
+
 static bool may_access_direct_pkt_data(struct bpf_verifier_env *env,
 				       const struct bpf_call_arg_meta *meta,
 				       enum bpf_access_type t)
 {
-	switch (env->prog->type) {
+	switch (resolve_prog_type(env->prog)) {
 	case BPF_PROG_TYPE_LWT_IN:
 	case BPF_PROG_TYPE_LWT_OUT:
 	case BPF_PROG_TYPE_SK_REUSEPORT:
@@ -4300,7 +4306,7 @@ static bool may_update_sockmap(struct bpf_verifier_env *env, int func_id)
 	    func_id != BPF_FUNC_map_delete_elem)
 		return false;
 
-	switch (env->prog->type) {
+	switch (resolve_prog_type(env->prog)) {
 	case BPF_PROG_TYPE_TRACING:
 		return env->prog->expected_attach_type == BPF_TRACE_ITER;
 	case BPF_PROG_TYPE_SOCK_OPS:
@@ -7812,7 +7818,7 @@ static int check_ld_abs(struct bpf_verifier_env *env, struct bpf_insn *insn)
 	u8 mode = BPF_MODE(insn->code);
 	int i, err;
 
-	if (!may_access_skb(env->prog->type)) {
+	if (!may_access_skb(resolve_prog_type(env->prog))) {
 		verbose(env, "BPF_LD_[ABS|IND] instructions not allowed for this program type\n");
 		return -EINVAL;
 	}
@@ -7899,7 +7905,7 @@ static int check_return_code(struct bpf_verifier_env *env)
 	if (cur_func(env)->subprogno)
 		return 0;
 
-	switch (env->prog->type) {
+	switch (resolve_prog_type(env->prog)) {
 	case BPF_PROG_TYPE_CGROUP_SOCK_ADDR:
 		if (env->prog->expected_attach_type == BPF_CGROUP_UDP4_RECVMSG ||
 		    env->prog->expected_attach_type == BPF_CGROUP_UDP6_RECVMSG ||
@@ -9647,7 +9653,7 @@ static int check_map_prog_compatibility(struct bpf_verifier_env *env,
 	 * in overflow_handler can crash depending on where nmi got
 	 * triggered.
 	 */
-	if (prog->type == BPF_PROG_TYPE_PERF_EVENT) {
+	if (resolve_prog_type(prog) == BPF_PROG_TYPE_PERF_EVENT) {
 		if (!check_map_prealloc(map)) {
 			verbose(env, "perf_event programs can only use preallocated hash map\n");
 			return -EINVAL;
@@ -9659,8 +9665,8 @@ static int check_map_prog_compatibility(struct bpf_verifier_env *env,
 		}
 	}
 
-	if ((is_tracing_prog_type(prog->type) ||
-	     prog->type == BPF_PROG_TYPE_SOCKET_FILTER) &&
+	if ((is_tracing_prog_type(resolve_prog_type(prog)) ||
+	     resolve_prog_type(prog) == BPF_PROG_TYPE_SOCKET_FILTER) &&
 	    map_value_has_spin_lock(map)) {
 		verbose(env, "tracing progs cannot use bpf_spin_lock yet\n");
 		return -EINVAL;
