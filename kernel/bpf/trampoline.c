@@ -189,7 +189,7 @@ int bpf_trampoline_link_prog(struct bpf_prog *prog,
 	tr->progs_cnt[kind]++;
 	err = bpf_trampoline_update(tr);
 	if (err) {
-		hlist_del(&prog->aux->tramp_hlist);
+		hlist_del_init(&prog->aux->tramp_hlist);
 		tr->progs_cnt[kind]--;
 	}
 out:
@@ -213,7 +213,7 @@ int bpf_trampoline_unlink_prog(struct bpf_prog *prog,
 		tr->extension_prog = NULL;
 		goto out;
 	}
-	hlist_del(&prog->aux->tramp_hlist);
+	hlist_del_init(&prog->aux->tramp_hlist);
 	tr->progs_cnt[kind]--;
 	err = bpf_trampoline_update(tr);
 out:
