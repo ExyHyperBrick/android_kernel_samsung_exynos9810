@@ -708,8 +708,7 @@ static int map_create(union bpf_attr *attr)
 	atomic64_set(&map->usercnt, 1);
 	mutex_init(&map->freeze_mutex);
 
-	if (bpf_map_support_seq_show(map) &&
-	    (attr->btf_key_type_id || attr->btf_value_type_id)) {
+	if (attr->btf_key_type_id || attr->btf_value_type_id) {
 		struct btf *btf;
 
 		if (!attr->btf_key_type_id || !attr->btf_value_type_id) {
