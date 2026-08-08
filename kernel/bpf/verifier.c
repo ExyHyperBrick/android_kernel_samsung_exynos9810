@@ -2543,7 +2543,7 @@ static int check_map_access(struct bpf_verifier_env *env, u32 regno,
 
 static enum bpf_prog_type resolve_prog_type(const struct bpf_prog *prog)
 {
-	return prog->aux->linked_prog ? prog->aux->linked_prog->type :
+	return prog->aux->dst_prog ? prog->aux->dst_prog->type :
 					     prog->type;
 }
 
@@ -11111,7 +11111,7 @@ out:
 static int check_attach_btf_id(struct bpf_verifier_env *env)
 {
 	struct bpf_prog *prog = env->prog;
-	struct bpf_prog *tgt_prog = prog->aux->linked_prog;
+	struct bpf_prog *tgt_prog = prog->aux->dst_prog;
 	struct bpf_attach_target_info tgt_info = {};
 	u32 btf_id = prog->aux->attach_btf_id;
 	struct bpf_trampoline *tr;
@@ -11147,7 +11147,7 @@ static int check_attach_btf_id(struct bpf_verifier_env *env)
 	tr = bpf_trampoline_get(key, &tgt_info);
 	if (!tr)
 		return -ENOMEM;
-	prog->aux->trampoline = tr;
+	prog->aux->dst_trampoline = tr;
 	return 0;
 }
 
