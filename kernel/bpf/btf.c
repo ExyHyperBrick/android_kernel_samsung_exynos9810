@@ -4880,15 +4880,16 @@ static int btf_check_func_type_match(struct bpf_verifier_log *log,
 }
 
 /* Compare BTFs of given program with BTF of target program */
-int btf_check_type_match(struct bpf_verifier_env *env, struct bpf_prog *prog,
-			 struct btf *btf2, const struct btf_type *t2)
+int btf_check_type_match(struct bpf_verifier_log *log,
+			 const struct bpf_prog *prog, struct btf *btf2,
+			 const struct btf_type *t2)
 {
 	struct btf *btf1 = prog->aux->btf;
 	const struct btf_type *t1;
 	u32 btf_id = 0;
 
 	if (!prog->aux->func_info) {
-		bpf_log(&env->log, "Program extension requires BTF\n");
+		bpf_log(log, "Program extension requires BTF\n");
 		return -EINVAL;
 	}
 
@@ -4900,7 +4901,7 @@ int btf_check_type_match(struct bpf_verifier_env *env, struct bpf_prog *prog,
 	if (!t1 || !btf_type_is_func(t1))
 		return -EFAULT;
 
-	return btf_check_func_type_match(&env->log, btf1, t1, btf2, t2);
+	return btf_check_func_type_match(log, btf1, t1, btf2, t2);
 }
 
 enum bpf_struct_walk_result {

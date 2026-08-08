@@ -745,8 +745,9 @@ int btf_check_func_arg_match(struct bpf_verifier_env *env, int subprog,
 			     struct bpf_reg_state *regs);
 int btf_prepare_func_args(struct bpf_verifier_env *env, int subprog,
 			  struct bpf_reg_state *regs);
-int btf_check_type_match(struct bpf_verifier_env *env, struct bpf_prog *prog,
-			 struct btf *btf, const struct btf_type *t);
+int btf_check_type_match(struct bpf_verifier_log *log,
+			 const struct bpf_prog *prog, struct btf *btf,
+			 const struct btf_type *t);
 int btf_distill_func_proto(struct bpf_verifier_log *log, struct btf *btf,
 			   const struct btf_type *func_proto,
 			   const char *func_name, struct btf_func_model *m);
