@@ -487,4 +487,17 @@ static inline void *__compat_kvcalloc(size_t n, size_t size, gfp_t flags)
 }
 #define kvcalloc __compat_kvcalloc
 
+/* Kept in verifier.h because this dereferences tgt_prog. */
+static inline u64 bpf_trampoline_compute_key(const struct bpf_prog *tgt_prog,
+					     u32 btf_id)
+{
+	return tgt_prog ? (((u64)tgt_prog->aux->id) << 32 | btf_id) : btf_id;
+}
+
+int bpf_check_attach_target(struct bpf_verifier_log *log,
+			    const struct bpf_prog *prog,
+			    const struct bpf_prog *tgt_prog,
+			    u32 btf_id,
+			    struct bpf_attach_target_info *tgt_info);
+
 #endif /* _LINUX_BPF_VERIFIER_H */

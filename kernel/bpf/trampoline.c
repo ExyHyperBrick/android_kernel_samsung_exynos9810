@@ -20,7 +20,7 @@ static struct hlist_head trampoline_table[TRAMPOLINE_TABLE_SIZE];
 /* Serializes access to trampoline_table. */
 static DEFINE_MUTEX(trampoline_mutex);
 
-struct bpf_trampoline *bpf_trampoline_lookup(u64 key)
+static struct bpf_trampoline *bpf_trampoline_lookup(u64 key)
 {
 	struct bpf_trampoline *tr = NULL;
 	struct hlist_head *head;
@@ -221,6 +221,27 @@ int bpf_trampoline_unlink_prog(struct bpf_prog *prog)
 out:
 	mutex_unlock(&tr->mutex);
 	return err;
+}
+
+
+struct bpf_trampoline *bpf_trampoline_get(
+	u64 key, struct bpf_attach_target_info *tgt_info)
+{
+	struct bpf_trampoline *tr;
+
+	tr = bpf_trampoline_lookup(key);
+	if (!tr)
+		return NULL;
+
+	mutex_lock(&tr->mutex);
+	if (tr->func.addr)
+		goto out;
+
+	memcpy(&tr->func.model, &tgt_info->fmodel, sizeof(tgt_info->fmodel));
+	tr->func.addr = (void *)tgt_info->tgt_addr;
+out:
+	mutex_unlock(&tr->mutex);
+	return tr;
 }
 
 void bpf_trampoline_put(struct bpf_trampoline *tr)

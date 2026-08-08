@@ -487,6 +487,13 @@ struct btf_func_model {
 	u8 arg_size[MAX_BPF_FUNC_ARGS];
 };
 
+struct bpf_attach_target_info {
+	struct btf_func_model fmodel;
+	long tgt_addr;
+	const char *tgt_name;
+	const struct btf_type *tgt_type;
+};
+
 /* Restore arguments before returning from trampoline to let the original
  * function continue executing.
  */
@@ -536,12 +543,14 @@ struct bpf_trampoline {
 };
 
 #ifdef CONFIG_BPF_JIT
-struct bpf_trampoline *bpf_trampoline_lookup(u64 key);
+struct bpf_trampoline *bpf_trampoline_get(
+	u64 key, struct bpf_attach_target_info *tgt_info);
 int bpf_trampoline_link_prog(struct bpf_prog *prog);
 int bpf_trampoline_unlink_prog(struct bpf_prog *prog);
 void bpf_trampoline_put(struct bpf_trampoline *tr);
 #else
-static inline struct bpf_trampoline *bpf_trampoline_lookup(u64 key)
+static inline struct bpf_trampoline *bpf_trampoline_get(
+	u64 key, struct bpf_attach_target_info *tgt_info)
 {
 	return NULL;
 }
