@@ -602,6 +602,7 @@ union bpf_attr {
 		__u32		attach_type;
 		__u32		flags;
 		union {
+			__u32		target_btf_id;
 			struct {
 				__aligned_u64	iter_info;
 				__u32		iter_info_len;

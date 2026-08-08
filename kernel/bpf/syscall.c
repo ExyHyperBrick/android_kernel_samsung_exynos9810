@@ -11,6 +11,7 @@
  */
 #include <linux/bpf.h>
 #include <linux/bpf_trace.h>
+#include <linux/bpf_verifier.h>
 #include <linux/btf.h>
 #include <linux/syscalls.h>
 #include <linux/slab.h>
@@ -2340,7 +2341,6 @@ static void bpf_tracing_link_release(struct bpf_link *link)
 {
 	struct bpf_tracing_link *tr_link =
 		container_of(link, struct bpf_tracing_link, link);
-
 	WARN_ON_ONCE(bpf_trampoline_unlink_prog(link->prog,
 						tr_link->trampoline));
 	bpf_trampoline_put(tr_link->trampoline);
@@ -2379,19 +2379,51 @@ static const struct bpf_link_ops bpf_tracing_link_lops = {
 	.fill_link_info = bpf_tracing_link_fill_link_info,
 };
 
-static int bpf_tracing_prog_attach(struct bpf_prog *prog)
+static int bpf_tracing_prog_attach(struct bpf_prog *prog,
+				   int tgt_prog_fd, u32 btf_id)
 {
 	struct bpf_link_primer link_primer;
+	struct bpf_prog *tgt_prog = NULL;
+	struct bpf_trampoline *tr = NULL;
 	struct bpf_tracing_link *link;
-	struct bpf_trampoline *tr;
-	struct bpf_prog *tgt_prog;
+	u64 key = 0;
 	int err;
 
-	if (prog->expected_attach_type != BPF_TRACE_FENTRY &&
-	    prog->expected_attach_type != BPF_TRACE_FEXIT &&
-	    prog->type != BPF_PROG_TYPE_EXT) {
+	switch (prog->type) {
+	case BPF_PROG_TYPE_TRACING:
+		if (prog->expected_attach_type != BPF_TRACE_FENTRY &&
+		    prog->expected_attach_type != BPF_TRACE_FEXIT) {
+			err = -EINVAL;
+			goto out_put_prog;
+		}
+		break;
+	case BPF_PROG_TYPE_EXT:
+		if (prog->expected_attach_type != 0) {
+			err = -EINVAL;
+			goto out_put_prog;
+		}
+		break;
+	default:
 		err = -EINVAL;
 		goto out_put_prog;
+	}
+
+	if (!!tgt_prog_fd != !!btf_id) {
+		err = -EINVAL;
+		goto out_put_prog;
+	}
+	if (tgt_prog_fd) {
+		if (prog->type != BPF_PROG_TYPE_EXT) {
+			err = -EINVAL;
+			goto out_put_prog;
+		}
+		tgt_prog = bpf_prog_get(tgt_prog_fd);
+		if (IS_ERR(tgt_prog)) {
+			err = PTR_ERR(tgt_prog);
+			tgt_prog = NULL;
+			goto out_put_prog;
+		}
+		key = bpf_trampoline_compute_key(tgt_prog, btf_id);
 	}
 
 	link = kzalloc(sizeof(*link), GFP_USER);
@@ -2404,12 +2436,28 @@ static int bpf_tracing_prog_attach(struct bpf_prog *prog)
 	link->attach_type = prog->expected_attach_type;
 
 	mutex_lock(&prog->aux->dst_mutex);
-	if (!prog->aux->dst_trampoline) {
+	if (!prog->aux->dst_trampoline && !tgt_prog) {
 		err = -ENOENT;
 		goto out_unlock;
 	}
-	tr = prog->aux->dst_trampoline;
-	tgt_prog = prog->aux->dst_prog;
+	if (!prog->aux->dst_trampoline ||
+	    (key && key != prog->aux->dst_trampoline->key)) {
+		struct bpf_attach_target_info tgt_info = {};
+
+		err = bpf_check_attach_target(NULL, prog, tgt_prog, btf_id,
+					      &tgt_info);
+		if (err)
+			goto out_unlock;
+		tr = bpf_trampoline_get(key, &tgt_info);
+		if (!tr) {
+			err = -ENOMEM;
+			goto out_unlock;
+		}
+	} else {
+		tr = prog->aux->dst_trampoline;
+		tgt_prog = prog->aux->dst_prog;
+	}
+
 	err = bpf_link_prime(&link->link, &link_primer);
 	if (err)
 		goto out_unlock;
@@ -2418,18 +2466,28 @@ static int bpf_tracing_prog_attach(struct bpf_prog *prog)
 		bpf_link_cleanup(&link_primer);
 		goto out_unlock;
 	}
-	link->trampoline = tr;
+
 	link->tgt_prog = tgt_prog;
-	prog->aux->dst_trampoline = NULL;
+	link->trampoline = tr;
+	if (prog->aux->dst_prog &&
+	    (tgt_prog_fd || tr != prog->aux->dst_trampoline))
+		bpf_prog_put(prog->aux->dst_prog);
+	if (prog->aux->dst_trampoline &&
+	    tr != prog->aux->dst_trampoline)
+		bpf_trampoline_put(prog->aux->dst_trampoline);
 	prog->aux->dst_prog = NULL;
+	prog->aux->dst_trampoline = NULL;
 	mutex_unlock(&prog->aux->dst_mutex);
 	return bpf_link_settle(&link_primer);
 
 out_unlock:
+	if (tr && tr != prog->aux->dst_trampoline)
+		bpf_trampoline_put(tr);
 	mutex_unlock(&prog->aux->dst_mutex);
 	kfree(link);
 out_put_prog:
-	bpf_prog_put(prog);
+	if (tgt_prog_fd && tgt_prog)
+		bpf_prog_put(tgt_prog);
 	return err;
 }
 
@@ -2622,8 +2680,12 @@ static int bpf_raw_tracepoint_open(const union bpf_attr *attr)
 		}
 		if (prog->expected_attach_type == BPF_TRACE_RAW_TP)
 			tp_name = prog->aux->attach_func_name;
-		else
-			return bpf_tracing_prog_attach(prog);
+		else {
+			err = bpf_tracing_prog_attach(prog, 0, 0);
+			if (err >= 0)
+				return err;
+			goto out_put_prog;
+		}
 	} else {
 		if (strncpy_from_user(buf,
 				      u64_to_user_ptr(attr->raw_tracepoint.name),
@@ -3729,10 +3791,14 @@ err_put:
 static int tracing_bpf_link_attach(const union bpf_attr *attr,
 				   struct bpf_prog *prog)
 {
-	if (attr->link_create.attach_type == BPF_TRACE_ITER &&
-	    prog->expected_attach_type == BPF_TRACE_ITER)
+	if (attr->link_create.attach_type != prog->expected_attach_type)
+		return -EINVAL;
+	if (prog->expected_attach_type == BPF_TRACE_ITER)
 		return bpf_iter_link_attach(attr, prog);
-
+	if (prog->type == BPF_PROG_TYPE_EXT)
+		return bpf_tracing_prog_attach(prog,
+					       attr->link_create.target_fd,
+					       attr->link_create.target_btf_id);
 	return -EINVAL;
 }
 
@@ -3740,7 +3806,7 @@ static int tracing_bpf_link_attach(const union bpf_attr *attr,
 
 static int link_create(const union bpf_attr *attr)
 {
-	enum bpf_prog_type ptype;
+	enum bpf_prog_type ptype = BPF_PROG_TYPE_UNSPEC;
 	struct bpf_prog *prog;
 	int ret;
 
@@ -3749,11 +3815,11 @@ static int link_create(const union bpf_attr *attr)
 	if (CHECK_ATTR(BPF_LINK_CREATE))
 		return -EINVAL;
 
-	if (attr->link_create.attach_type == BPF_PERF_EVENT) {
-		prog = bpf_prog_get(attr->link_create.prog_fd);
-		if (IS_ERR(prog))
-			return PTR_ERR(prog);
+	prog = bpf_prog_get(attr->link_create.prog_fd);
+	if (IS_ERR(prog))
+		return PTR_ERR(prog);
 
+	if (attr->link_create.attach_type == BPF_PERF_EVENT) {
 		switch (prog->type) {
 		case BPF_PROG_TYPE_PERF_EVENT:
 		case BPF_PROG_TYPE_KPROBE:
@@ -3764,18 +3830,24 @@ static int link_create(const union bpf_attr *attr)
 			ret = -EINVAL;
 			goto err_out;
 		}
+	} else if (prog->type == BPF_PROG_TYPE_EXT) {
+		ret = bpf_prog_attach_check_attach_type(
+			prog, attr->link_create.attach_type);
+		if (ret)
+			goto err_out;
+		ret = tracing_bpf_link_attach(attr, prog);
+		goto err_out;
 	} else {
 		ptype = attach_type_to_prog_type(attr->link_create.attach_type);
-		if (ptype == BPF_PROG_TYPE_UNSPEC)
-			return -EINVAL;
-
-		prog = bpf_prog_get_type(attr->link_create.prog_fd, ptype);
-		if (IS_ERR(prog))
-			return PTR_ERR(prog);
+		if (ptype == BPF_PROG_TYPE_UNSPEC || ptype != prog->type ||
+		    bpf_prog_is_dev_bound(prog->aux)) {
+			ret = -EINVAL;
+			goto err_out;
+		}
 	}
 
 	ret = bpf_prog_attach_check_attach_type(prog,
-					attr->link_create.attach_type);
+						attr->link_create.attach_type);
 	if (ret)
 		goto err_out;
 
@@ -3819,6 +3891,7 @@ err_out:
 		bpf_prog_put(prog);
 	return ret;
 }
+
 
 #define BPF_LINK_UPDATE_LAST_FIELD link_update.old_prog_fd
 

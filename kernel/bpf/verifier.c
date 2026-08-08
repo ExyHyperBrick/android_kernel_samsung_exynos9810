@@ -11081,6 +11081,15 @@ int bpf_check_attach_target(struct bpf_verifier_log *log,
 	t = btf_type_by_id(btf, t->type);
 	if (!btf_type_is_func_proto(t))
 		return -EINVAL;
+
+	if ((prog->aux->saved_dst_prog_type ||
+	     prog->aux->saved_dst_attach_type) &&
+	    (!tgt_prog ||
+	     prog->aux->saved_dst_prog_type != tgt_prog->type ||
+	     prog->aux->saved_dst_attach_type !=
+					 tgt_prog->expected_attach_type))
+		return -EINVAL;
+
 	if (tgt_prog && conservative)
 		t = NULL;
 	ret = btf_distill_func_proto(log, btf, t, tname, &tgt_info->fmodel);
@@ -11132,6 +11141,12 @@ static int check_attach_btf_id(struct bpf_verifier_env *env)
 	}
 	prog->aux->attach_func_proto = tgt_info.tgt_type;
 	prog->aux->attach_func_name = tgt_info.tgt_name;
+
+	if (tgt_prog) {
+		prog->aux->saved_dst_prog_type = tgt_prog->type;
+		prog->aux->saved_dst_attach_type =
+			tgt_prog->expected_attach_type;
+	}
 
 	if (prog->expected_attach_type == BPF_TRACE_RAW_TP) {
 		prog->aux->attach_btf_trace = true;

@@ -598,6 +598,8 @@ struct bpf_prog_aux {
 	struct mutex dst_mutex; /* protects dst_* after prog becomes visible */
 	struct bpf_prog *dst_prog;
 	struct bpf_trampoline *dst_trampoline;
+	enum bpf_prog_type saved_dst_prog_type;
+	enum bpf_attach_type saved_dst_attach_type;
 	bool verifier_zext; /* Zero extensions have been inserted by verifier. */
 	bool attach_btf_trace; /* true if attaching to BTF-enabled raw tp */
 	bool func_proto_unreliable;
