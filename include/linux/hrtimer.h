@@ -60,7 +60,7 @@ enum hrtimer_restart {
  *
  * Therefore we track the callback state in:
  *
- *	timer->base->cpu_base->running == timer
+ *	timer->base->running == timer
  *
  * On SMP it is possible to have a "callback function running and enqueued"
  * status. It happens for example when a posix timer expired and the callback
@@ -125,9 +125,9 @@ struct hrtimer_sleeper {
 };
 
 #ifdef CONFIG_64BIT
-# define HRTIMER_CLOCK_BASE_ALIGN	64
+# define __hrtimer_clock_base_align	____cacheline_aligned
 #else
-# define HRTIMER_CLOCK_BASE_ALIGN	32
+# define __hrtimer_clock_base_align
 #endif
 
 /**
@@ -136,18 +136,22 @@ struct hrtimer_sleeper {
  * @index:		clock type index for per_cpu support when moving a
  *			timer to a base on another cpu.
  * @clockid:		clock id for per_cpu support
+ * @seq:		seqcount around __run_hrtimer
+ * @running:		pointer to the currently running hrtimer
  * @active:		red black tree root node for the active timers
  * @get_time:		function to retrieve the current time of the clock
  * @offset:		offset of this clock to the monotonic base
  */
 struct hrtimer_clock_base {
 	struct hrtimer_cpu_base	*cpu_base;
-	int			index;
+	unsigned int		index;
 	clockid_t		clockid;
+	seqcount_t		seq;
+	struct hrtimer		*running;
 	struct timerqueue_head	active;
 	ktime_t			(*get_time)(void);
 	ktime_t			offset;
-} __attribute__((__aligned__(HRTIMER_CLOCK_BASE_ALIGN)));
+} __hrtimer_clock_base_align;
 
 enum  hrtimer_base_type {
 	HRTIMER_BASE_MONOTONIC,
@@ -161,8 +165,6 @@ enum  hrtimer_base_type {
  * struct hrtimer_cpu_base - the per cpu clock bases
  * @lock:		lock protecting the base and associated clock bases
  *			and timers
- * @seq:		seqcount around __run_hrtimer
- * @running:		pointer to the currently running hrtimer
  * @cpu:		cpu number
  * @active_bases:	Bitfield to mark bases with active timers
  * @clock_was_set_seq:	Sequence counter of clock was set events
@@ -186,8 +188,6 @@ enum  hrtimer_base_type {
  */
 struct hrtimer_cpu_base {
 	raw_spinlock_t			lock;
-	seqcount_t			seq;
-	struct hrtimer			*running;
 	unsigned int			cpu;
 	unsigned int			active_bases;
 	unsigned int			clock_was_set_seq;
@@ -209,8 +209,6 @@ struct hrtimer_cpu_base {
 
 static inline void hrtimer_set_expires(struct hrtimer *timer, ktime_t time)
 {
-	BUILD_BUG_ON(sizeof(struct hrtimer_clock_base) > HRTIMER_CLOCK_BASE_ALIGN);
-
 	timer->node.expires = time;
 	timer->_softexpires = time;
 }
@@ -445,7 +443,7 @@ static inline bool hrtimer_is_queued(struct hrtimer *timer)
  */
 static inline int hrtimer_callback_running(struct hrtimer *timer)
 {
-	return timer->base->cpu_base->running == timer;
+	return timer->base->running == timer;
 }
 
 /* Forward a hrtimer so it expires after now: */
