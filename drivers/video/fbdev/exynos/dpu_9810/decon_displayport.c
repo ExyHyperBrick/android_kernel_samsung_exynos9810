@@ -387,12 +387,16 @@ int decon_displayport_get_edid(struct decon_device *decon,
 	mutex_lock(&decon->lock);
 
 	edid->size = displayport->rx_edid_data.edid_data_size;
-	if (edid->size <= 0)
+	if (edid->size <= 0 ||
+			edid->size > (int)sizeof(edid->edid_data)) {
 		ret = -EINVAL;
+		goto out;
+	}
 
 	for (i = 0; i < edid->size; i++)
 		edid->edid_data[i] = displayport->rx_edid_data.edid_buf[i];
 
+out:
 	mutex_unlock(&decon->lock);
 	return ret;
 }

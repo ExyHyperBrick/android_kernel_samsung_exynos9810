@@ -551,6 +551,7 @@ struct edid_data {
 	u8 min_lumi_data;
 
 	int edid_data_size;
+	/* Persistent storage owned by this structure; never pass to kfree(). */
 	u8 edid_buf[MAX_EDID_BLOCK * EDID_BLOCK_SIZE];
 };
 enum dex_state {
