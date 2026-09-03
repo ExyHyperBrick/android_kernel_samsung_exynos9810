@@ -2969,26 +2969,24 @@ static ssize_t isc_defect_store(struct device *dev,
 
 #endif
 
-int fix_green_screen = 0;
-
 static ssize_t fix_green_screen_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-	snprintf(buf, PAGE_SIZE, "%d\n", fix_green_screen);
-
-	return strlen(buf);
+	return snprintf(buf, PAGE_SIZE, "%u\n", READ_ONCE(fix_green_screen));
 }
 
 static ssize_t fix_green_screen_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t size)
 {
+	unsigned int value;
 	int rc;
 
-	rc = kstrtouint(buf, 0, &fix_green_screen);
+	rc = kstrtouint(buf, 0, &value);
 	if (rc < 0)
 		return rc;
 
-	dev_info(dev, "%s: %d\n", __func__, fix_green_screen);
+	WRITE_ONCE(fix_green_screen, value);
+	dev_info(dev, "%s: %u\n", __func__, value);
 
 	return size;
 }

@@ -61,6 +61,7 @@ static char *panel_state_names[] = {
 
 static int boot_panel_id;
 int panel_log_level = 6;
+unsigned int fix_green_screen = 0;
 #ifdef CONFIG_SUPPORT_PANEL_SWAP
 static int connect_panel = PANEL_CONNECT;
 #endif
@@ -70,7 +71,6 @@ int panel_reprobe(struct panel_device *panel);
 static int panel_display_off(struct panel_device *panel);
 
 #ifdef CONFIG_SUPPORT_DOZE
-extern int fix_green_screen;
 #define CONFIG_SET_1p5_ALPM
 #define BUCK_ALPM_VOLT		1500000
 #define BUCK_NORMAL_VOLT	1600000
@@ -1714,27 +1714,81 @@ static int panel_set_finger_layer(struct panel_device *panel, void *arg)
 #endif
 
 #ifdef CONFIG_SUPPORT_DOZE
-static int fix_green(struct panel_device *panel) {
-    int ret = 0;
+/* The caller holds panel->io_lock across the complete recovery. */
+static int panel_green_screen_recovery(struct panel_device *panel)
+{
+	struct panel_properties *props = &panel->panel_data.props;
+	struct panel_bl_device *panel_bl = &panel->panel_bl;
+	u32 alpm_mode;
+#ifdef CONFIG_SUPPORT_AOD_BL
+	int aod_brightness;
+#endif
+	int ret, exit_ret;
 
-    if (panel->state.cur_state == PANEL_STATE_ALPM) {
-        return 0;
-    }
+	if (panel->state.connect_panel != PANEL_CONNECT ||
+			panel->state.cur_state != PANEL_STATE_NORMAL)
+		return 0;
 
-    ret = panel_doze(panel, PANEL_IOC_DOZE);
-    if (ret) {
-        panel_err("PANEL:ERR:%s:failed to enter alpm\n", __func__);
-        return ret;
-    }
+	/* Use the panel's ALPM 2-nit sequence and preserve AOD settings. */
+	mutex_lock(&panel_bl->lock);
+	mutex_lock(&panel->op_lock);
+	alpm_mode = props->alpm_mode;
+	props->alpm_mode = ALPM_LOW_BR;
+#ifdef CONFIG_SUPPORT_AOD_BL
+	aod_brightness =
+		panel_bl->subdev[PANEL_BL_SUBDEV_TYPE_AOD].brightness;
+	panel_bl->subdev[PANEL_BL_SUBDEV_TYPE_AOD].brightness = BRT(0);
+#endif
+	mutex_unlock(&panel->op_lock);
+	mutex_unlock(&panel_bl->lock);
 
-    /* sleep 126msec (ALPM spec) */
-    usleep_range(126 * 1000, 126 * 1000 + 10);
+	ret = panel_doze(panel, PANEL_IOC_DOZE);
+	if (ret)
+		panel_err("PANEL:ERR:%s:failed to enter alpm (%d)\n",
+				__func__, ret);
 
-    ret = panel_sleep_out(panel);
-    if (ret)
-        panel_err("PANEL:ERR:%s:failed to panel exit alpm\n", __func__);
+	/* Allow partial ALPM entry to settle before attempting normal mode. */
+	usleep_range(126 * 1000, 126 * 1000 + 10);
+	exit_ret = panel_sleep_out(panel);
+	if (exit_ret)
+		panel_err("PANEL:ERR:%s:failed to exit alpm (%d)\n",
+				__func__, exit_ret);
 
-    return ret;
+	mutex_lock(&panel_bl->lock);
+	mutex_lock(&panel->op_lock);
+	props->alpm_mode = alpm_mode;
+#ifdef CONFIG_SUPPORT_AOD_BL
+	panel_bl->subdev[PANEL_BL_SUBDEV_TYPE_AOD].brightness = aod_brightness;
+#endif
+	mutex_unlock(&panel->op_lock);
+	mutex_unlock(&panel_bl->lock);
+
+	return ret ? ret : exit_ret;
+}
+
+static void panel_run_boot_greenfix(struct panel_device *panel)
+{
+	int ret, display_ret;
+
+	if (panel->boot_greenfix_done ||
+			panel->state.init_at != PANEL_INIT_BOOT ||
+			panel->state.connect_panel != PANEL_CONNECT ||
+			panel->state.cur_state != PANEL_STATE_NORMAL ||
+			panel->state.disp_on != PANEL_DISPLAY_ON)
+		return;
+
+	panel->boot_greenfix_done = true;
+	ret = panel_green_screen_recovery(panel);
+	/* Reassert display-on even after a partial recovery failure. */
+	display_ret = panel_display_on(panel);
+	if (!ret)
+		ret = display_ret;
+	if (ret)
+		panel_warn("PANEL:WARN:%s:boot green-screen recovery failed (%d)\n",
+				__func__, ret);
+	else
+		panel_info("PANEL:INFO:%s:boot green-screen recovery applied\n",
+				__func__);
 }
 #endif
 
@@ -1766,6 +1820,10 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 	case PANEL_IOC_PANEL_PROBE:
 		panel_info("PANEL:INFO:%s:PANEL_IOC_PANEL_PROBE\n", __func__);
 		ret = panel_probe(panel);
+#ifdef CONFIG_SUPPORT_DOZE
+		if (!ret)
+			panel_run_boot_greenfix(panel);
+#endif
 		break;
 
 	case PANEL_IOC_SLEEP_IN:
@@ -1827,8 +1885,8 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 			panel_info("PANEL:INFO:%s:FRAME_DONE (panel_state:%s, display on)\n",
 					__func__, panel_state_names[panel->state.cur_state]);
 #ifdef CONFIG_SUPPORT_DOZE
-			if (fix_green_screen)
-				fix_green(panel);
+			if (READ_ONCE(fix_green_screen))
+				panel_green_screen_recovery(panel);
 #endif
 			ret = panel_display_on(panel);
 		}

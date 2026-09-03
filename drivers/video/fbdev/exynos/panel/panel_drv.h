@@ -247,6 +247,9 @@ struct panel_device {
 	struct mipi_drv_ops mipi_drv;
 
 	struct panel_state state;
+#ifdef CONFIG_SUPPORT_DOZE
+	bool boot_greenfix_done;
+#endif
 
 	struct workqueue_struct *disp_det_workqueue;
 	struct work_struct disp_det_work;
@@ -282,6 +285,8 @@ struct panel_device {
 #ifdef CONFIG_SUPPORT_DIM_FLASH
 int panel_update_dim_type(struct panel_device *panel, u32 dim_type);
 #endif
+
+extern unsigned int fix_green_screen;
 
 static inline bool IS_PANEL_PWR_ON_STATE(struct panel_device *panel)
 {
