@@ -817,7 +817,6 @@ int edid_update(struct displayport_device *hdev)
 	int block_cnt = 0;
 	int i;
 	int basic_audio = 0;
-	int edid_test = 0;
 	int modedb_len = 0;
 
 	audio_channels = 0;
@@ -841,28 +840,15 @@ int edid_update(struct displayport_device *hdev)
 	for (i = 1; i < supported_videos_pre_cnt; i++)
 		supported_videos[i].edid_support_match = false;
 
-	/*
-	 * exynos9810: harden EDID reconnect parsing.
-	 *
-	 * HPD reconnect can reach edid_update() before the optional test EDID
-	 * buffer is assigned. Do not dereference hdev->edid_test_buf unless it is
-	 * present. Also keep the local EDID pointer synced after edid_read().
-	 */
 	if (hdev->do_unit_test)
 		block_cnt = edid_read_unit(&edid);
-	else if (hdev->edid_test_buf &&
-			(hdev->edid_test_buf[0] == 1 || hdev->edid_test_buf[0] == 2)) {
-		edid_test = 1;
+	else if (hdev->edid_test_buf[0] == 1 || hdev->edid_test_buf[0] == 2) {
 		edid = &hdev->edid_test_buf[1];
 		block_cnt = hdev->edid_test_buf[0];
 		displayport_info("using test edid %d\n", block_cnt);
 	} else
 		block_cnt = edid_read(hdev);
-
-	if (!hdev->do_unit_test && !edid_test)
-		edid = hdev->rx_edid_data.edid_buf;
-
-	if (block_cnt < 0 || !edid) {
+	if (block_cnt < 0) {
 		hdev->bpc = BPC_6;
 		goto out;
 	}
@@ -947,53 +933,10 @@ int edid_update(struct displayport_device *hdev)
 
 out:
 #ifdef FEATURE_SUPPORT_DISPLAYID
-	if (edid)
-		edid_add_displayid_detailed_modes(edid);
+	edid_add_displayid_detailed_modes(edid);
 #endif
 
-	if (edid)
-		edid_check_detail_timing_desc1(&specs, modedb_len, edid);
-
-	/*
-	 * exynos9810: drop DEX_NOT_SUPPORT EDID modes.
-	 *
-	 * On reconnect the DP state can sometimes reach edid_update() without the
-	 * Samsung DeX resolution policy active. Then 4K modes from the sink EDID
-	 * can become best_video/default even though the table marks them as
-	 * DEX_NOT_SUPPORT. That path has been observed selecting V3840X2160P30
-	 * immediately before unrelated-looking interrupt/memory fallout.
-	 *
-	 * Keep FHD/WQHD-capable modes, including detailed VDUMMYTIMING modes, but
-	 * never expose unsupported 4K/unsafe modes on this branch.
-	 */
-	for (i = 0; i < supported_videos_pre_cnt; i++) {
-		if (supported_videos[i].edid_support_match &&
-				supported_videos[i].dex_support == DEX_NOT_SUPPORT) {
-			displayport_info("EDID: drop unsupported video_format %s\n",
-					supported_videos[i].name);
-			supported_videos[i].edid_support_match = false;
-		}
-	}
-
-	if (hdev->best_video < supported_videos_pre_cnt &&
-			supported_videos[hdev->best_video].dex_support == DEX_NOT_SUPPORT) {
-		int best_video = -1;
-
-		for (i = 0; i < supported_videos_pre_cnt; i++) {
-			if (supported_videos[i].edid_support_match &&
-					supported_videos[i].dex_support != DEX_NOT_SUPPORT &&
-					i > best_video)
-				best_video = i;
-		}
-
-		if (best_video >= 0) {
-			displayport_info("EDID: fallback best video %s -> %s\n",
-					supported_videos[hdev->best_video].name,
-					supported_videos[best_video].name);
-			hdev->best_video = best_video;
-			preferred_preset = supported_videos[hdev->best_video].dv_timings;
-		}
-	}
+	edid_check_detail_timing_desc1(&specs, modedb_len, edid);
 
 	/* No supported preset found, use default */
 	if (forced_resolution >= 0) {

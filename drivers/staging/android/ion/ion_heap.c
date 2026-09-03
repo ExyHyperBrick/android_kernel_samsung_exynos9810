@@ -79,49 +79,25 @@ int ion_heap_map_user(struct ion_heap *heap, struct ion_buffer *buffer,
 	int i;
 	int ret;
 
-	/*
-	 * exynos9810: map ION userspace chunks page-aligned.
-	 *
-	 * remap_pfn_range() maps PAGE_ALIGN(size), but the old code advanced
-	 * @addr by the raw sg length. If an sg entry length is not page aligned,
-	 * the next iteration can start inside a page that was already mapped and
-	 * trip BUG_ON(!pte_none(*pte)) in remap_pte_range().
-	 */
-	if (WARN_ON_ONCE(vma->vm_start & ~PAGE_MASK))
-		return -EINVAL;
-	if (WARN_ON_ONCE(vma->vm_end <= vma->vm_start))
-		return -EINVAL;
-
 	for_each_sg(table->sgl, sg, table->nents, i) {
 		struct page *page = sg_page(sg);
 		unsigned long remainder = vma->vm_end - addr;
 		unsigned long len = sg->length;
-		unsigned long map_len;
-
-		if (!remainder)
-			return 0;
 
 		if (offset >= sg->length) {
 			offset -= sg->length;
 			continue;
 		} else if (offset) {
-			if (WARN_ON_ONCE(offset & ~PAGE_MASK))
-				return -EINVAL;
 			page += offset / PAGE_SIZE;
 			len = sg->length - offset;
 			offset = 0;
 		}
-
-		map_len = min_t(unsigned long, PAGE_ALIGN(len), remainder);
-		if (WARN_ON_ONCE(!map_len))
-			return -EINVAL;
-
-		ret = remap_pfn_range(vma, addr, page_to_pfn(page), map_len,
+		len = min(len, remainder);
+		ret = remap_pfn_range(vma, addr, page_to_pfn(page), len,
 				      vma->vm_page_prot);
 		if (ret)
 			return ret;
-
-		addr += map_len;
+		addr += len;
 		if (addr >= vma->vm_end)
 			return 0;
 	}
@@ -130,36 +106,12 @@ int ion_heap_map_user(struct ion_heap *heap, struct ion_buffer *buffer,
 
 static int ion_heap_clear_pages(struct page **pages, int num, pgprot_t pgprot)
 {
-	int p;
+	void *addr = vmap(pages, num, VM_MAP, pgprot);
 
-	/*
-	 * exynos9810: clear ION free pages one-by-one.
-	 *
-	 * The old bulk vmap()+memset() path can panic during deferred ION free
-	 * under HDMI/RenderEngine stress:
-	 *
-	 *   ion_noncontig_h -> ion_heap_sglist_zero -> __memset
-	 *
-	 * If one SG page/PFN is stale or otherwise not safely mappable, the large
-	 * memset over the temporary vmap range faults the whole kernel. Use the same
-	 * per-page kmap()+clear_page() path for all pages so a failed kmap can be
-	 * skipped and the zeroing path does not depend on a 32-page contiguous vmap.
-	 */
-	for (p = 0; p < num; p++) {
-		void *va;
-
-		if (WARN_ON_ONCE(!pages[p]))
-			continue;
-
-		va = kmap(pages[p]);
-		if (!va)
-			continue;
-
-		clear_page(va);
-		if (pgprot_val(pgprot) == pgprot_val(pgprot_writecombine(PAGE_KERNEL)))
-			__flush_dcache_area(va, PAGE_SIZE);
-		kunmap(pages[p]);
-	}
+	if (!addr)
+		return -ENOMEM;
+	memset(addr, 0, PAGE_SIZE * num);
+	vunmap(addr);
 
 	return 0;
 }
