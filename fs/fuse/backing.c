@@ -1348,7 +1348,8 @@ int fuse_lookup_backing(struct fuse_bpf_args *args, struct inode *dir,
 
 	fuse_replace_backing_path(entry_data, &child_path);
 	inode_lock_nested(backing_dir, I_MUTEX_PARENT);
-	backing_entry = lookup_one_len(name, backing_parent, name_size - 1);
+	backing_entry = lookup_one_len2(name, parent_path.mnt, backing_parent,
+					name_size - 1);
 	inode_unlock(backing_dir);
 	if (IS_ERR(backing_entry)) {
 		ret = PTR_ERR(backing_entry);
@@ -1697,8 +1698,8 @@ static int fuse_revalidate_backing_name(struct dentry *entry,
 		goto out_parent;
 
 	inode_lock_nested(backing_dir, I_MUTEX_PARENT);
-	current_dentry = lookup_one_len(entry->d_name.name, parent_path.dentry,
-				 entry->d_name.len);
+	current_dentry = lookup_one_len2(entry->d_name.name, parent_path.mnt,
+					 parent_path.dentry, entry->d_name.len);
 	inode_unlock(backing_dir);
 	if (IS_ERR(current_dentry)) {
 		ret = PTR_ERR(current_dentry);
