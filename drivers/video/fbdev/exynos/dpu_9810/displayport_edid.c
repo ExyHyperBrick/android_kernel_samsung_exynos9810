@@ -127,6 +127,11 @@ int edid_read(struct displayport_device *hdev)
 
 	block_cnt = edid_buf[EDID_EXTENSION_FLAG] + 1;
 	displayport_info("block_cnt = %d\n", block_cnt);
+	if (block_cnt > MAX_EDID_BLOCK) {
+		displayport_err("EDID has %d blocks, limiting to %d\n",
+				block_cnt, MAX_EDID_BLOCK);
+		block_cnt = MAX_EDID_BLOCK;
+	}
 
 	while (++block < block_cnt) {
 		u8 *edid_ext = edid_buf + (block * EDID_BLOCK_SIZE);
@@ -999,8 +1004,7 @@ out:
 	if (block_cnt == -EPROTO)
 		edid_misc = FB_MISC_HDMI;
 
-	if (!hdev->do_unit_test && !edid_test && edid)
-		kfree(edid);
+	/* rx_edid_data.edid_buf is embedded in hdev and is not heap memory. */
 
 	return block_cnt;
 }

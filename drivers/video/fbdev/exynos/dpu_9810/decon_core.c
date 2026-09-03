@@ -3206,9 +3206,12 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 		break;
 
 	case EXYNOS_GET_EDID:
+		memset(&edid_data, 0, sizeof(edid_data));
 		if (decon->dt.out_type == DECON_OUT_DP) {
 #if defined(CONFIG_EXYNOS_DISPLAYPORT)
 			ret = decon_displayport_get_edid(decon, &edid_data);
+			if (ret)
+				break;
 
 			if (copy_to_user((struct decon_edid_data __user *)arg,
 					&edid_data, sizeof(edid_data))) {
@@ -3217,7 +3220,6 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 			}
 #endif
 		} else if (decon->dt.out_type == DECON_OUT_DSI) {
-			memset(&edid_data, 0, sizeof(struct decon_edid_data));
 			decon_get_edid(decon, &edid_data);
 			if (copy_to_user((struct decon_edid_data __user *)arg,
 					&edid_data, sizeof(edid_data))) {
