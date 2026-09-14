@@ -1,0 +1,43 @@
+FUSE-BPF backing directory regression test
+========================================
+
+Build against exported kernel headers and libc headers providing
+linux/fscrypt.h. From the kernel root, for example:
+
+    make ARCH=arm64 headers_install INSTALL_HDR_PATH=/tmp/fuse-headers
+    make -C tools/testing/selftests/filesystems/fuse \
+        CROSS_COMPILE=aarch64-linux-gnu- LDFLAGS=-static \
+        KHDR_INCLUDES=-I/tmp/fuse-headers/include
+
+Run as root on a disposable F2FS filesystem with encryption and
+casefold:
+
+    ./backing-casefold /mnt/test-f2fs
+
+Each variant uses its own scratch directory on that filesystem and a
+FUSE mountpoint under /tmp. Both are removed afterward. No existing
+files are removed and no supplied directory flags are changed. The
+backing-only BPF filter has two instructions. Its daemon serves only
+INIT, so creation cannot silently fall back to userspace.
+
+Enable FUSE_FS, FUSE_BPF, BPF_SYSCALL, F2FS_FS, UNICODE, FS_ENCRYPTION
+and their dependencies. This tree also needs FS_ENCRYPTION_INLINE_CRYPT
+and BLK_INLINE_ENCRYPTION for fscrypt v2 key management ioctls. The
+Exynos9810 configs enable these options. Crypto hardware is not needed.
+Root needs permission to load BPF, mount FUSE, and manage fscrypt keys.
+
+The variants are ordinary, casefolded, and encrypted casefolded
+parents. They cover nested mkdir, OBB staging and finalization, file
+creation and reopen, negative lookups, lower creation, FIFO, symlink,
+hardlink, rename, removal, Unicode and mixed-case lookup and mutation,
+and concurrent lower/upper creation of equivalent names.
+
+The encryption key is a public fixed test value. It remains installed
+until the test filesystem unmounts. Use a disposable filesystem rather
+than an existing userdata tree. This manual test is built and installed
+by kselftest; the automatic runner cannot supply the test filesystem.
+Missing arguments or a non-root caller returns kselftest skip (4).
+
+Output uses TAP. Failed operations or missing required features fail
+the test. A process alarm bounds runtime; a VM runner should also use
+a host timeout for kernel hangs or uninterruptible waits.

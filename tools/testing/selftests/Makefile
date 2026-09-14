@@ -4,6 +4,7 @@ TARGETS += capabilities
 TARGETS += cpu-hotplug
 TARGETS += efivarfs
 TARGETS += exec
+TARGETS += filesystems/fuse
 TARGETS += firmware
 TARGETS += ftrace
 TARGETS += futex
