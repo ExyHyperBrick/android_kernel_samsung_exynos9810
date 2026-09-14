@@ -544,7 +544,9 @@ int fuse_lookup_name(struct super_block *sb, u64 nodeid, const struct qstr *name
 		goto out;
 	}
 
+#ifdef CONFIG_FUSE_BPF
 lookup_done:
+#endif
 	err = 0;
 out_put_forget:
 	kfree(forget);
