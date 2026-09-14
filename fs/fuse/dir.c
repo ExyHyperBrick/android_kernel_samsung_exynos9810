@@ -1002,8 +1002,6 @@ static int fuse_bpf_create_paths(struct inode *dir,
 	    parent_path->mnt != fi->backing_mnt ||
 	    child_path->mnt != parent_path->mnt ||
 	    child_path->dentry->d_parent != parent_path->dentry ||
-	    d_really_is_positive(child_path->dentry) ||
-	    d_unhashed(child_path->dentry) ||
 	    child_path->dentry->d_name.len != entry->d_name.len ||
 	    memcmp(child_path->dentry->d_name.name,
 		   entry->d_name.name, entry->d_name.len)) {
@@ -1012,6 +1010,39 @@ static int fuse_bpf_create_paths(struct inode *dir,
 		return -ESTALE;
 	}
 	return 0;
+}
+
+/* The backing parent must stay locked through lookup and mutation. */
+static int fuse_bpf_relookup(struct dentry *entry,
+			     const struct path *parent_path,
+			     struct path *child_path)
+{
+	struct path path;
+	struct dentry *child;
+
+	child = lookup_one_len2(entry->d_name.name, parent_path->mnt,
+				parent_path->dentry, entry->d_name.len);
+	if (IS_ERR(child))
+		return PTR_ERR(child);
+
+	fuse_put_backing_path(child_path);
+	child_path->dentry = child;
+	child_path->mnt = mntget(parent_path->mnt);
+	path = *child_path;
+	path_get(&path);
+	fuse_replace_backing_path(get_fuse_dentry(entry), &path);
+	return 0;
+}
+
+static void fuse_bpf_hash_created(const struct path *child_path)
+{
+	/*
+	 * Casefolded directories do not cache negative dentries. Once
+	 * instantiated, hash the child before unlocking its parent.
+	 */
+	if (d_really_is_positive(child_path->dentry) &&
+	    d_unhashed(child_path->dentry))
+		d_rehash(child_path->dentry);
 }
 
 static void fuse_bpf_copy_parent_attr(struct inode *dir,
@@ -1042,14 +1073,12 @@ static int fuse_bpf_rollback_create(const struct path *parent_path,
 	    child_path->mnt != parent_path->mnt)
 		return -ESTALE;
 
-	inode_lock_nested(backing_dir, I_MUTEX_PARENT);
 	if (directory)
 		ret = vfs_rmdir2(parent_path->mnt, backing_dir,
 				 child_path->dentry);
 	else
 		ret = vfs_unlink2(parent_path->mnt, backing_dir,
 				  child_path->dentry, NULL);
-	inode_unlock(backing_dir);
 	return ret;
 }
 
@@ -1198,13 +1227,17 @@ static int fuse_bpf_mknod(struct inode *dir, struct dentry *entry,
 		goto out_paths;
 
 	inode_lock_nested(backing_dir, I_MUTEX_PARENT);
+	ret = fuse_bpf_relookup(entry, &parent_path, &child_path);
+	if (ret)
+		goto out_write;
 	if (S_ISREG(mode))
 		ret = vfs_create2(parent_path.mnt, backing_dir,
 				  child_path.dentry, mode, excl);
 	else
 		ret = vfs_mknod2(parent_path.mnt, backing_dir,
 				 child_path.dentry, mode, rdev);
-	inode_unlock(backing_dir);
+	if (!ret)
+		fuse_bpf_hash_created(&child_path);
 	if (ret)
 		goto out_write;
 	created = true;
@@ -1219,6 +1252,7 @@ out_write:
 			fuse_invalidate_entry_cache(entry);
 		fuse_bpf_copy_parent_attr(dir, backing_dir);
 	}
+	inode_unlock(backing_dir);
 	mnt_drop_write(parent_path.mnt);
 out_paths:
 	fuse_put_backing_path(&child_path);
@@ -1290,9 +1324,13 @@ static int fuse_bpf_mkdir(struct inode *dir, struct dentry *entry,
 		goto out_paths;
 
 	inode_lock_nested(backing_dir, I_MUTEX_PARENT);
+	ret = fuse_bpf_relookup(entry, &parent_path, &child_path);
+	if (ret)
+		goto out_write;
 	ret = vfs_mkdir2(parent_path.mnt, backing_dir,
 			 child_path.dentry, mode);
-	inode_unlock(backing_dir);
+	if (!ret)
+		fuse_bpf_hash_created(&child_path);
 	if (ret)
 		goto out_write;
 	created = true;
@@ -1307,6 +1345,7 @@ out_write:
 			fuse_invalidate_entry_cache(entry);
 		fuse_bpf_copy_parent_attr(dir, backing_dir);
 	}
+	inode_unlock(backing_dir);
 	mnt_drop_write(parent_path.mnt);
 out_paths:
 	fuse_put_backing_path(&child_path);
@@ -1428,6 +1467,9 @@ static int fuse_bpf_create_open(struct inode *dir, struct dentry *entry,
 		goto out_paths;
 
 	inode_lock_nested(backing_dir, I_MUTEX_PARENT);
+	ret = fuse_bpf_relookup(entry, &parent_path, &child_path);
+	if (ret)
+		goto out_write;
 	backing_inode = d_inode(child_path.dentry);
 	if (backing_inode) {
 		if (flags & O_EXCL)
@@ -1444,7 +1486,8 @@ static int fuse_bpf_create_open(struct inode *dir, struct dentry *entry,
 		if (!ret)
 			created = true;
 	}
-	inode_unlock(backing_dir);
+	if (!ret)
+		fuse_bpf_hash_created(&child_path);
 	if (ret)
 		goto out_write;
 
@@ -1453,6 +1496,7 @@ static int fuse_bpf_create_open(struct inode *dir, struct dentry *entry,
 	if (ret)
 		goto out_write;
 
+	inode_unlock(backing_dir);
 	mnt_drop_write(parent_path.mnt);
 	fuse_put_backing_path(&child_path);
 	fuse_put_backing_path(&parent_path);
@@ -1479,6 +1523,7 @@ out_write:
 			fuse_invalidate_entry_cache(entry);
 		fuse_bpf_copy_parent_attr(dir, backing_dir);
 	}
+	inode_unlock(backing_dir);
 	mnt_drop_write(parent_path.mnt);
 out_paths:
 	fuse_put_backing_path(&child_path);
@@ -1557,9 +1602,13 @@ static int fuse_bpf_symlink(struct inode *dir, struct dentry *entry,
 	if (ret)
 		goto out_paths;
 	inode_lock_nested(backing_dir, I_MUTEX_PARENT);
+	ret = fuse_bpf_relookup(entry, &parent_path, &child_path);
+	if (ret)
+		goto out_write;
 	ret = vfs_symlink2(parent_path.mnt, backing_dir,
 			   child_path.dentry, link_copy);
-	inode_unlock(backing_dir);
+	if (!ret)
+		fuse_bpf_hash_created(&child_path);
 	if (ret)
 		goto out_write;
 	created = true;
@@ -1597,6 +1646,7 @@ out_write:
 			fuse_invalidate_entry_cache(entry);
 		fuse_bpf_copy_parent_attr(dir, backing_dir);
 	}
+	inode_unlock(backing_dir);
 	mnt_drop_write(parent_path.mnt);
 out_paths:
 	fuse_put_backing_path(&child_path);
@@ -1680,10 +1730,7 @@ static int fuse_bpf_remove_paths(struct inode *dir, struct dentry *entry,
 	    child_path->mnt != parent_path->mnt ||
 	    child_path->dentry->d_parent != parent_path->dentry ||
 	    unlikely(d_unhashed(child_path->dentry)) ||
-	    directory != S_ISDIR(backing_inode->i_mode) ||
-	    child_path->dentry->d_name.len != entry->d_name.len ||
-	    memcmp(child_path->dentry->d_name.name,
-		   entry->d_name.name, entry->d_name.len)) {
+	    directory != S_ISDIR(backing_inode->i_mode)) {
 		fuse_put_backing_path(child_path);
 		fuse_put_backing_path(parent_path);
 		return -ESTALE;
@@ -1758,14 +1805,25 @@ static int fuse_bpf_remove(struct inode *dir, struct dentry *entry,
 		goto out_inode;
 	if (directory) {
 		inode_lock_nested(backing_dir, I_MUTEX_PARENT);
-		ret = vfs_rmdir2(parent_path.mnt, backing_dir,
-				 child_path.dentry);
+		ret = fuse_bpf_relookup(entry, &parent_path,
+					&child_path);
+		if (!ret && d_inode(child_path.dentry) != backing_inode)
+			ret = -ESTALE;
+		if (!ret)
+			ret = vfs_rmdir2(parent_path.mnt, backing_dir,
+					 child_path.dentry);
 		inode_unlock(backing_dir);
 	} else {
 retry_unlink:
 		inode_lock_nested(backing_dir, I_MUTEX_PARENT);
-		ret = vfs_unlink2(parent_path.mnt, backing_dir,
-				  child_path.dentry, &delegated_inode);
+		ret = fuse_bpf_relookup(entry, &parent_path,
+					&child_path);
+		if (!ret && d_inode(child_path.dentry) != backing_inode)
+			ret = -ESTALE;
+		if (!ret)
+			ret = vfs_unlink2(parent_path.mnt, backing_dir,
+					  child_path.dentry,
+					  &delegated_inode);
 		inode_unlock(backing_dir);
 		if (delegated_inode) {
 			int delegated_ret;
@@ -1917,8 +1975,16 @@ static int fuse_bpf_link(struct dentry *entry, struct inode *newdir,
 		goto out_inode;
  retry_link:
 	inode_lock_nested(backing_dir, I_MUTEX_PARENT);
-	ret = vfs_link2(parent_path.mnt, source_path.dentry,
-			backing_dir, child_path.dentry, &delegated_inode);
+	ret = fuse_bpf_relookup(newent, &parent_path, &child_path);
+	if (!ret)
+		ret = vfs_link2(parent_path.mnt, source_path.dentry,
+				backing_dir, child_path.dentry,
+				&delegated_inode);
+	if (!ret) {
+		fuse_bpf_hash_created(&child_path);
+		d_instantiate(newent, linked_inode);
+		linked_inode = NULL;
+	}
 	inode_unlock(backing_dir);
 	if (delegated_inode) {
 		int delegated_ret;
@@ -1932,8 +1998,6 @@ static int fuse_bpf_link(struct dentry *entry, struct inode *newdir,
 	if (ret)
 		goto out_inode;
 
-	d_instantiate(newent, linked_inode);
-	linked_inode = NULL;
 	fuse_bpf_sync_link_attr(inode, backing_inode);
 	fuse_bpf_copy_parent_attr(newdir, backing_dir);
 	fuse_invalidate_entry_cache(newent);
@@ -2137,20 +2201,15 @@ static int fuse_bpf_get_rename_paths(struct inode *olddir,
 	    paths->new_child.dentry->d_parent != paths->new_parent.dentry ||
 	    paths->old_child.dentry == paths->new_child.dentry ||
 	    unlikely(d_unhashed(paths->old_child.dentry)) ||
-	    unlikely(d_unhashed(paths->new_child.dentry)) ||
+	    (backing_target &&
+	     unlikely(d_unhashed(paths->new_child.dentry))) ||
 	    ((backing_source->i_mode ^ source->i_mode) & S_IFMT) ||
 	    (target &&
 	     ((backing_target->i_mode ^ target->i_mode) & S_IFMT)) ||
 	    backing_old_dir->i_sb != backing_new_dir->i_sb ||
 	    backing_old_dir->i_sb != backing_source->i_sb ||
 	    (backing_target && backing_target->i_sb != backing_old_dir->i_sb) ||
-	    backing_old_dir->i_sb == olddir->i_sb ||
-	    paths->old_child.dentry->d_name.len != oldent->d_name.len ||
-	    paths->new_child.dentry->d_name.len != newent->d_name.len ||
-	    memcmp(paths->old_child.dentry->d_name.name,
-		   oldent->d_name.name, oldent->d_name.len) ||
-	    memcmp(paths->new_child.dentry->d_name.name,
-		   newent->d_name.name, newent->d_name.len))
+	    backing_old_dir->i_sb == olddir->i_sb)
 		goto out;
 	if (backing_target == backing_source && target != source)
 		goto out;
@@ -2170,10 +2229,6 @@ out:
 
 static int fuse_bpf_rename_locked(struct dentry *oldent,
 				  struct dentry *newent,
-				  const char *old_name,
-				  size_t old_name_len,
-				  const char *new_name,
-				  size_t new_name_len,
 				  struct fuse_bpf_rename_paths *paths)
 {
 	struct inode *source = d_inode(paths->old_child.dentry);
@@ -2182,14 +2237,8 @@ static int fuse_bpf_rename_locked(struct dentry *oldent,
 	if (paths->old_child.dentry->d_parent != paths->old_parent.dentry ||
 	    paths->new_child.dentry->d_parent != paths->new_parent.dentry ||
 	    unlikely(d_unhashed(paths->old_child.dentry)) ||
-	    unlikely(d_unhashed(paths->new_child.dentry)) ||
+	    (target && unlikely(d_unhashed(paths->new_child.dentry))) ||
 	    source != paths->source_inode || target != paths->target_inode ||
-	    paths->old_child.dentry->d_name.len != old_name_len - 1 ||
-	    paths->new_child.dentry->d_name.len != new_name_len - 1 ||
-	    memcmp(paths->old_child.dentry->d_name.name, old_name,
-		   old_name_len - 1) ||
-	    memcmp(paths->new_child.dentry->d_name.name, new_name,
-		   new_name_len - 1) ||
 	    d_inode(oldent) == NULL ||
 	    (!!d_inode(newent) != !!paths->target_inode))
 		return -ESTALE;
@@ -2293,14 +2342,20 @@ static int fuse_bpf_rename(struct inode *olddir, struct dentry *oldent,
 retry_rename:
 	trap = lock_rename(paths.old_parent.dentry,
 			   paths.new_parent.dentry);
+	ret = fuse_bpf_relookup(oldent, &paths.old_parent,
+				&paths.old_child);
+	if (ret)
+		goto out_unlock;
+	ret = fuse_bpf_relookup(newent, &paths.new_parent,
+				&paths.new_child);
+	if (ret)
+		goto out_unlock;
 	if (trap == paths.old_child.dentry)
 		ret = -EINVAL;
 	else if (trap == paths.new_child.dentry)
 		ret = flags & RENAME_EXCHANGE ? -EINVAL : -ENOTEMPTY;
 	else
-		ret = fuse_bpf_rename_locked(oldent, newent, old_name,
-					     old_name_len, new_name,
-					     new_name_len, &paths);
+		ret = fuse_bpf_rename_locked(oldent, newent, &paths);
 	if (!ret)
 		ret = vfs_rename2(paths.old_parent.mnt,
 				  d_inode(paths.old_parent.dentry),
@@ -2308,6 +2363,7 @@ retry_rename:
 				  d_inode(paths.new_parent.dentry),
 				  paths.new_child.dentry,
 				  &delegated_inode, flags);
+out_unlock:
 	unlock_rename(paths.old_parent.dentry, paths.new_parent.dentry);
 	if (delegated_inode) {
 		int delegated_ret;
