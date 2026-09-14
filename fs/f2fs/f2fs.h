@@ -25,6 +25,7 @@
 #include <linux/quotaops.h>
 #include <crypto/hash.h>
 #include <linux/overflow.h>
+#include <linux/refcount.h>
 
 #include <linux/fscrypt.h>
 #include <linux/fsverity.h>
@@ -1328,7 +1329,7 @@ struct compress_io_ctx {
 	struct inode *inode;		/* inode the context belong to */
 	struct page **rpages;		/* pages store raw data in cluster */
 	unsigned int nr_rpages;		/* total page number in rpages */
-	atomic_t ref;			/* referrence count of raw page */
+	refcount_t ref;			/* reference count of raw page */
 };
 
 /* decompress io context for read IO path */
@@ -1347,7 +1348,7 @@ struct decompress_io_ctx {
 	struct compress_data *cbuf;	/* virtual mapped address on cpages */
 	size_t rlen;			/* valid data length in rbuf */
 	size_t clen;			/* valid data length in cbuf */
-	atomic_t ref;			/* referrence count of compressed page */
+	refcount_t ref;			/* reference count of compressed page */
 	bool failed;			/* indicate IO error during decompression */
 	void *private;			/* payload buffer for specified decompression algorithm */
 	void *private2;			/* extra payload buffer */

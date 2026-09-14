@@ -2306,7 +2306,7 @@ submit_and_realloc:
 			if (IS_ERR(bio)) {
 				ret = PTR_ERR(bio);
 				dic->failed = true;
-				if (atomic_sub_and_test(dic->nr_cpages - i,
+				if (refcount_sub_and_test(dic->nr_cpages - i,
 							&dic->ref)) {
 					f2fs_decompress_end_io(dic->rpages,
 							cc->cluster_size, true,
