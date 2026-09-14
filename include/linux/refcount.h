@@ -205,7 +205,7 @@ void refcount_dec(refcount_t *r)
  * and not cmpxchg in generic, because that would allow implementing unsafe
  * operations.
  */
-static inline __refcount_check
+extern __refcount_check
 bool refcount_dec_if_one(refcount_t *r);
 
 /*
@@ -214,7 +214,7 @@ bool refcount_dec_if_one(refcount_t *r);
  *
  * Was often done like: atomic_add_unless(&var, -1, 1)
  */
-static inline __refcount_check
+extern __refcount_check
 bool refcount_dec_not_one(refcount_t *r);
 
 /*
@@ -225,7 +225,7 @@ bool refcount_dec_not_one(refcount_t *r);
  * before, and provides a control dependency such that free() must come after.
  * See the comment on top.
  */
-static inline __refcount_check
+extern __refcount_check
 bool refcount_dec_and_mutex_lock(refcount_t *r, struct mutex *lock);
 
 /*
@@ -236,7 +236,7 @@ bool refcount_dec_and_mutex_lock(refcount_t *r, struct mutex *lock);
  * before, and provides a control dependency such that free() must come after.
  * See the comment on top.
  */
-static inline __refcount_check
+extern __refcount_check
 bool refcount_dec_and_lock(refcount_t *r, spinlock_t *lock);
 
 #endif /* _LINUX_REFCOUNT_H */
