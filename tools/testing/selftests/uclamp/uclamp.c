@@ -336,6 +336,54 @@ static void group_tests(void)
 	      "group migration removes old effective restriction");
 }
 
+static void rt_group_tests(void)
+{
+	char value[32];
+	int grouped, mode, status;
+	pid_t pid;
+
+	grouped = !read_value(child, "cpu.rt_runtime_us", value,
+			     sizeof(value));
+	check(grouped ? !strtol(value, NULL, 10) : errno == ENOENT,
+	      "RT group fixture has zero budget or shares global runtime");
+	for (mode = 0; mode < 2; mode++) {
+		pid = fork();
+		if (pid)
+			check(pid >= 0, "fork RT cgroup test");
+		if (!pid) {
+			struct attr a = {
+				.size = sizeof(a),
+				.policy = SCHED_FIFO,
+				.flags = CLAMPS,
+				.priority = 1,
+				.max = 1024,
+			};
+			unsigned int min, max;
+			int ret, saved;
+
+			if (mode ? set_attr(0, &a) : move_pid(child, getpid()))
+				_exit(1);
+			ret = mode ? move_pid(child, getpid()) : set_attr(0, &a);
+			saved = errno;
+			if (grouped) {
+				printf("# Zero RT budget: %s returned errno=%d\n",
+				       mode ? "migration" : "promotion", saved);
+				_exit(ret != -1 ||
+				      saved != (mode ? EINVAL : EPERM));
+			}
+			if (ret || get_attr(0, &a) || a.policy != SCHED_FIFO)
+				_exit(2);
+			if (effective(0, &min, &max) || min != 126 || max != 819)
+				_exit(3);
+			_exit(0);
+		}
+		check(waitpid(pid, &status, 0) == pid && WIFEXITED(status) &&
+		      !WEXITSTATUS(status), grouped ?
+		      "zero RT budget rejects promotion and migration" :
+		      "RT promotion and migration preserve effective group clamps");
+	}
+}
+
 static void system_tests(void)
 {
 	unsigned int min, max;
@@ -468,6 +516,7 @@ int main(int argc, char **argv)
 	fork_tests();
 	permission_tests();
 	group_tests();
+	rt_group_tests();
 	system_tests();
 	stress_tests();
 	printf("1..%u\n", checks);
