@@ -326,6 +326,25 @@ static void sugov_iowait_boost(struct sugov_cpu *sg_cpu, unsigned long *util,
 	}
 }
 
+static void sugov_uclamp_util(int cpu, unsigned long *util,
+			      unsigned long *max)
+{
+#ifdef CONFIG_UCLAMP_TASK
+	unsigned long capacity = capacity_orig_of(cpu);
+
+	if (!uclamp_is_used())
+		return;
+
+	/* I/O wait boosting can express this ratio in frequency units. */
+	if (*max != capacity) {
+		*util = div64_ul((u64)*util * capacity, *max);
+		*max = capacity;
+	}
+
+	*util = uclamp_rq_util_with(cpu_rq(cpu), *util, NULL);
+#endif
+}
+
 #ifdef CONFIG_NO_HZ_COMMON
 static bool sugov_cpu_is_busy(struct sugov_cpu *sg_cpu)
 {
@@ -362,7 +381,7 @@ static void sugov_update_single(struct update_util_data *hook, u64 time,
 	} else {
 		sugov_get_util(&util, &max, time);
 		sugov_iowait_boost(sg_cpu, &util, &max);
-		util = uclamp_rq_util_with(this_rq(), util, NULL);
+		sugov_uclamp_util(smp_processor_id(), &util, &max);
 		next_f = get_next_freq(sg_policy, util, max);
 		/*
 		 * Do not reduce the frequency if the CPU has not been idle
@@ -410,7 +429,7 @@ static unsigned int sugov_next_freq_shared(struct sugov_cpu *sg_cpu, u64 time)
 		j_max = j_sg_cpu->max;
 #ifdef CONFIG_UCLAMP_TASK
 		sugov_iowait_boost(j_sg_cpu, &j_util, &j_max);
-		j_util = uclamp_rq_util_with(cpu_rq(j), j_util, NULL);
+		sugov_uclamp_util(j, &j_util, &j_max);
 #endif
 		if (j_util * max >= j_max * util) {
 			util = j_util;
