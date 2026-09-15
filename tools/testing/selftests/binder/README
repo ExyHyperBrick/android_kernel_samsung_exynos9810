@@ -1,0 +1,46 @@
+Binder and cgroup freezer regression test
+========================================
+
+binder_freezer creates a private BinderFS instance and a cgroup, then
+exchanges real transactions between a caller and a context manager.
+It checks incoming and outgoing pending-transaction accounting,
+BINDER_FREEZE refusal while a reply is pending, BINDER_GET_FROZEN_INFO,
+synchronous calls to a frozen process, queued one-way calls, thawing,
+and SIGKILL with work still queued. Deferred Binder cleanup must finish
+before the private mount can be removed.
+
+Run as root in an isolated test VM with /proc and /sys mounted and a
+writable /tmp. Required configuration: ANDROID_BINDER_IPC,
+ANDROID_BINDERFS, ANDROID_BINDER_DEVICES including "binder", CGROUPS,
+UNIX, TMPFS and DEVTMPFS. Mount cgroup v2 first. The optional argument
+is its mount point; the default is /cg2. The test creates a child group
+under that mount, without moving the caller out of its existing group.
+
+Build from the kernel source directory:
+
+    binder_work="$HOME/TEMP/binder-selftest"
+    mkdir -p "$binder_work"
+    aarch64-linux-gnu-gcc -static -O2 -Wall -Wextra -Werror \
+        tools/testing/selftests/binder/binder_freezer.c \
+        -o "$binder_work/binder_freezer"
+
+In the test VM:
+
+    mkdir -p /cg2
+    mount -t cgroup2 none /cg2
+    ./binder_freezer /cg2
+
+A complete run prints 25 TAP results. Exit status is 0 on success,
+1 for failed checks, 2 for setup/protocol failures, or 4 when root or
+BinderFS is unavailable. The test times out after 120 seconds. An
+aborted test can leave its temporary mount, cgroup or child behind;
+discard the isolated test VM after such a run.
+
+Enable PROVE_LOCKING and DEBUG_VM in the test kernel and inspect its
+log too. Intentional failures print Binder diagnostics for EAGAIN and
+BR_FROZEN_REPLY. Killing the frozen server deliberately discards its
+queued transactions. Outstanding-transaction warnings, lockdep reports,
+use-after-free reports and kernel oopses are not expected.
+
+This validates the kernel interfaces. It does not test Android's task
+profiles, SELinux policy or actual cached-app retention.

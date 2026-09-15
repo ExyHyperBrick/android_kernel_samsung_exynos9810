@@ -816,6 +816,7 @@ L:	devel@driverdev.osuosl.org
 S:	Supported
 F:	drivers/android/
 F:	drivers/staging/android/
+F:	tools/testing/selftests/binder/
 
 ANDROID ION DRIVER
 M:	Laura Abbott <labbott@redhat.com>

@@ -1,4 +1,5 @@
-TARGETS =  bpf
+TARGETS =  binder
+TARGETS += bpf
 TARGETS += breakpoints
 TARGETS += capabilities
 TARGETS += cpu-hotplug
