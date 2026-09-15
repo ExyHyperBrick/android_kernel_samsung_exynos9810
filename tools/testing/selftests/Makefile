@@ -31,6 +31,7 @@ TARGETS += sysctl
 ifneq (1, $(quicktest))
 TARGETS += timers
 endif
+TARGETS += uclamp
 TARGETS += user
 TARGETS += vm
 TARGETS += x86
