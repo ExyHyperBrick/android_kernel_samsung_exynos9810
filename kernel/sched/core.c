@@ -1335,14 +1335,20 @@ bool uclamp_boosted(struct task_struct *p)
 bool uclamp_latency_sensitive(struct task_struct *p)
 {
 #ifdef CONFIG_UCLAMP_TASK_GROUP
-	struct cgroup_subsys_state *css = task_css(p, cpu_cgrp_id);
-	struct task_group *tg;
+	struct cgroup_subsys_state *css;
+	bool sensitive = false;
 
-	if (!css)
-		return false;
-	tg = container_of(css, struct task_group, css);
+	rcu_read_lock();
+	css = task_css(p, cpu_cgrp_id);
+	if (css) {
+		struct task_group *tg = container_of(css,
+					struct task_group, css);
 
-	return tg->latency_sensitive;
+		sensitive = READ_ONCE(tg->latency_sensitive);
+	}
+	rcu_read_unlock();
+
+	return sensitive;
 #else
 	return false;
 #endif
@@ -9807,7 +9813,7 @@ static int cpu_uclamp_ls_write_u64(struct cgroup_subsys_state *css,
 	if (ls > 1)
 		return -EINVAL;
 	tg = css_tg(css);
-	tg->latency_sensitive = (unsigned int) ls;
+	WRITE_ONCE(tg->latency_sensitive, (unsigned int)ls);
 
 	return 0;
 }
@@ -9817,7 +9823,7 @@ static u64 cpu_uclamp_ls_read_u64(struct cgroup_subsys_state *css,
 {
 	struct task_group *tg = css_tg(css);
 
-	return (u64) tg->latency_sensitive;
+	return READ_ONCE(tg->latency_sensitive);
 }
 #endif /* CONFIG_UCLAMP_TASK_GROUP */
 
