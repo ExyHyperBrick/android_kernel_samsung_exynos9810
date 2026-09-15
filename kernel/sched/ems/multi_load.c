@@ -34,6 +34,7 @@ static inline int get_sse(struct sched_entity *se)
  */
 unsigned long ml_task_runnable(struct task_struct *p)
 {
+#ifdef CONFIG_SCHED_TUNE
 	int boost = schedtune_task_boost(p);
 	unsigned long runnable_avg = READ_ONCE(p->se.avg.ml.runnable_avg);
 	unsigned long capacity;
@@ -44,6 +45,9 @@ unsigned long ml_task_runnable(struct task_struct *p)
 	capacity = capacity_orig_of_sse(task_cpu(p), p->sse);
 
 	return runnable_avg + schedtune_margin(capacity, runnable_avg, boost);
+#else
+	return READ_ONCE(p->se.avg.ml.runnable_avg);
+#endif
 }
 
 /*
@@ -85,6 +89,7 @@ unsigned long ml_task_util_est(struct task_struct *p)
  */
 unsigned long ml_boosted_task_util(struct task_struct *p)
 {
+#ifdef CONFIG_SCHED_TUNE
 	int boost = schedtune_task_boost(p);
 	unsigned long util = ml_task_util(p);
 	unsigned long capacity;
@@ -95,6 +100,18 @@ unsigned long ml_boosted_task_util(struct task_struct *p)
 	capacity = capacity_orig_of_sse(task_cpu(p), p->sse);
 
 	return util + schedtune_margin(capacity, util, boost);
+#else
+	unsigned long util = ml_task_util_est(p);
+
+	if (p->sse)
+		util = (util * capacity_ratio(task_cpu(p), 0)) >>
+			SCHED_CAPACITY_SHIFT;
+#ifdef CONFIG_UCLAMP_TASK
+	util = clamp(util, uclamp_eff_value(p, UCLAMP_MIN),
+		     uclamp_eff_value(p, UCLAMP_MAX));
+#endif
+	return util;
+#endif
 }
 
 /*
@@ -279,6 +296,7 @@ unsigned long ml_task_attached_cpu_util(int cpu, struct task_struct *p)
 extern DEFINE_PER_CPU(struct boost_groups, cpu_boost_groups);
 unsigned long ml_boosted_cpu_util(int cpu)
 {
+#ifdef CONFIG_SCHED_TUNE
 	int fv_boost = 0, boost = schedtune_cpu_boost(cpu);
 	struct boost_groups *bg = &per_cpu(cpu_boost_groups, cpu);
 	unsigned long util = ml_cpu_util(cpu);
@@ -295,6 +313,9 @@ unsigned long ml_boosted_cpu_util(int cpu)
 		boost = fv_boost;
 
 	return util + schedtune_margin(capacity, util, boost);
+#else
+	return ml_cpu_util(cpu);
+#endif
 }
 
 static void update_next_balance(int cpu, struct multi_load *ml)

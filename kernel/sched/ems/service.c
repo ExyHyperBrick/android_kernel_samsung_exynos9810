@@ -21,19 +21,17 @@
 struct plist_head kpp_list[STUNE_GROUP_COUNT];
 
 static bool kpp_en;
+static int kpp_value[STUNE_GROUP_COUNT];
 
 int kpp_status(int grp_idx)
 {
 	if (unlikely(!kpp_en))
 		return 0;
 
-	if (grp_idx >= STUNE_GROUP_COUNT)
+	if (grp_idx < 0 || grp_idx >= STUNE_GROUP_COUNT)
 		return -EINVAL;
 
-	if (plist_head_empty(&kpp_list[grp_idx]))
-		return 0;
-
-	return plist_last(&kpp_list[grp_idx])->prio;
+	return READ_ONCE(kpp_value[grp_idx]);
 }
 
 static DEFINE_SPINLOCK(kpp_lock);
@@ -45,7 +43,7 @@ void kpp_request(int grp_idx, struct kpp *req, int value)
 	if (unlikely(!kpp_en))
 		return;
 
-	if (grp_idx >= STUNE_GROUP_COUNT)
+	if (grp_idx < 0 || grp_idx >= STUNE_GROUP_COUNT)
 		return;
 
 	if (req->node.prio == value)
@@ -57,14 +55,21 @@ void kpp_request(int grp_idx, struct kpp *req, int value)
 	 * If the request already added to the list updates the value, remove
 	 * the request from the list and add it again.
 	 */
-	if (req->active)
-		plist_del(&req->node, &kpp_list[req->grp_idx]);
-	else
+	if (req->active) {
+		int old = req->grp_idx;
+
+		plist_del(&req->node, &kpp_list[old]);
+		WRITE_ONCE(kpp_value[old], plist_head_empty(&kpp_list[old]) ?
+			   0 : plist_last(&kpp_list[old])->prio);
+	} else {
 		req->active = 1;
+	}
 
 	plist_node_init(&req->node, value);
 	plist_add(&req->node, &kpp_list[grp_idx]);
 	req->grp_idx = grp_idx;
+	WRITE_ONCE(kpp_value[grp_idx],
+		   plist_last(&kpp_list[grp_idx])->prio);
 
 	spin_unlock_irqrestore(&kpp_lock, flags);
 }

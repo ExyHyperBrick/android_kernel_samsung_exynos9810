@@ -79,6 +79,7 @@
 #include <linux/sched/loadavg.h>
 #include <linux/cgroup-defs.h>
 #include <linux/ems.h>
+#include <linux/ems_service.h>
 
 #include <asm/switch_to.h>
 #include <asm/tlb.h>
@@ -8950,6 +8951,9 @@ static inline void alloc_uclamp_sched_group(struct task_group *tg,
 			      uclamp_none(clamp_id), false);
 		tg->uclamp[clamp_id] = parent->uclamp[clamp_id];
 	}
+#ifdef CONFIG_SCHED_EMS
+	tg->ems_boost_group = READ_ONCE(parent->ems_boost_group);
+#endif
 #endif
 }
 
@@ -9766,6 +9770,35 @@ static int cpu_uclamp_max_show(struct seq_file *sf, void *v)
 	return 0;
 }
 
+#ifdef CONFIG_SCHED_EMS
+static int cpu_ems_group_write(struct cgroup_subsys_state *css,
+			       struct cftype *cft, u64 group)
+{
+	if (group >= STUNE_GROUP_COUNT)
+		return -EINVAL;
+
+	WRITE_ONCE(css_tg(css)->ems_boost_group, group);
+	return 0;
+}
+
+static u64 cpu_ems_group_read(struct cgroup_subsys_state *css,
+			    struct cftype *cft)
+{
+	return READ_ONCE(css_tg(css)->ems_boost_group);
+}
+
+int ems_task_prefer_perf(struct task_struct *p)
+{
+	unsigned int group;
+
+	rcu_read_lock();
+	group = READ_ONCE(task_group(p)->ems_boost_group);
+	rcu_read_unlock();
+
+	return kpp_status(group);
+}
+#endif
+
 static int cpu_uclamp_ls_write_u64(struct cgroup_subsys_state *css,
 				   struct cftype *cftype, u64 ls)
 {
@@ -10134,6 +10167,14 @@ static struct cftype cpu_files[] = {
 		.read_u64 = cpu_uclamp_ls_read_u64,
 		.write_u64 = cpu_uclamp_ls_write_u64,
 	},
+#ifdef CONFIG_SCHED_EMS
+	{
+		.name = "ems.boost_group",
+		.flags = CFTYPE_NOT_ON_ROOT,
+		.read_u64 = cpu_ems_group_read,
+		.write_u64 = cpu_ems_group_write,
+	},
+#endif
 #endif
 	{ }	/* terminate */
 };

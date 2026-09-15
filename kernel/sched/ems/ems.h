@@ -45,14 +45,9 @@ extern unsigned long __ml_cpu_util_est(int cpu, int sse);
 
 extern void init_part(void);
 
-#ifdef CONFIG_SCHED_TUNE
 extern int prefer_perf_cpu(struct task_struct *p);
 extern int prefer_idle_cpu(struct task_struct *p);
 extern int group_balancing(struct task_struct *p);
-#else
-static inline int prefer_perf_cpu(struct task_struct *p) { return -1; }
-static inline int prefer_idle_cpu(struct task_struct *p) { return -1; }
-#endif
 
 extern unsigned long task_util(struct task_struct *p);
 extern unsigned int get_cpu_mips(unsigned int cpu, int sse);

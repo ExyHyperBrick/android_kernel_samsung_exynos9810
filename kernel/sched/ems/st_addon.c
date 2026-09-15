@@ -60,7 +60,7 @@ static bool mark_lowest_util_cpu(struct task_struct *p, int cpu,
 			unsigned long new_util, int *lowest_util_cpu,
 			unsigned long *lowest_util, unsigned long *target_capacity)
 {
-	if (schedtune_task_boost(p) <= 0 &&
+	if (!uclamp_boosted(p) &&
 		capacity_orig_of(cpu) > *target_capacity)
 		return false;
 
@@ -82,7 +82,7 @@ static int select_idle_cpu(struct task_struct *p)
 	unsigned long lowest_idle_util = ULONG_MAX;
 	unsigned long lowest_util = ULONG_MAX;
 	unsigned long target_capacity = ULONG_MAX;
-	int best_idle_cstate;
+	int best_idle_cstate = INT_MAX;
 	int lowest_idle_util_cpu = -1;
 	int lowest_util_cpu = -1;
 	int target_cpu = -1;
@@ -138,7 +138,7 @@ static int select_idle_cpu(struct task_struct *p)
 
 int prefer_idle_cpu(struct task_struct *p)
 {
-	if (schedtune_prefer_idle(p) <= 0)
+	if (uclamp_latency_sensitive(p) <= 0)
 		return -1;
 
 	return select_idle_cpu(p);

@@ -30,3 +30,17 @@ controller in this tree does not support cgroup v2.
         This interface allows reading and setting maximum utilization clamp
         values similar to the sched_setattr(2). This maximum utilization
         value is used to clamp the task specific maximum utilization clamp.
+
+Samsung EMS integration
+-----------------------
+
+With CONFIG_SCHED_EMS, cpu.ems.boost_group maps a CPU cgroup to the
+existing kernel performance request classes: 0=root, 1=foreground,
+2=background, 3=top-app, and 4=realtime. New child groups inherit the
+mapping. Configure the class before creating children or attaching
+applications. Later writes affect that group only.
+
+This preserves input-driven foreground and top-app placement requests
+without a schedtune mount. Numeric utilization boosts use uclamp and
+idle placement uses cpu.uclamp.latency_sensitive. The schedtune-only
+util_est_en and ontime_en switches retain their disabled defaults.

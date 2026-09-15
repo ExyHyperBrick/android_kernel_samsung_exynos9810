@@ -357,6 +357,10 @@ struct task_group {
 	struct uclamp_se	uclamp[UCLAMP_CNT];
 	/* Latency-sensitive flag used for a task group */
 	unsigned int		latency_sensitive;
+#ifdef CONFIG_SCHED_EMS
+	/* Explicit mapping to Samsung's kernel performance requests. */
+	unsigned int		ems_boost_group;
+#endif
 #endif
 
 };
