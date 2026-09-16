@@ -1227,7 +1227,7 @@ SYSCALL_DEFINE2(process_mrelease, int, pidfd, unsigned int, flags)
 
 drop_mm:
 	if (mm)
-		mmput(mm);
+		mmput_async(mm);
 put_task:
 	put_task_struct(task);
 put_pid:
