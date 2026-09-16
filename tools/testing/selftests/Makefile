@@ -2,6 +2,7 @@ TARGETS =  binder
 TARGETS += bpf
 TARGETS += breakpoints
 TARGETS += capabilities
+TARGETS += cgroup
 TARGETS += cpu-hotplug
 TARGETS += efivarfs
 TARGETS += exec
