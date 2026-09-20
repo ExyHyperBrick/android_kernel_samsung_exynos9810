@@ -9,3 +9,4 @@ transhuge-stress
 userfaultfd
 mlock-intersect-test
 process_madvise
+process_mrelease
