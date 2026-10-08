@@ -10,9 +10,14 @@
  * published by the Free Software Foundation.
  */
 
+#include <linux/mutex.h>
+
 #include "fimc-is-interface-wrap.h"
 #include "fimc-is-interface-library.h"
 #include "fimc-is-param.h"
+
+/* Protect shared DDK and hardware lifetimes across camera instances. */
+static DEFINE_MUTEX(itf_lifecycle_lock);
 
 int fimc_is_itf_s_param_wrap(struct fimc_is_device_ischain *device,
 	u32 lindex, u32 hindex, u32 indexes)
@@ -129,13 +134,15 @@ int fimc_is_itf_open_wrap(struct fimc_is_device_ischain *device, u32 module_id,
 	instance = device->instance;
 	hardware = device->hardware;
 	path = (struct fimc_is_path_info *)&device->is_region->shared[offset_path];
+
+	mutex_lock(&itf_lifecycle_lock);
 	rsccount = atomic_read(&hardware->rsccount);
 
 	if (rsccount == 0) {
 		ret = fimc_is_init_ddk_thread();
 		if (ret) {
 			err("failed to create threads for DDK, ret %d", ret);
-			return ret;
+			goto p_unlock;
 		}
 	}
 
@@ -191,7 +198,7 @@ int fimc_is_itf_open_wrap(struct fimc_is_device_ischain *device, u32 module_id,
 		hardware->hw_map[instance], atomic_read(&hardware->rsccount),
 		hardware->sensor_position[instance]);
 
-	return ret;
+	goto p_unlock;
 
 hardware_close:
 	group_slot_c = group_slot;
@@ -209,6 +216,8 @@ hardware_close:
 		}
 	}
 
+p_unlock:
+	mutex_unlock(&itf_lifecycle_lock);
 	return ret;
 }
 
@@ -233,6 +242,8 @@ int fimc_is_itf_close_wrap(struct fimc_is_device_ischain *device)
 	instance = device->instance;
 	offset_path = (sizeof(struct sensor_open_extended) / 4) + 1;
 	path = (struct fimc_is_path_info *)&device->is_region->shared[offset_path];
+
+	mutex_lock(&itf_lifecycle_lock);
 	rsccount = atomic_read(&hardware->rsccount);
 
 	if (rsccount == 1)
@@ -243,7 +254,7 @@ int fimc_is_itf_close_wrap(struct fimc_is_device_ischain *device)
 			hardware->hw_map[instance]);
 	if (ret) {
 		merr("fimc_is_hardware_delete_setfile is fail(%d)", device, ret);
-			return ret;
+		goto p_unlock;
 	}
 #endif
 
@@ -267,6 +278,8 @@ int fimc_is_itf_close_wrap(struct fimc_is_device_ischain *device)
 	info("%s: done: hw_map[0x%lx][RSC:%d]\n", __func__,
 		hardware->hw_map[instance], atomic_read(&hardware->rsccount));
 
+p_unlock:
+	mutex_unlock(&itf_lifecycle_lock);
 	return ret;
 }
 
