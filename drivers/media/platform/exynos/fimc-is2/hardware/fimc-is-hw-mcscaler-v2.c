@@ -1065,6 +1065,7 @@ int fimc_is_hw_mcsc_update_param(struct fimc_is_hw_ip *hw_ip,
 	int i = 0;
 	int ret = 0;
 	bool control_cmd = false;
+	bool djag_geometry_changed = false;
 	struct fimc_is_hw_mcsc *hw_mcsc;
 	u32 hwfc_output_ids = 0;
 	struct fimc_is_hw_mcsc_cap *cap = GET_MCSC_HW_CAP(hw_ip);
@@ -1091,6 +1092,9 @@ int fimc_is_hw_mcsc_update_param(struct fimc_is_hw_ip *hw_ip,
 
 #ifdef ENABLE_DJAG_IN_MCSC
 	if (cap->djag == MCSC_CAP_SUPPORT) {
+		u32 previous_width = param->input.djag_out_width;
+		u32 previous_height = param->input.djag_out_height;
+
 		fimc_is_scaler_set_djag_input_source(hw_ip->regs,
 			hw_mcsc->djag_input_source - DEV_HW_MCSC0);
 
@@ -1099,12 +1103,21 @@ int fimc_is_hw_mcsc_update_param(struct fimc_is_hw_ip *hw_ip,
 
 		if (hw_mcsc->djag_input_source == hw_ip->id)
 			fimc_is_hw_mcsc_update_djag_register(hw_ip, param, instance);	/* for DZoom */
+
+		djag_geometry_changed =
+			previous_width != param->input.djag_out_width ||
+			previous_height != param->input.djag_out_height;
 	}
 #endif
 
 	for (i = MCSC_OUTPUT0; i < cap->max_output; i++) {
 		if (control_cmd || (lindex & LOWBIT_OF((i + PARAM_MCS_OUTPUT0)))
 				|| (hindex & HIGHBIT_OF((i + PARAM_MCS_OUTPUT0)))
+				|| (djag_geometry_changed
+					&& test_bit(i, &hw_mcsc->out_en)
+					&& (!cap->enable_shared_output
+						|| fimc_is_scaler_get_scaler_path(
+							hw_ip->regs, hw_ip->id, i) == hw_ip->id))
 				|| (test_bit(HW_MCSC_OUT_CLEARED_ALL, &hw_mcsc_out_configured))) {
 			ret = fimc_is_hw_mcsc_update_register(hw_ip, param, i, instance);
 			fimc_is_scaler_set_wdma_pri(hw_ip->regs, i, param->output[i].plane);	/* FIXME: */
