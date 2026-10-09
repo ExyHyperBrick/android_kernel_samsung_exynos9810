@@ -1308,34 +1308,233 @@ void fimc_is_svc_spin_unlock_restore_rta(ulong flags)
 	spin_unlock_irqrestore(&svc_slock_rta, flags);
 }
 
+/* Private ownership records do not change the binary OS callback ABI. */
+enum lib_spin_data_id {
+	LIB_SPIN_DATA_DDK,
+	LIB_SPIN_DATA_RTA,
+	LIB_SPIN_DATA_VRA,
+	LIB_SPIN_DATA_COUNT,
+};
+
+struct lib_spin_data {
+	ulong start;
+	ulong end;
+	ulong epoch;
+	bool ready;
+};
+
+struct lib_spin_owner {
+	struct list_head list;
+	void **slot;
+	ulong epoch;
+	int data_id;
+};
+
+struct lib_spin_record {
+	struct list_head list;
+	struct list_head owners;
+	void *slock;
+};
+
+static DEFINE_SPINLOCK(lib_spin_records_lock);
+static LIST_HEAD(lib_spin_records);
+static struct lib_spin_data lib_spin_data[LIB_SPIN_DATA_COUNT];
+
+/* Invalidate old owners before the loader overwrites writable data. */
+static void lib_spin_data_begin(int data_id, ulong start, ulong end)
+{
+	struct lib_spin_data *data = &lib_spin_data[data_id];
+	ulong flags;
+
+	spin_lock_irqsave(&lib_spin_records_lock, flags);
+	data->epoch++;
+	data->start = start;
+	data->end = max(data->end, end);
+	data->ready = false;
+	spin_unlock_irqrestore(&lib_spin_records_lock, flags);
+}
+
+static void lib_spin_data_ready(int data_id, ulong end)
+{
+	struct lib_spin_data *data = &lib_spin_data[data_id];
+	ulong flags;
+
+	spin_lock_irqsave(&lib_spin_records_lock, flags);
+	data->end = end;
+	data->ready = true;
+	spin_unlock_irqrestore(&lib_spin_records_lock, flags);
+}
+
+/* Called with lib_spin_records_lock held. Heap/stack slots are borrowed. */
+static int lib_spin_owner_data(void **slot)
+{
+	ulong addr = (ulong)slot;
+	int i;
+
+	if (!IS_ALIGNED(addr, sizeof(*slot)))
+		return -1;
+
+	for (i = 0; i < LIB_SPIN_DATA_COUNT; i++) {
+		struct lib_spin_data *data = &lib_spin_data[i];
+
+		if (data->end >= data->start + sizeof(*slot) &&
+			addr >= data->start && addr <= data->end - sizeof(*slot))
+			return i;
+	}
+
+	return -1;
+}
+
+static struct lib_spin_record *lib_spin_find(void *slock)
+{
+	struct lib_spin_record *record;
+
+	list_for_each_entry(record, &lib_spin_records, list) {
+		if (record->slock == slock)
+			return record;
+	}
+
+	return NULL;
+}
+
+static bool lib_spin_has_owner(struct lib_spin_record *record, void **slot,
+	int data_id)
+{
+	struct lib_spin_owner *owner;
+
+	list_for_each_entry(owner, &record->owners, list) {
+		if (owner->slot == slot && owner->data_id == data_id &&
+			owner->epoch == lib_spin_data[data_id].epoch)
+			return true;
+	}
+
+	return false;
+}
+
 int fimc_is_spin_lock_init(void **slock)
 {
-	if (*slock == NULL)
-		*slock = vzalloc(sizeof(spinlock_t));
+	struct lib_spin_record *record = NULL, *existing;
+	struct lib_spin_owner *owner = NULL;
+	void *allocated = NULL, *published_lock;
+	ulong flags;
+	int data_id, ret = 0;
+	bool published = false;
 
-	spin_lock_init((spinlock_t *)*slock);
+	if (!slock)
+		return -EINVAL;
 
+retry:
+	spin_lock_irqsave(&lib_spin_records_lock, flags);
+	data_id = lib_spin_owner_data(slock);
+	if (data_id >= 0 && !lib_spin_data[data_id].ready) {
+		ret = -EAGAIN;
+		goto unlock;
+	}
+
+	published_lock = READ_ONCE(*slock);
+	if (published_lock) {
+		existing = lib_spin_find(published_lock);
+		if (!existing) {
+			ret = -EINVAL;
+			goto unlock;
+		}
+		/* Shared initialization must not reset a live lock. */
+		if (data_id < 0 || lib_spin_has_owner(existing, slock, data_id))
+			goto unlock;
+	} else {
+		if (!record || !allocated) {
+			spin_unlock_irqrestore(&lib_spin_records_lock, flags);
+			/* A new lock retains the original sleepable init contract. */
+			record = kzalloc(sizeof(*record), GFP_KERNEL);
+			allocated = vzalloc(sizeof(spinlock_t));
+			if (!record || !allocated) {
+				ret = -ENOMEM;
+				goto cleanup;
+			}
+			spin_lock_init((spinlock_t *)allocated);
+			goto retry;
+		}
+		existing = record;
+	}
+
+	if (data_id >= 0 && !owner) {
+		spin_unlock_irqrestore(&lib_spin_records_lock, flags);
+		/* Adding an alias need not sleep while a caller owns a live lock. */
+		owner = kzalloc(sizeof(*owner), GFP_ATOMIC);
+		if (!owner) {
+			ret = -ENOMEM;
+			goto cleanup;
+		}
+		goto retry;
+	}
+
+	if (!published_lock) {
+		INIT_LIST_HEAD(&record->owners);
+		record->slock = allocated;
+		list_add(&record->list, &lib_spin_records);
+		record = NULL;
+		WRITE_ONCE(*slock, allocated);
+		published = true;
+	}
+	if (data_id >= 0) {
+		owner->slot = slock;
+		owner->data_id = data_id;
+		owner->epoch = lib_spin_data[data_id].epoch;
+		list_add(&owner->list, &existing->owners);
+		owner = NULL;
+	}
+
+unlock:
+	spin_unlock_irqrestore(&lib_spin_records_lock, flags);
+cleanup:
+	kfree(owner);
+	kfree(record);
+	if (!published)
+		vfree(allocated);
 #ifdef LIB_MEM_TRACK
-	add_alloc_track(MT_TYPE_SPINLOCK, (ulong)*slock, sizeof(spinlock_t));
+	else
+		add_alloc_track(MT_TYPE_SPINLOCK, (ulong)allocated,
+			sizeof(spinlock_t));
 #endif
-
-	return 0;
+	return ret;
 }
 
 int fimc_is_spin_lock_finish(void *slock_lib)
 {
-	spinlock_t *slock = NULL;
+	struct lib_spin_record *record;
+	struct lib_spin_owner *owner, *next;
+	ulong flags;
 
-	if (slock_lib == NULL) {
-		err_lib("invalid spinlock");
+	if (!slock_lib)
+		return -EINVAL;
+
+	spin_lock_irqsave(&lib_spin_records_lock, flags);
+	record = lib_spin_find(slock_lib);
+	if (!record) {
+		spin_unlock_irqrestore(&lib_spin_records_lock, flags);
+		err_lib("unowned spinlock release");
 		return -EINVAL;
 	}
 
-	slock = (spinlock_t *)slock_lib;
+	list_for_each_entry(owner, &record->owners, list) {
+		struct lib_spin_data *data = &lib_spin_data[owner->data_id];
+
+		if (data->ready && owner->epoch == data->epoch &&
+			lib_spin_owner_data(owner->slot) == owner->data_id)
+			(void)cmpxchg(owner->slot, slock_lib, NULL);
+	}
+	/* Retire before dropping the lock; a second finish cannot queue it. */
+	list_del(&record->list);
+	spin_unlock_irqrestore(&lib_spin_records_lock, flags);
 
 #ifdef LIB_MEM_TRACK
 	add_free_track(MT_TYPE_SPINLOCK, (ulong)slock_lib);
 #endif
+	list_for_each_entry_safe(owner, next, &record->owners, list) {
+		list_del(&owner->list);
+		kfree(owner);
+	}
+	kfree(record);
 	/* VRA may release library locks with interrupts disabled. */
 	vfree_atomic(slock_lib);
 
@@ -2295,8 +2494,25 @@ int fimc_is_load_ddk_bin(int loadType)
 #ifdef CONFIG_UH_RKP
 			uh_call(UH_APP_RKP, RKP_FIMC_VERIFY, 0, 0, 1, 0);
 #endif
+			lib_spin_data_begin(LIB_SPIN_DATA_DDK,
+				lib_addr + CAMERA_BINARY_DDK_DATA_OFFSET,
+				lib_addr + bin.size);
+#ifdef USE_ONE_BINARY
+			lib_spin_data_begin(LIB_SPIN_DATA_VRA,
+				lib_addr + CAMERA_BINARY_VRA_DATA_OFFSET,
+				lib_addr + min_t(ulong, bin.size,
+					CAMERA_BINARY_VRA_DATA_OFFSET +
+					CAMERA_BINARY_VRA_DATA_SIZE));
+#endif
 			memcpy((void *)lib_addr, bin.data, bin.size);
 			__flush_dcache_area((void *)lib_addr, bin.size);
+			lib_spin_data_ready(LIB_SPIN_DATA_DDK, lib_addr + bin.size);
+#ifdef USE_ONE_BINARY
+			lib_spin_data_ready(LIB_SPIN_DATA_VRA,
+				lib_addr + min_t(ulong, bin.size,
+					CAMERA_BINARY_VRA_DATA_OFFSET +
+					CAMERA_BINARY_VRA_DATA_SIZE));
+#endif
 #ifdef CONFIG_UH_RKP
 			uh_call(UH_APP_RKP, RKP_FIMC_VERIFY,
 				(u64)page_to_phys(vmalloc_to_page((void *)lib_addr)),
@@ -2313,11 +2529,25 @@ int fimc_is_load_ddk_bin(int loadType)
 			info_lib("binary info[%s] - type: D, from: %s\n",
 				bin_type,
 				was_loaded_by(&bin) ? "built-in" : "user-provided");
+			lib_spin_data_begin(LIB_SPIN_DATA_DDK,
+				lib_addr + CAMERA_BINARY_DDK_DATA_OFFSET,
+				lib_addr + bin.size);
+#ifdef USE_ONE_BINARY
+			lib_spin_data_begin(LIB_SPIN_DATA_VRA,
+				lib_addr + CAMERA_BINARY_VRA_DATA_OFFSET,
+				lib_addr + CAMERA_BINARY_VRA_DATA_OFFSET +
+					CAMERA_BINARY_VRA_DATA_SIZE);
+#endif
 			memcpy((void *)lib_addr + CAMERA_BINARY_VRA_DATA_OFFSET,
 				bin.data + CAMERA_BINARY_VRA_DATA_OFFSET,
 				CAMERA_BINARY_VRA_DATA_SIZE);
 			__flush_dcache_area((void *)lib_addr + CAMERA_BINARY_VRA_DATA_OFFSET,
 								CAMERA_BINARY_VRA_DATA_SIZE);
+#ifdef USE_ONE_BINARY
+			lib_spin_data_ready(LIB_SPIN_DATA_VRA,
+				lib_addr + CAMERA_BINARY_VRA_DATA_OFFSET +
+					CAMERA_BINARY_VRA_DATA_SIZE);
+#endif
 			info_lib("binary info[%s] - type: D, from: %s\n",
 				bin_type,
 				was_loaded_by(&bin) ? "built-in" : "user-provided");
@@ -2326,6 +2556,7 @@ int fimc_is_load_ddk_bin(int loadType)
 				(bin.size - CAMERA_BINARY_DDK_DATA_OFFSET));
 			__flush_dcache_area((void *)lib_addr + CAMERA_BINARY_DDK_DATA_OFFSET,
 								bin.size - CAMERA_BINARY_DDK_DATA_OFFSET);
+			lib_spin_data_ready(LIB_SPIN_DATA_DDK, lib_addr + bin.size);
 		} else {
 			err_lib("DDK bin size is bigger than memory area. %d[%d]",
 				(unsigned int)bin.size, (unsigned int)DDK_LIB_SIZE);
@@ -2409,6 +2640,9 @@ int fimc_is_load_vra_bin(int loadType)
 			lib_vra, bin.size,
 			was_loaded_by(&bin) ? "built-in" : "user-provided");
 	if (bin.size <= VRA_LIB_SIZE) {
+		lib_spin_data_begin(LIB_SPIN_DATA_VRA,
+			lib_vra + CAMERA_BINARY_VRA_DATA_OFFSET,
+			lib_vra + bin.size);
 		memcpy((void *)lib_vra, bin.data, bin.size);
 	} else {
 		err_lib("VRA bin size is bigger than memory area. %d[%d]",
@@ -2417,6 +2651,7 @@ int fimc_is_load_vra_bin(int loadType)
 	}
 	__flush_dcache_area((void *)lib_vra, bin.size);
 	flush_icache_range(lib_vra, bin.size);
+	lib_spin_data_ready(LIB_SPIN_DATA_VRA, lib_vra + bin.size);
 
 	release_binary(&bin);
 
@@ -2487,8 +2722,12 @@ int fimc_is_load_rta_bin(int loadType)
 #ifdef CONFIG_UH_RKP
 			uh_call(UH_APP_RKP, RKP_FIMC_VERIFY, 0, 0, 2, 0);
 #endif
+			lib_spin_data_begin(LIB_SPIN_DATA_RTA,
+				lib_rta + CAMERA_BINARY_RTA_DATA_OFFSET,
+				lib_rta + bin.size);
 			memcpy((void *)lib_rta, bin.data, bin.size);
 			__flush_dcache_area((void *)lib_rta, bin.size);
+			lib_spin_data_ready(LIB_SPIN_DATA_RTA, lib_rta + bin.size);
 #ifdef CONFIG_UH_RKP
 			uh_call(UH_APP_RKP, RKP_FIMC_VERIFY,
 				(u64)page_to_phys(vmalloc_to_page((void *)lib_rta)),
@@ -2504,11 +2743,15 @@ int fimc_is_load_rta_bin(int loadType)
 		if ((bin.size > CAMERA_BINARY_RTA_DATA_OFFSET) && (bin.size <= RTA_LIB_SIZE)) {
 			info_lib("binary info[RTA] - type: D, from: %s\n",
 				was_loaded_by(&bin) ? "built-in" : "user-provided");
+			lib_spin_data_begin(LIB_SPIN_DATA_RTA,
+				lib_rta + CAMERA_BINARY_RTA_DATA_OFFSET,
+				lib_rta + bin.size);
 			memcpy((void *)lib_rta + CAMERA_BINARY_RTA_DATA_OFFSET,
 				bin.data + CAMERA_BINARY_RTA_DATA_OFFSET,
 				bin.size - CAMERA_BINARY_RTA_DATA_OFFSET);
 			__flush_dcache_area((void *)lib_rta + CAMERA_BINARY_RTA_DATA_OFFSET,
 								bin.size - CAMERA_BINARY_RTA_DATA_OFFSET);
+			lib_spin_data_ready(LIB_SPIN_DATA_RTA, lib_rta + bin.size);
 		} else {
 			err_lib("RTA bin size is bigger than memory area. %d[%d]",
 				(unsigned int)bin.size, (unsigned int)RTA_LIB_SIZE);
