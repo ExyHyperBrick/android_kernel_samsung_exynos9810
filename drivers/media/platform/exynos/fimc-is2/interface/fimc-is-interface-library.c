@@ -32,6 +32,22 @@ struct fimc_is_lib_support gPtr_lib_support;
 struct mutex gPtr_bin_load_ctrl;
 extern struct fimc_is_lib_vra *g_lib_vra;
 
+/* Keep queued DDK payloads immutable until their callback has finished. */
+static DEFINE_SPINLOCK(lib_task_lock);
+static bool lib_task_accepting[TASK_INDEX_MAX];
+static bool lib_work_busy[TASK_INDEX_MAX][LIB_MAX_TASK];
+
+static void lib_task_set_accepting(bool accepting)
+{
+	unsigned long flags;
+	int i;
+
+	spin_lock_irqsave(&lib_task_lock, flags);
+	for (i = 0; i < TASK_INDEX_MAX; i++)
+		lib_task_accepting[i] = accepting;
+	spin_unlock_irqrestore(&lib_task_lock, flags);
+}
+
 /*
  * Log write
  */
@@ -1484,36 +1500,70 @@ ulong get_reg_addr(u32 id)
 static void lib_task_work(struct kthread_work *work)
 {
 	struct fimc_is_task_work *cur_work;
+	struct fimc_is_lib_task *lib_task;
+	unsigned long flags;
+	u32 task_index, work_index;
 
 	FIMC_BUG_VOID(!work);
 
 	cur_work = container_of(work, struct fimc_is_task_work, work);
+	/* kthread_queue_work() publishes this owner before running the work. */
+	lib_task = container_of(work->worker, struct fimc_is_lib_task, worker);
+	task_index = lib_task - gPtr_lib_support.task_taaisp;
+	work_index = cur_work - lib_task->work;
 
 	dbg_lib(3, "do task_work: func(%p), params(%p)\n",
 		cur_work->func, cur_work->params);
 
 	cur_work->func(cur_work->params);
+
+	spin_lock_irqsave(&lib_task_lock, flags);
+	lib_work_busy[task_index][work_index] = false;
+	spin_unlock_irqrestore(&lib_task_lock, flags);
 }
 
 bool lib_task_trigger(struct fimc_is_lib_support *this,
 	int priority, void *func, void *params)
 {
-	struct fimc_is_lib_task *lib_task = NULL;
-	u32 index = 0;
+	struct fimc_is_lib_task *lib_task;
+	struct fimc_is_task_work *work;
+	unsigned long flags;
+	u32 index, offset;
+	int task_index = priority - TASK_PRIORITY_BASE - 1;
+	bool queued = false;
 
 	FIMC_BUG_FALSE(!this);
 	FIMC_BUG_FALSE(!func);
 	FIMC_BUG_FALSE(!params);
 
-	lib_task = &this->task_taaisp[(priority - TASK_PRIORITY_BASE - 1)];
-	spin_lock(&lib_task->work_lock);
-	lib_task->work[lib_task->work_index % LIB_MAX_TASK].func = (task_func)func;
-	lib_task->work[lib_task->work_index % LIB_MAX_TASK].params = params;
-	lib_task->work_index++;
-	index = (lib_task->work_index - 1) % LIB_MAX_TASK;
-	spin_unlock(&lib_task->work_lock);
+	if (task_index < 0 || task_index >= TASK_INDEX_MAX)
+		return false;
 
-	return kthread_queue_work(&lib_task->worker, &lib_task->work[index].work);
+	lib_task = &this->task_taaisp[task_index];
+	spin_lock_irqsave(&lib_task_lock, flags);
+	if (!lib_task_accepting[task_index])
+		goto unlock;
+
+	for (offset = 0; offset < LIB_MAX_TASK; offset++) {
+		index = (lib_task->work_index + offset) % LIB_MAX_TASK;
+		if (!lib_work_busy[task_index][index])
+			break;
+	}
+	if (offset == LIB_MAX_TASK)
+		goto unlock;
+
+	work = &lib_task->work[index];
+	lib_work_busy[task_index][index] = true;
+	work->func = (task_func)func;
+	work->params = params;
+	queued = kthread_queue_work(&lib_task->worker, &work->work);
+	if (queued)
+		lib_task->work_index = (index + 1) % LIB_MAX_TASK;
+	else
+		lib_work_busy[task_index][index] = false;
+unlock:
+	spin_unlock_irqrestore(&lib_task_lock, flags);
+	return queued;
 }
 
 int fimc_is_lib_check_priority(u32 type, int priority)
@@ -1643,9 +1693,19 @@ int fimc_is_init_ddk_thread(void)
 
 	struct fimc_is_lib_support *lib = &gPtr_lib_support;
 
+	lib_task_set_accepting(false);
+
 	for (i = 0 ; i < TASK_INDEX_MAX; i++) {
 		spin_lock_init(&lib->task_taaisp[i].work_lock);
 		kthread_init_worker(&lib->task_taaisp[i].worker);
+		lib->task_taaisp[i].work_index = 0;
+		for (j = 0; j < LIB_MAX_TASK; j++) {
+			lib_work_busy[i][j] = false;
+			lib->task_taaisp[i].work[j].func = NULL;
+			lib->task_taaisp[i].work[j].params = NULL;
+			kthread_init_work(&lib->task_taaisp[i].work[j].work,
+					lib_task_work);
+		}
 		snprintf(name, sizeof(name), "lib_%d_worker", i);
 		lib->task_taaisp[i].task = kthread_run(kthread_worker_fn,
 							&lib->task_taaisp[i].worker,
@@ -1653,7 +1713,9 @@ int fimc_is_init_ddk_thread(void)
 		if (IS_ERR(lib->task_taaisp[i].task)) {
 			err_lib("failed to create library task_handler(%d), err(%ld)",
 				i, PTR_ERR(lib->task_taaisp[i].task));
-			return PTR_ERR(lib->task_taaisp[i].task);
+			ret = PTR_ERR(lib->task_taaisp[i].task);
+			lib->task_taaisp[i].task = NULL;
+			goto stop_threads;
 		}
 #ifdef ENABLE_FPSIMD_FOR_USER
 		fpsimd_set_task_using(lib->task_taaisp[i].task);
@@ -1663,15 +1725,7 @@ int fimc_is_init_ddk_thread(void)
 		ret = sched_setscheduler_nocheck(lib->task_taaisp[i].task, SCHED_FIFO, &param);
 		if (ret) {
 			err_lib("sched_setscheduler_nocheck(%d) is fail(%d)", i, ret);
-			return 0;
-		}
-
-		lib->task_taaisp[i].work_index = 0;
-		for (j = 0; j < LIB_MAX_TASK; j++) {
-			lib->task_taaisp[i].work[j].func = NULL;
-			lib->task_taaisp[i].work[j].params = NULL;
-			kthread_init_work(&lib->task_taaisp[i].work[j].work,
-					lib_task_work);
+			goto stop_threads;
 		}
 
 		if (i != TASK_RTA) {
@@ -1679,10 +1733,17 @@ int fimc_is_init_ddk_thread(void)
 			cpu = lib_get_task_affinity(i);
 			ret = set_cpus_allowed_ptr(lib->task_taaisp[i].task, cpumask_of(cpu));
 			dbg_lib(3, "%s: task(%d) affinity cpu(%d) (%d)\n", __func__, i, cpu, ret);
+			if (ret)
+				goto stop_threads;
 #endif
 		}
 	}
 
+	lib_task_set_accepting(true);
+	return ret;
+
+stop_threads:
+	fimc_is_flush_ddk_thread();
 	return ret;
 }
 
@@ -1693,6 +1754,9 @@ void fimc_is_flush_ddk_thread(void)
 	struct fimc_is_lib_support *lib = &gPtr_lib_support;
 
 	info_lib("%s\n", __func__);
+
+	/* Reject submissions before draining and stopping any worker. */
+	lib_task_set_accepting(false);
 
 	for (i = 0; i < TASK_INDEX_MAX; i++) {
 		if (lib->task_taaisp[i].task) {

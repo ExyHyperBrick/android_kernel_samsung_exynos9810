@@ -201,6 +201,10 @@ int fimc_is_itf_open_wrap(struct fimc_is_device_ischain *device, u32 module_id,
 	goto p_unlock;
 
 hardware_close:
+	/* Drain a failed first open before destroying its DDK objects. */
+	if (rsccount == 0)
+		fimc_is_flush_ddk_thread();
+
 	group_slot_c = group_slot;
 
 	for (group_slot = GROUP_SLOT_3AA; group_slot <= group_slot_c; group_slot++) {
