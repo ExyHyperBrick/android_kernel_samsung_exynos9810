@@ -10223,6 +10223,19 @@ dhdpcie_bus_process_mailbox_intr(dhd_bus_t *bus, uint32 intstatus)
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
 	}
 
+#ifdef DHD_RX_REFILL_RECOVERY
+	/* Also refill after an event-only DPC or a reserve-pool wakeup. Keep
+	 * ring writes in the DPC and under its existing bus-busy lifetime.
+	 */
+	if (bus->dhd->up && bus->dhd->ring_attached &&
+		bus->dhd->busstate == DHD_BUS_DATA && DHD_CHK_BUS_NOT_IN_LPS(bus) &&
+		!DHD_BUS_CHECK_SUSPEND_OR_ANY_SUSPEND_IN_PROGRESS(bus->dhd) &&
+		!bus->dhd->dongle_reset && !bus->dhd->hang_was_sent &&
+		!dhd_query_bus_erros(bus->dhd)) {
+		dhd_prot_rxbuf_refill(bus->dhd);
+	}
+#endif /* DHD_RX_REFILL_RECOVERY */
+
 	dhd_bus_handle_intx_ahead_dma_indices(bus);
 
 	if (MULTIBP_ENAB(bus->sih)) {

@@ -3809,6 +3809,14 @@ int dhd_schedule_socram_dump(dhd_pub_t *dhdp);
 bool dhd_validate_chipid(dhd_pub_t *dhdp);
 #endif /* CUSTOMER_HW4_DEBUG */
 
+/* The deferred refill hook below relies on the Exynos9810 non-runtime-PM
+ * DPC bus lifetime. Other host PM configurations retain their original path.
+ */
+#if defined(RX_PKT_POOL) && defined(CONFIG_SOC_EXYNOS9810) && \
+	!defined(DHD_PCIE_RUNTIMEPM) && !defined(DHD_PCIE_NATIVE_RUNTIMEPM)
+#define DHD_RX_REFILL_RECOVERY
+#endif
+
 #ifdef RX_PKT_POOL
 #define MAX_RX_PKT_POOL	(512)
 void dhd_rx_pktpool_create(struct dhd_info *dhd, uint16 len);

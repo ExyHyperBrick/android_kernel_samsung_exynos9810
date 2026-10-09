@@ -132,6 +132,9 @@ extern int dhd_process_pkt_reorder_info(dhd_pub_t *dhd, uchar *reorder_info_buf,
 #ifdef BCMPCIE
 extern bool dhd_prot_process_msgbuf_txcpl(dhd_pub_t *dhd, uint bound, int ringtype);
 extern bool dhd_prot_process_msgbuf_rxcpl(dhd_pub_t *dhd, uint bound, int ringtype);
+#ifdef DHD_RX_REFILL_RECOVERY
+extern void dhd_prot_rxbuf_refill(dhd_pub_t *dhd);
+#endif
 extern bool dhd_prot_process_msgbuf_infocpl(dhd_pub_t *dhd, uint bound);
 extern int dhd_prot_process_ctrlbuf(dhd_pub_t * dhd);
 extern int dhd_prot_process_trapbuf(dhd_pub_t * dhd);

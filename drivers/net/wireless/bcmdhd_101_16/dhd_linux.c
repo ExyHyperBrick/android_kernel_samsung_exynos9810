@@ -12970,6 +12970,12 @@ void dhd_detach(dhd_pub_t *dhdp)
 		 */
 		OSL_SLEEP(100);
 	}
+#ifdef DHD_RX_REFILL_RECOVERY
+	/* The pool producer can schedule DPC after replenishment. Stop it
+	 * before detaching the bus and before killing the DPC task/thread.
+	 */
+	dhd_rx_pktpool_deinit(dhd);
+#endif
 #ifdef DHD_WET
 	dhd_free_wet_info(&dhd->pub, dhd->pub.wet_info);
 #endif /* DHD_WET */
@@ -13146,7 +13152,7 @@ void dhd_detach(dhd_pub_t *dhdp)
 	dhd_sdtc_etb_mempool_deinit(&dhd->pub);
 #endif /* DHD_SDTC_ETB_DUMP */
 
-#ifdef RX_PKT_POOL
+#if defined(RX_PKT_POOL) && !defined(DHD_RX_REFILL_RECOVERY)
 	dhd_rx_pktpool_deinit(dhd);
 #endif
 
@@ -23522,6 +23528,9 @@ dhd_rx_pktpool_thread(void *data)
 	void *p = NULL;
 	int qlen = 0;
 	int num_attempts = 0;
+#ifdef DHD_RX_REFILL_RECOVERY
+	bool replenished;
+#endif
 
 	DHD_TRACE(("%s: STARTED...\n", __FUNCTION__));
 	while (1) {
@@ -23541,26 +23550,64 @@ dhd_rx_pktpool_thread(void *data)
 					"rxbuf_sz : %u\n", __FUNCTION__, qlen, rx_pool->max_size,
 					rx_pool->rxbuf_sz));
 				num_attempts = 0;
+#ifdef DHD_RX_REFILL_RECOVERY
+				replenished = FALSE;
+#endif
 				while (qlen < rx_pool->max_size) {
+#ifdef DHD_RX_REFILL_RECOVERY
+					if (READ_ONCE(tsk->terminated))
+						goto exit;
+#endif
 					p = PKTGET(dhdp->osh, rx_pool->rxbuf_sz, FALSE);
+#ifdef DHD_RX_REFILL_RECOVERY
+					if (READ_ONCE(tsk->terminated)) {
+						if (p)
+							PKTFREE(dhdp->osh, p, FALSE);
+						goto exit;
+					}
+#endif
 					if (!p) {
 						DHD_ERROR_RLMT(("%s: pktget fails, resched...\n",
 							__FUNCTION__));
-						/* retry after some time to fetch packets
-						 * if maximum attempts hit, stop
+						/* Back off each failed allocation. Limit each
+						 * pass, then rearm only for an active bus.
 						 */
 						num_attempts++;
 						if (num_attempts >= RX_PKTPOOL_FETCH_MAX_ATTEMPTS) {
 							DHD_ERROR_RLMT(("%s: max attempts to fetch"
 								" exceeded.\n", __FUNCTION__));
+#ifdef DHD_RX_REFILL_RECOVERY
+							/* A depleted RX ring cannot wake us again.
+							 * Retry in bounded passes with backoff while
+							 * the active interface still needs its pool.
+							 */
+							OSL_SLEEP(RX_PKTPOOL_RESCHED_DELAY_MS);
+							if (!READ_ONCE(tsk->terminated) &&
+								READ_ONCE(dhdp->up) &&
+								READ_ONCE(dhdp->busstate) == DHD_BUS_DATA)
+								binary_sema_up(tsk);
+#endif
 							break;
 						}
 						OSL_SLEEP(RX_PKTPOOL_RESCHED_DELAY_MS);
 					} else {
 						skb_queue_tail(&rx_pool->skb_q, p);
+#ifdef DHD_RX_REFILL_RECOVERY
+						replenished = TRUE;
+#endif
 					}
 					qlen = skb_queue_len(&rx_pool->skb_q);
 				}
+#ifdef DHD_RX_REFILL_RECOVERY
+				/* Only schedule the existing DPC; the producer never
+				 * accesses protocol rings or posted-credit counters.
+				 * Detach stops this thread before tearing down the DPC.
+				 */
+				if (replenished && !READ_ONCE(tsk->terminated) &&
+					READ_ONCE(dhdp->up) &&
+					READ_ONCE(dhdp->busstate) == DHD_BUS_DATA)
+					dhd_sched_dpc(dhdp);
+#endif
 				DHD_TRACE(("%s: after alloc - skb_q len=%u, max_size=%u \n",
 					__FUNCTION__, qlen, rx_pool->max_size));
 			}
@@ -23592,14 +23639,40 @@ dhd_rx_pktpool_init(dhd_info_t *dhd)
 	rx_pool->rxbuf_sz = 0;
 
 	PROC_START(dhd_rx_pktpool_thread, dhd, &dhd->rx_pktpool_thread, 0, "dhd_rx_pktpool_thread");
+#ifdef DHD_RX_REFILL_RECOVERY
+	/* Earlier attach failures leave the zeroed flag false. Both the queue
+	 * and thread-control primitives are initialized before publishing it.
+	 */
+	dhd->rx_pktpool_initialized = TRUE;
+#endif
 }
 
 void
 dhd_rx_pktpool_deinit(dhd_info_t *dhd)
 {
 	pkt_pool_t *rx_pool = &dhd->rx_pkt_pool;
+#ifdef DHD_RX_REFILL_RECOVERY
+	tsk_ctl_t *tsk = &dhd->rx_pktpool_thread;
+
+	if (!dhd->rx_pktpool_initialized)
+		return;
+#endif
 	if (dhd->rx_pktpool_thread.thr_pid >= 0) {
+#ifdef DHD_RX_REFILL_RECOVERY
+		/* A reclaiming allocation can outlive the generic stop timeout.
+		 * Join this producer before freeing its queue/context or tearing
+		 * down the DPC it can schedule. Allocator latency is not bounded.
+		 */
+		WRITE_ONCE(tsk->terminated, TRUE);
+		smp_wmb();
+		binary_sema_up(tsk);
+		wait_for_completion(&tsk->completed);
+		tsk->parent = NULL;
+		tsk->proc_name = NULL;
+		WRITE_ONCE(tsk->thr_pid, -1);
+#else
 		PROC_STOP_USING_BINARY_SEMA(&dhd->rx_pktpool_thread);
+#endif
 	} else {
 		DHD_ERROR(("%s: rx_pktpool_thread(%ld) not inited\n", __FUNCTION__,
 			dhd->rx_pktpool_thread.thr_pid));
@@ -23609,6 +23682,9 @@ dhd_rx_pktpool_deinit(dhd_info_t *dhd)
 	 */
 	skb_queue_purge(&rx_pool->skb_q);
 	rx_pool->max_size = 0;
+#ifdef DHD_RX_REFILL_RECOVERY
+	dhd->rx_pktpool_initialized = FALSE;
+#endif
 	DHD_ERROR(("%s: de-alloc'd rx buffers in pool \n",
 		__FUNCTION__));
 }

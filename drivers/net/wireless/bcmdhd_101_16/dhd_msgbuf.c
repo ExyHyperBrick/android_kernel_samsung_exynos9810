@@ -4604,6 +4604,21 @@ BCMFASTPATH(dhd_msgbuf_rxbuf_post)(dhd_pub_t *dhd, bool use_rsv_pktid)
 	}
 }
 
+#ifdef DHD_RX_REFILL_RECOVERY
+/* Called only by the existing DPC, which owns data RX credit accounting.
+ * Event/control completions and a replenished reserve pool must be able to
+ * restart data RX even when no data completions remain to trigger a repost.
+ */
+void
+dhd_prot_rxbuf_refill(dhd_pub_t *dhd)
+{
+	dhd_prot_t *prot = dhd->prot;
+
+	if (prot->rxbufpost <= (prot->max_rxbufpost - RXBUFPOST_THRESHOLD))
+		dhd_msgbuf_rxbuf_post(dhd, FALSE);
+}
+#endif /* DHD_RX_REFILL_RECOVERY */
+
 /** Post 'count' no of rx buffers to dongle */
 static int
 BCMFASTPATH(dhd_prot_rxbuf_post)(dhd_pub_t *dhd, uint16 count, bool use_rsv_pktid)

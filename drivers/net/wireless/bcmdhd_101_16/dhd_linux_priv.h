@@ -397,6 +397,9 @@ typedef struct dhd_info {
 #ifdef RX_PKT_POOL
 	pkt_pool_t rx_pkt_pool;
 	tsk_ctl_t rx_pktpool_thread;
+#ifdef DHD_RX_REFILL_RECOVERY
+	bool rx_pktpool_initialized;
+#endif
 #endif /* RX_PKT_POOL */
 } dhd_info_t;
 
