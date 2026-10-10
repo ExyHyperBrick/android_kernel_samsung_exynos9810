@@ -445,7 +445,10 @@ static int
 wl_cfgvendor_set_country(struct wiphy *wiphy,
 	struct wireless_dev *wdev, const void *data, int len)
 {
+	/* AOSP reserves attribute 0; keep legacy numbering elsewhere. */
+	enum { AOSP_COUNTRY_ATTRIBUTE = 5 };
 	int err = BCME_ERROR, rem, type;
+	size_t country_len = 0;
 	char country_code[WLC_CNTRY_BUF_SZ] = {0};
 	const struct nlattr *iter;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
@@ -454,19 +457,24 @@ wl_cfgvendor_set_country(struct wiphy *wiphy,
 	nla_for_each_attr(iter, data, len, rem) {
 		type = nla_type(iter);
 		switch (type) {
-			case ANDR_WIFI_ATTRIBUTE_COUNTRY:
-				err = memcpy_s(country_code, WLC_CNTRY_BUF_SZ,
-					nla_data(iter), nla_len(iter));
-				if (err) {
-					WL_ERR(("Failed to copy country code: %d\n", err));
-					return err;
-				}
-				break;
-			default:
-				WL_ERR(("Unknown type: %d\n", type));
-				return err;
+		case ANDR_WIFI_ATTRIBUTE_COUNTRY:
+		case AOSP_COUNTRY_ATTRIBUTE:
+			country_len = nla_strlcpy(country_code, iter,
+						  sizeof(country_code));
+			if (country_len < 2 ||
+			    country_len >= sizeof(country_code) ||
+			    strlen(country_code) != country_len) {
+				WL_ERR(("Invalid country code\n"));
+				return -EINVAL;
+			}
+			break;
+		default:
+			WL_ERR(("Unknown type: %d\n", type));
+			return err;
 		}
 	}
+	if (rem || !country_len)
+		return -EINVAL;
 
 #ifdef WL_AUTO_COUNTRY
 	err = wl_config_autocountry(cfg, primary_ndev, country_code);
