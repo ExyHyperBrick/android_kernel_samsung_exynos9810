@@ -118,3 +118,8 @@ all.config
 
 # fetched Android config fragments
 kernel/configs/android-*.cfg
+
+# generated build output
+arch/arm64/boot/dts/exynos/*.dtb
+arch/arm64/boot/dts/exynos/*.reverse.dts
+tools/bpf/resolve_btfids/resolve_btfids
